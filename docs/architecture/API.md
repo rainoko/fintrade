@@ -652,6 +652,46 @@ None of ch. 34-36's own numeric thresholds (weekly NH-NL −4,000/+2,500, 20-day
 
 'disabled'/`gateway_unreachable`/`not_authenticated` states behave exactly like `POST /api/ibkr/scanner/run` — a normal `200` response, never an HTTP error, with every other field `null`. Being rate-limited or a transient scanner-call failure against an otherwise-`available` gateway are surfaced as `429`/`503` respectively, exactly like `POST /api/ibkr/scanner/run` — both only reachable on a cache miss (today's first request for this `series_key`).
 
+### `GET /api/ibkr/portfolio-preview`
+
+Read-only preview for the user-requested "preload my real IBKR positions into this app" feature (`docs/tasks/backend-ibkr-portfolio-preload.json`, the full 5-numbered-requirement breakdown lives in that task's own `description`). Fetches the connected IBKR account's current equity positions (`IBKRProvider.get_account_positions` — discovers the account id via `GET /iserver/accounts`, then paginates `GET /portfolio/{accountId}/positions/{pageId}`) and flags each one with whether its ticker already exists in the local `positions` table right now. Makes **no DB writes** — a caller can call this repeatedly while deciding which existing local positions (if any) to delete first via the existing `DELETE /api/portfolio/positions/{id}` (see the task's `decisions` entry for why this reuses that endpoint rather than adding a new bulk-delete one).
+
+Response:
+
+```json
+{
+  "state": "available",
+  "detail": null,
+  "positions": [
+    { "conid": 265598, "ticker": "AAPL", "quantity": 10.0, "avg_cost": 150.0, "conflicts_with_existing_position": false },
+    { "conid": 272093, "ticker": "MSFT", "quantity": 5.0, "avg_cost": 200.0, "conflicts_with_existing_position": true }
+  ]
+}
+```
+
+`state` ∈ `disabled | available | gateway_unreachable | not_authenticated`, same meaning as `GET /api/ibkr/status`'s `state`. `positions` is non-null if and only if `state` is `available`; an empty list is a valid response (no equity positions, or none this app could resolve a usable ticker + cost basis for). Only a `"STK"`-asset-class IBKR position with a resolvable ticker, a strictly positive quantity, and a known (non-null, finite, positive) cost basis is included at all — the identical filter `POST /api/ibkr/portfolio-preload` applies before importing, so nothing shown here would be silently skipped by that endpoint for an unrelated reason. A transient failure of the account-positions fetch itself against an otherwise-`available` gateway is surfaced as `503` (same convention as the scanner routes' `_resolve_ibkr_call_unavailable` handling above), not folded into `state`.
+
+### `POST /api/ibkr/portfolio-preload`
+
+Actually imports the connected IBKR account's current equity positions into the local `positions` table — the write half of the preview/preload pair. No request body.
+
+Re-fetches IBKR positions and re-checks each one's ticker against the `positions` table's **current** state at the moment this endpoint runs, not whatever an earlier `GET /api/ibkr/portfolio-preview` call happened to see — so a ticker the caller deleted via `DELETE /api/portfolio/positions/{id}` in between the two calls is correctly treated as no-longer-conflicting (requirement 5's exact ordering: deletions must be applied before the conflict check runs). A ticker still present in the DB at this point is skipped entirely and reported in `skipped_conflicting_tickers` — this **never** goes through `POST /api/portfolio/positions`'s same-ticker-merge path (requirement 3): a still-held local position is left completely untouched. Two fetched IBKR positions resolving to the same ticker (e.g. the same company held under the same symbol text across more than one IBKR sub-account) are also de-duplicated within the same call — only the first is imported, every subsequent same-ticker entry is reported in `skipped_conflicting_tickers` too, since `PositionORM.ticker` is unique.
+
+Response:
+
+```json
+{
+  "state": "available",
+  "detail": null,
+  "imported": [
+    { "ticker": "AAPL", "quantity": 10.0, "avg_cost_basis": 150.0, "entry_date": "2026-09-25" }
+  ],
+  "skipped_conflicting_tickers": ["MSFT"]
+}
+```
+
+`entry_date` on every imported position is always today's date — IBKR's positions endpoint does not report when a position was originally opened, so this can't be backfilled with the real purchase date. `entry_notes` on the created row records that fact explicitly (see this task's `decisions` entry) so it's visible later rather than silently misleading; `strategy` is always null (IBKR's response carries nothing this app could map onto a personal named strategy tag). `imported`/`skipped_conflicting_tickers` are non-null if and only if `state` is `available`; both empty lists is a valid "nothing new to import, nothing conflicting" response. 'disabled'/`gateway_unreachable`/`not_authenticated`/a transient account-positions-fetch failure behave exactly like `GET /api/ibkr/portfolio-preview` above (a normal `200` with both fields null, or a `503`) — nothing is written to the DB in any of those cases.
+
 ### `GET /api/cftc/cot`
 
 Elder ch. 37's Commitments of Traders (COT) framing (docs/ideas.md's ch. 37 entry) — follow commercials (historically the successful group), fade small speculators (historically the unsuccessful group), read current positioning against historical norms rather than an absolute level — for a small, fixed set of major futures markets: Euro, Yen, Oil, Gold, Bonds (matching the ch. 57 daily-homework idea's own list; `app.data.cftc_cot_provider.COT_MARKETS`). This is a genuinely separate, informational surface — futures-market context, not something that plugs into any per-stock-ticker signal the way insider clusters or short interest do — see this task's `decisions` entry.
@@ -727,6 +767,7 @@ The global, app-wide active trading mode (docs/tasks/backend-day-trader-timefram
 - The scanner-params/scanner-run call itself fails transiently against a gateway a fresh check still reports `available` (distinct from the gateway/session genuinely being unavailable) → `503` on `GET /api/ibkr/scanner/params` or `POST /api/ibkr/scanner/run`, never `state: "available"` with `categories`/`results` left `null` (see both endpoints above).
 - IBKR disabled/gateway unreachable/not authenticated on `POST /api/ibkr/breadth/snapshot` → a normal `200` with the corresponding `state`, every other field `null`, never a failed request; same `429`/`503` treatment as `POST /api/ibkr/scanner/run` for rate-limiting/a transient scan-call failure, both only reachable on a cache miss (see `POST /api/ibkr/breadth/snapshot` above).
 - An invalid `series_key` (not `^[a-z0-9_-]{1,40}$`) on `POST /api/ibkr/breadth/snapshot` → `422` (standard per-field validation error shape).
+- IBKR disabled/gateway unreachable/not authenticated on `GET /api/ibkr/portfolio-preview` or `POST /api/ibkr/portfolio-preload` → a normal `200` with the corresponding `state`, `positions`/`imported`+`skipped_conflicting_tickers` all `null`, never a failed request; a transient account-positions-fetch failure against an otherwise-`available` gateway → `503`, same convention as the scanner routes (see both endpoints above). Neither route ever merges a still-conflicting ticker via `POST /api/portfolio/positions`'s same-ticker-merge path — see `POST /api/ibkr/portfolio-preload` above.
 - `GET /api/cftc/cot`'s upstream CFTC request fails, or comes back missing rows for one of the fixed 5 markets → `503` (see `GET /api/cftc/cot` above).
 
 ## Contract Snapshot & Parallel Development

@@ -163,6 +163,99 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ibkr/portfolio-preload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import every current IBKR account position that doesn't conflict with an existing local position
+         * @description Actually imports the connected IBKR account's current equity positions into the
+         *     local `positions` table (docs/tasks/backend-ibkr-portfolio-preload.json, requirements
+         *     3 and 5) -- the write half of the preview/preload pair above.
+         *
+         *     Re-fetches IBKR positions and re-checks each one's ticker against the `positions`
+         *     table's CURRENT state at the moment this endpoint runs (`_existing_position_tickers`),
+         *     NOT whatever an earlier `GET /api/ibkr/portfolio-preview` call happened to see -- so a
+         *     ticker the caller deleted via `DELETE /api/portfolio/positions/{id}` in between the two
+         *     calls is correctly treated as no-longer-conflicting (requirement 5's exact ordering:
+         *     "the chosen deletions must be applied BEFORE that conflict check runs"). A ticker still
+         *     present in the DB at this point is skipped entirely and reported in
+         *     `skipped_conflicting_tickers` -- this NEVER goes through `POST
+         *     /api/portfolio/positions`'s same-ticker-merge path (requirement 3): a still-held local
+         *     position is left completely untouched, not updated/combined with the IBKR data in any
+         *     way. Two fetched IBKR positions resolving to the same ticker (an edge case
+         *     `_parse_account_positions`'s equity-only filtering doesn't rule out, e.g. the same
+         *     company held under the same symbol text in more than one sub-account) are likewise
+         *     de-duplicated within this same call -- only the first is imported, and every
+         *     subsequent same-ticker entry is reported in `skipped_conflicting_tickers` too, since
+         *     `PositionORM.ticker` has a uniqueness constraint that would otherwise fail the second
+         *     insert outright. See this task's `decisions` entry.
+         *
+         *     `entry_date` on every imported position is always today's date (see
+         *     `IBKRPortfolioPreloadImportedPositionOut.entry_date`'s own description for why), and
+         *     `entry_notes` records that fact explicitly so it's visible later rather than silently
+         *     misleading (`_IBKR_IMPORT_ENTRY_NOTE_TEMPLATE`). `strategy` is always null -- IBKR's
+         *     positions response carries nothing this app could map onto a personal named strategy
+         *     tag, and guessing one would misrepresent the trader's own intent. See this task's
+         *     `decisions` entry.
+         *
+         *     'disabled'/`gateway_unreachable`/`not_authenticated` states behave exactly like
+         *     `GET /api/ibkr/portfolio-preview` -- a normal `200` response, never an HTTP error, with
+         *     `imported`/`skipped_conflicting_tickers` both left null and nothing written to the DB.
+         *     A transient failure of the account-positions fetch itself is surfaced as `503`, same
+         *     convention as every other IBKR data-fetching route in this module.
+         */
+        post: operations["preload_ibkr_portfolio"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ibkr/portfolio-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview which of the IBKR account's current positions would be imported, and which conflict with an existing local position
+         * @description Read-only preview for the "preload my IBKR positions" feature
+         *     (docs/tasks/backend-ibkr-portfolio-preload.json, requirements 1-2): fetches the
+         *     connected IBKR account's current equity positions
+         *     (`IBKRProvider.get_account_positions`) and flags each one with whether its ticker
+         *     already exists in the local `positions` table right now. Makes no DB writes at all --
+         *     a caller can call this as many times as it likes while deciding which existing local
+         *     positions (if any) to delete before calling `POST /api/ibkr/portfolio-preload`.
+         *
+         *     'disabled'/`gateway_unreachable`/`not_authenticated` states behave exactly like
+         *     `GET /api/ibkr/scanner/params` -- a normal `200` response, never an HTTP error, with
+         *     `positions` left null. A transient failure of the account-positions fetch itself
+         *     against an otherwise-`available` gateway is surfaced as `503`, same convention as
+         *     every other IBKR data-fetching route in this module (see
+         *     `_resolve_ibkr_call_unavailable`).
+         *
+         *     Only positions `IBKRProvider.get_account_positions()` could actually resolve to a
+         *     clean ticker AND a usable cost basis appear here at all (`_valid_import_candidates`) --
+         *     the same filter `POST /api/ibkr/portfolio-preload` applies before importing, so a
+         *     caller never sees a position previewed here that the preload route would then
+         *     silently skip for an unrelated reason.
+         */
+        get: operations["get_ibkr_portfolio_preview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ibkr/scanner/params": {
         parameters: {
             query?: never;
@@ -186,7 +279,7 @@ export interface paths {
          *     exception's message string. If that fresh check disagrees with the exception (gateway
          *     reports `available` even though the scanner-params call itself just failed), this is a
          *     genuine transient failure of this specific call, not a `state`-shaped unavailability --
-         *     see `_resolve_scanner_unavailable` -- and is raised as a `503` instead.
+         *     see `_resolve_ibkr_call_unavailable` -- and is raised as a `503` instead.
          */
         get: operations["get_ibkr_scanner_params"];
         put?: never;
@@ -223,7 +316,7 @@ export interface paths {
          *     the exact retry delay `IBKRRateLimitedError` already computed exposed via the standard
          *     `Retry-After` header (see `_rate_limited_http_exception`), not just embedded in `detail`'s
          *     free-text sentence. A scanner-run call that itself fails transiently against an
-         *     otherwise-`available` gateway (see `_resolve_scanner_unavailable`) is likewise surfaced as
+         *     otherwise-`available` gateway (see `_resolve_ibkr_call_unavailable`) is likewise surfaced as
          *     a `503`, not folded into `state`.
          */
         post: operations["run_ibkr_scanner"];
@@ -1699,6 +1792,101 @@ export interface components {
              */
             state: "disabled" | "available" | "gateway_unreachable" | "not_authenticated";
         };
+        /** IBKRPortfolioPreloadImportedPositionOut */
+        IBKRPortfolioPreloadImportedPositionOut: {
+            /**
+             * Avg Cost Basis
+             * @description Average cost per share imported from the IBKR position, unchanged.
+             */
+            avg_cost_basis: number;
+            /**
+             * Entry Date
+             * Format: date
+             * @description Always today's date -- IBKR's positions endpoint does not report when a position was originally opened, so this can't be backfilled with the real purchase date. See this task's `decisions` entry.
+             */
+            entry_date: string;
+            /**
+             * Quantity
+             * @description Quantity imported from the IBKR position, unchanged.
+             */
+            quantity: number;
+            /**
+             * Ticker
+             * @description Ticker symbol of the newly-created local position.
+             */
+            ticker: string;
+        };
+        /** IBKRPortfolioPreloadResponse */
+        IBKRPortfolioPreloadResponse: {
+            /**
+             * Detail
+             * @description Human-readable context for `state`, same convention as GET /api/ibkr/status's `detail`.
+             */
+            detail?: string | null;
+            /**
+             * Imported
+             * @description Every IBKR position that was actually inserted as a new local position (i.e. its ticker did not already exist in the local `positions` table at the moment this endpoint ran). Non-null if and only if `state` is 'available'; an empty list is a valid response (nothing new to import). Never includes a ticker that already existed locally -- see `skipped_conflicting_tickers`.
+             */
+            imported?: components["schemas"]["IBKRPortfolioPreloadImportedPositionOut"][] | null;
+            /**
+             * Skipped Conflicting Tickers
+             * @description Tickers from the fetched IBKR positions that were NOT imported because a local position for that ticker still existed at the moment this endpoint ran (the caller didn't delete it first via `DELETE /api/portfolio/positions/{id}`, or it was a duplicate ticker within this same IBKR fetch -- see this task's `decisions` entry). A still-conflicting ticker's existing local position is left completely untouched -- this endpoint NEVER merges/updates it, unlike `POST /api/portfolio/positions`'s own same-ticker-merge behavior. Non-null if and only if `state` is 'available'; an empty list means every fetched, importable IBKR position was non-conflicting.
+             */
+            skipped_conflicting_tickers?: string[] | null;
+            /**
+             * State
+             * @description Same semantics/values as GET /api/ibkr/status's `state`. 'available' means `imported`/`skipped_conflicting_tickers` below reflect a completed import attempt; every other value means this feature is currently unavailable (never an HTTP error) and both are null. Nothing is imported (and no field below is populated) when `state` isn't 'available'.
+             * @enum {string}
+             */
+            state: "disabled" | "available" | "gateway_unreachable" | "not_authenticated";
+        };
+        /** IBKRPortfolioPreviewPositionOut */
+        IBKRPortfolioPreviewPositionOut: {
+            /**
+             * Avg Cost
+             * @description Average cost per share as reported by IBKR, if available. Null positions are still shown here for visibility, but `POST /api/ibkr/portfolio-preload` will not import one -- a `PositionORM` row requires a known cost basis (`PositionIn.avg_cost_basis` is a required, positive field) and IBKR's own response can omit this even for an otherwise well-formed equity position.
+             */
+            avg_cost?: number | null;
+            /**
+             * Conflicts With Existing Position
+             * @description True if this ticker already has a position in the local `positions` table right now. A conflicting ticker is never merged/updated/overwritten by `POST /api/ibkr/portfolio-preload` -- the caller must first delete the existing local position (`DELETE /api/portfolio/positions/{id}`) if they want the IBKR position imported instead; see this task's `decisions` entry for why this reuses that existing single-position endpoint rather than a new bulk-delete one.
+             */
+            conflicts_with_existing_position: boolean;
+            /**
+             * Conid
+             * @description IBKR's own numeric contract id for this position.
+             */
+            conid: number;
+            /**
+             * Quantity
+             * @description Number of shares currently held in this IBKR position.
+             */
+            quantity: number;
+            /**
+             * Ticker
+             * @description Ticker symbol, resolved from the IBKR positions response and uppercased to match this app's own ticker-normalization convention (PositionIn.ticker). See the backend-ibkr-portfolio-preload task's `decisions` entry for how this is derived.
+             */
+            ticker: string;
+        };
+        /** IBKRPortfolioPreviewResponse */
+        IBKRPortfolioPreviewResponse: {
+            /**
+             * Detail
+             * @description Human-readable context for `state`, same convention as GET /api/ibkr/status's `detail`.
+             */
+            detail?: string | null;
+            /**
+             * Positions
+             * @description Every IBKR equity position this app could resolve a ticker for, each flagged with whether it conflicts with an existing local position right now. Non-null if and only if `state` is 'available'; an empty list is a valid response (the IBKR account currently holds no equity positions this app can represent). No DB writes happen from calling this endpoint.
+             */
+            positions?: components["schemas"]["IBKRPortfolioPreviewPositionOut"][] | null;
+            /**
+             * State
+             * @description Same semantics/values as GET /api/ibkr/status's `state`. 'available' means `positions` below reflects a completed fetch; every other value means this feature is currently unavailable (never an HTTP error) and `positions` is null.
+             * @enum {string}
+             */
+            state: "disabled" | "available" | "gateway_unreachable" | "not_authenticated";
+        };
         /** IBKRScannerParamsResponse */
         IBKRScannerParamsResponse: {
             /**
@@ -2814,6 +3002,64 @@ export interface operations {
                 };
             };
             /** @description Either the scanner-run call itself failed transiently (not a gateway/session unavailability -- see GET /api/ibkr/status for that), or a concurrent-write conflict was raised on this row's commit but no same-key row was actually found afterwards (see this task's `decisions` entry) -- both transient, safe to retry. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    preload_ibkr_portfolio: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IBKRPortfolioPreloadResponse"];
+                };
+            };
+            /** @description The account-positions fetch itself failed transiently (not a gateway/session unavailability -- see GET /api/ibkr/status for that) */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    get_ibkr_portfolio_preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IBKRPortfolioPreviewResponse"];
+                };
+            };
+            /** @description The account-positions fetch itself failed transiently (not a gateway/session unavailability -- see GET /api/ibkr/status for that) */
             503: {
                 headers: {
                     [name: string]: unknown;

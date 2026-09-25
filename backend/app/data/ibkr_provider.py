@@ -33,6 +33,7 @@ against a real running gateway.
 
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -158,6 +159,19 @@ def max_lookback_days_for_bar_size(bar_size: str) -> float:
     return total_span / timedelta(days=1)
 
 
+# Safety bound on how many pages `get_account_positions` will walk forward through
+# `GET /portfolio/{accountId}/positions/{pageId}` -- unlike `_MAX_PAGINATION_PAGES` above
+# (sized against a *known* per-page bar count), this provider has no live gateway to
+# confirm IBKR's actual per-page position count against (this task's own `decisions`
+# entry), so the pagination loop below deliberately does NOT hardcode a page size at all:
+# it simply keeps requesting the next `pageId` until a page comes back empty, exactly as
+# IBKR's own documented convention for this endpoint describes. This constant only
+# guarantees termination (and bounds worst-case request volume) if that "empty page ends
+# it" signal is ever wrong against a real gateway -- 50 pages is generous headroom for any
+# real personal brokerage account (community-reported page sizes for this endpoint are in
+# the tens of positions per page, so 50 pages covers well over a thousand held positions).
+_MAX_ACCOUNT_POSITIONS_PAGES = 50
+
 # docs/ideas.md: "`params` is rate-limited to 1 request per 15 minutes (cache it)".
 _SCANNER_PARAMS_TTL_SECONDS = 15 * 60.0
 
@@ -219,6 +233,29 @@ class ScannerResult:
     symbol: str | None
     company_name: str | None
     rank: int | None
+
+
+@dataclass(frozen=True)
+class IBKRAccountPosition:
+    """One equity position from `GET /portfolio/{accountId}/positions/{pageId}`
+    (`get_account_positions`, `backend-ibkr-portfolio-preload`'s checklist item 1) --
+    `ticker` is already resolved to the plain symbol string every other consumer in this
+    app keys a position by (`app.db.models.PositionORM.ticker`), not the raw IBKR conid
+    alone -- see `get_account_positions`'s own docstring for how and why. Only ever
+    constructed for a `"STK"`-asset-class row with a positive `quantity` and a resolvable
+    ticker -- `_parse_account_positions` drops every other row (options/futures/warrants,
+    a flat/short/closed-out position, or a row this app couldn't derive a clean ticker
+    string from) rather than representing it with a null field, matching `ScannerResult`'s
+    own "drop what we can't use" precedent in this module. `avg_cost` stays independently
+    nullable (unlike the other three fields) since IBKR's own response can omit it even
+    for an otherwise-well-formed STK row, and a position with no known cost basis is still
+    worth surfacing in a preview even though it can't actually be imported (see
+    `app.api.routers.ibkr`'s own filtering for the import path)."""
+
+    conid: int
+    ticker: str
+    quantity: float
+    avg_cost: float | None
 
 
 class IBKRUnavailableError(Exception):
@@ -512,6 +549,70 @@ class IBKRProvider:
         payload = self._request("GET", "/iserver/secdef/search", params={"symbol": ticker})
         return _resolve_stk_conid(payload, ticker)
 
+    def get_account_positions(self) -> list[IBKRAccountPosition]:
+        """The connected IBKR account's current equity positions
+        (`backend-ibkr-portfolio-preload`'s checklist item 1) -- discovers the account id
+        via `GET /iserver/accounts`, then paginates
+        `GET /portfolio/{accountId}/positions/{pageId}` (`pageId` starting at 0) until a
+        page comes back empty, per IBKR's own documented convention for this endpoint.
+        This task's own `decisions` entry records the exact documented shape both calls
+        were implemented against and why (this module's established no-live-gateway
+        research pattern -- see `resolve_conid`'s own `decisions` entry for the
+        precedent).
+
+        `GET /iserver/accounts` is expected to return a JSON object with an `"accounts"`
+        list of account-id strings and (usually) a `"selectedAccount"` string identifying
+        which one is currently active for this session -- `selectedAccount` is preferred
+        when present (the session's own notion of "the" account), falling back to the
+        first entry in `accounts` otherwise. Raises `IBKRUnavailableError` if neither is
+        usable (an empty/missing `accounts` list, or a response that isn't the expected
+        JSON object at all) -- there is no way to proceed without an account id, and a
+        silently-fabricated one would be far worse than a loud, actionable error here.
+
+        Each page of `GET /portfolio/{accountId}/positions/{pageId}` is documented as a
+        plain JSON array of position objects (not wrapped in an envelope, unlike
+        `/iserver/marketdata/history`'s `{"data": [...]}` shape) -- see
+        `_parse_account_positions` for the per-row field shape this was implemented
+        against and which rows are kept vs. dropped. Only a `"STK"`-asset-class row with a
+        resolvable ticker and a strictly positive `quantity` becomes an
+        `IBKRAccountPosition` -- this app's portfolio model (`app.db.models.PositionORM`)
+        has no representation for options/futures/warrants or a short/flat position, so
+        those rows are silently dropped rather than surfaced with a null/nonsensical
+        ticker (see this task's `decisions` entry).
+
+        Raises:
+            IBKRUnavailableError: the gateway isn't `available` (see
+                `get_gateway_status`), the account id can't be discovered, or a request
+                made while paginating fails.
+        """
+        self._require_available()
+        account_id = self._discover_account_id()
+
+        positions: list[IBKRAccountPosition] = []
+        for page_id in range(_MAX_ACCOUNT_POSITIONS_PAGES):
+            payload = self._request("GET", f"/portfolio/{account_id}/positions/{page_id}")
+            page_positions = _parse_account_positions(payload)
+            if not page_positions:
+                break
+            positions.extend(page_positions)
+        return positions
+
+    def _discover_account_id(self) -> str:
+        """`GET /iserver/accounts` -- see `get_account_positions`'s own docstring for the
+        documented response shape this was implemented against."""
+        payload = self._request("GET", "/iserver/accounts")
+        if not isinstance(payload, dict):
+            raise IBKRUnavailableError(
+                "IBKR /iserver/accounts returned an unexpected (non-object) response shape"
+            )
+        selected = payload.get("selectedAccount")
+        if isinstance(selected, str) and selected:
+            return selected
+        accounts = payload.get("accounts")
+        if isinstance(accounts, list) and accounts and isinstance(accounts[0], str) and accounts[0]:
+            return accounts[0]
+        raise IBKRUnavailableError("IBKR /iserver/accounts reported no usable account id for this session")
+
     def _require_available(self) -> None:
         status = self.get_gateway_status()
         if status.state != "available":
@@ -597,6 +698,66 @@ def _parse_scanner_results(payload: object) -> list[ScannerResult]:
     return results
 
 
+def _parse_account_positions(payload: object) -> list[IBKRAccountPosition]:
+    """One page of `GET /portfolio/{accountId}/positions/{pageId}`, documented (this
+    task's `decisions` entry) as a plain JSON array, one entry per held position, roughly
+    `{"conid": 265598, "contractDesc": "AAPL", "position": 100.0, "avgCost": 130.5,
+    "assetClass": "STK", ...}` -- alongside many other fields (market value, currency,
+    exchange, sector, etc.) this app has no use for and doesn't model, matching
+    `ScannerResult`'s own "model only what's needed" precedent.
+
+    Ticker resolution (this task's own `decisions` entry): `contractDesc` is the field
+    IBKR's own documented example response for this exact endpoint shows, and for a
+    `"STK"`-asset-class row it's simply the plain ticker symbol (unlike a derivative row,
+    where `contractDesc` also encodes strike/expiry) -- so `contractDesc` is used as-is,
+    uppercased to match this app's own ticker-normalization convention
+    (`app.api.routers.portfolio.add_position`'s `ticker.upper()`), for exactly the rows
+    whose `assetClass` is `"STK"`. Every other `assetClass` (options, futures, warrants,
+    cash, etc.) is dropped outright -- this app's portfolio model has no representation
+    for a derivative position, and a `"STK"`-only filter mirrors `_resolve_stk_conid`'s
+    own equity-only scope in this same module.
+
+    A row is also dropped if `position` (the field name IBKR's docs use for share
+    quantity, not `quantity`) is missing, non-numeric, non-finite, or not strictly
+    positive (a flat/closed-out or short position) -- this app's `PositionORM.quantity`/
+    `PositionIn.quantity` are always positive, so a non-positive IBKR position has no
+    valid representation here (see this task's `decisions` entry for why short positions
+    are out of scope). `avgCost` is kept independently nullable -- a missing/non-numeric
+    `avgCost` doesn't drop the row (see `IBKRAccountPosition`'s own docstring for why),
+    it just leaves `avg_cost` as `None`.
+
+    A malformed individual row (not a dict, missing/non-numeric `conid`) is skipped
+    rather than failing the whole page, same convention as `_parse_bars`/
+    `_parse_scanner_results`.
+    """
+    if not isinstance(payload, list):
+        return []
+    positions: list[IBKRAccountPosition] = []
+    for raw in payload:
+        if not isinstance(raw, dict):
+            continue
+        if raw.get("assetClass") != "STK":
+            continue
+        conid = _int_or_none(raw.get("conid"))
+        if conid is None:
+            continue
+        contract_desc = raw.get("contractDesc")
+        if not isinstance(contract_desc, str) or not contract_desc.strip():
+            continue
+        quantity = _float_or_none(raw.get("position"))
+        if quantity is None or quantity <= 0:
+            continue
+        positions.append(
+            IBKRAccountPosition(
+                conid=conid,
+                ticker=contract_desc.strip().upper(),
+                quantity=quantity,
+                avg_cost=_float_or_none(raw.get("avgCost")),
+            )
+        )
+    return positions
+
+
 def _resolve_stk_conid(payload: object, ticker: str) -> int | None:
     """`[{"conid": "265598", "symbol": "AAPL", "sections": [{"secType": "STK"}, ...],
     ...}, ...]` per `/iserver/secdef/search`'s documented shape (this task's `decisions`
@@ -639,3 +800,19 @@ def _int_or_none(value: int | float | str | None) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _float_or_none(value: object) -> float | None:
+    """Like `_int_or_none`, but for a field that's genuinely fractional (`position`,
+    `avgCost`) rather than an id -- also rejects a non-finite result (`inf`/`nan`), which
+    `float(...)` itself would otherwise happily accept from a malformed string like
+    `"nan"`, since a non-finite quantity/cost has no valid meaning here."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(parsed):
+        return None
+    return parsed

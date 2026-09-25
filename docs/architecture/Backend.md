@@ -181,6 +181,18 @@ while scoping this task:**
   listings on different exchanges) rather than guessing which contract was meant. See
   that task's `decisions` entry for the documented response shape this was implemented
   against.
+- `GET /iserver/accounts` + `GET /portfolio/{accountId}/positions/{pageId}` --
+  `get_account_positions` (docs/tasks/backend-ibkr-portfolio-preload.json, `GET
+  /api/ibkr/portfolio-preview`/`POST /api/ibkr/portfolio-preload`) discovers the
+  connected session's account id via the former, then paginates the latter (`pageId`
+  starting at 0, walked forward until a page comes back empty -- no fixed per-page size
+  is hardcoded, since this can't be confirmed against a live gateway; see that task's
+  `decisions` entry) to fetch the account's current equity positions. Each `"STK"`-asset-
+  class row's `contractDesc` field is used as the plain ticker string (uppercased, IBKR's
+  own documented example for this endpoint shows it as just the symbol for an equity
+  row); a non-`"STK"` row, a non-positive quantity (short/flat), or an unresolvable ticker
+  is dropped rather than represented with a null/nonsensical field, matching
+  `resolve_conid`'s own equity-only scope in this same module.
 
 **Known, accepted limitation — unverified against a live gateway.** Every one of the
 above was implemented directly against IBKR's own documented Web API request/response

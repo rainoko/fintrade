@@ -25,10 +25,24 @@ count approximation, not a literal full-market count; see this task's `decisions
 the research finding that drove this scope (IBKR's scanner returns a ranked, capped shortlist
 of matching contracts, never a genuine full-market count or percentage) and
 docs/Analyse.md's "IBKR-scanner breadth approximation" section for the full caveat.
+
+`GET /api/ibkr/portfolio-preview` + `POST /api/ibkr/portfolio-preload`
+(docs/tasks/backend-ibkr-portfolio-preload.json) are the user-requested "preload my real IBKR
+positions into this app" feature: the preview route is a read-only look at which of the
+connected account's current equity positions (`IBKRProvider.get_account_positions`) would be
+importable vs. conflicting with an already-held local ticker, and the preload route actually
+imports every non-conflicting one, re-checking conflicts against the `positions` table's
+CURRENT state (so a ticker the caller just deleted via `DELETE /api/portfolio/positions/{id}`
+is treated as available) -- see that task's `decisions` entry for the full requirement
+breakdown and every judgment call this pair of routes makes. Both reuse `/status`'s exact
+`state`-on-a-normal-200 availability pattern, same as the scanner/breadth routes above. Neither
+route ever goes through `POST /api/portfolio/positions`'s same-ticker-merge path -- a
+still-conflicting ticker is always skipped entirely, never merged/updated.
 """
 
 import logging
 import math
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -41,6 +55,10 @@ from app.api.schemas import (
     IBKRBreadthSnapshotRequest,
     IBKRBreadthSnapshotResponse,
     IBKRGatewayState,
+    IBKRPortfolioPreloadImportedPositionOut,
+    IBKRPortfolioPreloadResponse,
+    IBKRPortfolioPreviewPositionOut,
+    IBKRPortfolioPreviewResponse,
     IBKRScannerParamsResponse,
     IBKRScannerResultOut,
     IBKRScannerRunRequest,
@@ -49,11 +67,12 @@ from app.api.schemas import (
 )
 from app.data.ibkr_provider import (
     GatewayStatus,
+    IBKRAccountPosition,
     IBKRProvider,
     IBKRRateLimitedError,
     IBKRUnavailableError,
 )
-from app.db.models import IBKRBreadthSnapshotORM
+from app.db.models import IBKRBreadthSnapshotORM, PositionORM
 from app.db.session import get_db
 from app.time_utils import today, utcnow
 
@@ -112,25 +131,28 @@ def get_ibkr_status(provider: IBKRProvider | None = Depends(get_ibkr_provider)) 
     return IBKRStatusResponse(state=status.state, detail=status.detail)
 
 
-def _resolve_scanner_unavailable(provider: IBKRProvider, exc: IBKRUnavailableError) -> GatewayStatus:
-    """Shared `except IBKRUnavailableError` handling for both scanner routes.
+def _resolve_ibkr_call_unavailable(provider: IBKRProvider, exc: IBKRUnavailableError) -> GatewayStatus:
+    """Shared `except IBKRUnavailableError` handling for every route in this module that
+    makes a data-fetching call beyond the initial availability check (originally just the
+    two scanner routes -- see `backend-ibkr-portfolio-preload`'s `decisions` entry for why
+    this was generalized/renamed from `_resolve_scanner_unavailable` rather than
+    duplicated a third and fourth time for the portfolio-preview/preload routes below).
 
     `IBKRUnavailableError` is raised for two genuinely different reasons that share one
     exception type (see `IBKRProvider._request`/`_require_available`): the gateway/session
-    itself isn't `available` (checked *before* the scanner call is even attempted), or the
-    scanner-specific call itself failed transiently against a gateway that otherwise is
-    `available` (a non-200 response, transport error, or unparseable body from
-    `/iserver/scanner/params`/`/iserver/scanner/run` specifically). A fresh
-    `get_gateway_status()` call only re-checks the former (it hits the unrelated
-    `/iserver/auth/status` endpoint) -- so on the latter, that fresh check still reports
-    `available`, and returning `state: "available"` with `categories`/`results` left
-    `null` would violate this schema's own documented "non-null iff `state` ==
-    'available'" invariant (see this task's `review` finding). Raises `HTTPException(503)`
-    in exactly that disagreeing case (the standard "service temporarily unavailable" status
-    for a transient, single-call failure -- distinct from `429`'s "you're calling too fast"
-    and from the `state` values' "this feature isn't usable at all right now"); otherwise
-    returns the resolved `GatewayStatus` for the caller to build its normal `state`-based
-    response from.
+    itself isn't `available` (checked *before* the underlying call is even attempted), or
+    that specific call itself failed transiently against a gateway that otherwise is
+    `available` (a non-200 response, transport error, or unparseable body from the
+    specific IBKR endpoint that call hits). A fresh `get_gateway_status()` call only
+    re-checks the former (it hits the unrelated `/iserver/auth/status` endpoint) -- so on
+    the latter, that fresh check still reports `available`, and returning
+    `state: "available"` with the response's own data field(s) left `null` would violate
+    that schema's own documented "non-null iff `state` == 'available'" invariant (see this
+    task's `review` finding). Raises `HTTPException(503)` in exactly that disagreeing case
+    (the standard "service temporarily unavailable" status for a transient, single-call
+    failure -- distinct from `429`'s "you're calling too fast" and from the `state`
+    values' "this feature isn't usable at all right now"); otherwise returns the resolved
+    `GatewayStatus` for the caller to build its normal `state`-based response from.
     """
     status = provider.get_gateway_status()
     if status.state == "available":
@@ -187,7 +209,7 @@ def get_ibkr_scanner_params(
     exception's message string. If that fresh check disagrees with the exception (gateway
     reports `available` even though the scanner-params call itself just failed), this is a
     genuine transient failure of this specific call, not a `state`-shaped unavailability --
-    see `_resolve_scanner_unavailable` -- and is raised as a `503` instead.
+    see `_resolve_ibkr_call_unavailable` -- and is raised as a `503` instead.
     """
     if provider is None:
         return IBKRScannerParamsResponse(state="disabled", detail=_DISABLED_DETAIL, categories=None)
@@ -195,7 +217,7 @@ def get_ibkr_scanner_params(
     try:
         params = provider.get_scanner_params()
     except IBKRUnavailableError as exc:
-        status = _resolve_scanner_unavailable(provider, exc)
+        status = _resolve_ibkr_call_unavailable(provider, exc)
         return IBKRScannerParamsResponse(state=status.state, detail=status.detail, categories=None)
 
     return IBKRScannerParamsResponse(
@@ -236,7 +258,7 @@ def run_ibkr_scanner(
     the exact retry delay `IBKRRateLimitedError` already computed exposed via the standard
     `Retry-After` header (see `_rate_limited_http_exception`), not just embedded in `detail`'s
     free-text sentence. A scanner-run call that itself fails transiently against an
-    otherwise-`available` gateway (see `_resolve_scanner_unavailable`) is likewise surfaced as
+    otherwise-`available` gateway (see `_resolve_ibkr_call_unavailable`) is likewise surfaced as
     a `503`, not folded into `state`.
     """
     if provider is None:
@@ -247,7 +269,7 @@ def run_ibkr_scanner(
     except IBKRRateLimitedError as exc:
         raise _rate_limited_http_exception(exc) from exc
     except IBKRUnavailableError as exc:
-        status = _resolve_scanner_unavailable(provider, exc)
+        status = _resolve_ibkr_call_unavailable(provider, exc)
         return IBKRScannerRunResponse(state=status.state, detail=status.detail, results=None)
 
     return IBKRScannerRunResponse(
@@ -327,7 +349,7 @@ def record_ibkr_breadth_snapshot(
         except IBKRRateLimitedError as exc:
             raise _rate_limited_http_exception(exc) from exc
         except IBKRUnavailableError as exc:
-            status = _resolve_scanner_unavailable(provider, exc)
+            status = _resolve_ibkr_call_unavailable(provider, exc)
             return _unavailable_breadth_response(body.series_key, status.state, status.detail)
 
         row = IBKRBreadthSnapshotORM(
@@ -422,4 +444,225 @@ def record_ibkr_breadth_snapshot(
         days_recorded=days_recorded,
         rolling_5d=sum(recorded_counts[:window_5d]) if days_recorded >= window_5d else None,
         rolling_20d=sum(recorded_counts[:window_20d]) if days_recorded >= window_20d else None,
+    )
+
+
+# --- GET /api/ibkr/portfolio-preview, POST /api/ibkr/portfolio-preload -----
+
+# Prefixed to every imported position's `entry_notes` (backend-ibkr-portfolio-preload's
+# `decisions` entry): IBKR's positions endpoint has no notion of "when was this opened",
+# so `entry_date` below is always today's date, not the real purchase date -- silently
+# leaving that undocumented on the row itself would be misleading the next time this
+# position is viewed (e.g. in a trade-duration or profit-target calculation that assumes
+# `entry_date` is meaningful). Not attached to `strategy` -- see this task's `decisions`
+# entry for why that field is left null instead.
+_IBKR_IMPORT_ENTRY_NOTE_TEMPLATE = (
+    "Imported from IBKR account positions on {entry_date}. entry_date reflects the "
+    "import date, not the original purchase date -- IBKR's positions endpoint does not "
+    "report when a position was opened."
+)
+
+
+def _existing_position_tickers(db: Session) -> set[str]:
+    """Every ticker currently held locally (`app.db.models.PositionORM.ticker`, already
+    stored uppercase -- see `app.api.routers.portfolio.add_position`) -- queried fresh on
+    every call to `get_ibkr_portfolio_preview`/`preload_ibkr_portfolio` so both routes
+    always see the DB's CURRENT state, not a stale snapshot (requirement 5's ordering:
+    a ticker deleted via `DELETE /api/portfolio/positions/{id}` a moment before either of
+    these routes runs must be treated as already gone, not as a conflict)."""
+    return {ticker for (ticker,) in db.query(PositionORM.ticker).all()}
+
+
+def _valid_import_candidates(positions: list[IBKRAccountPosition]) -> list[IBKRAccountPosition]:
+    """Positions from `IBKRProvider.get_account_positions()` that carry everything a
+    `PositionORM` row actually needs: `IBKRAccountPosition.ticker`/`.quantity` are already
+    guaranteed non-None/strictly-positive by `_parse_account_positions`, but `.avg_cost`
+    is independently nullable there (see that dataclass's own docstring) -- this filter is
+    what excludes a position with no known cost basis from being shown as an importable
+    candidate at all, on both the preview and the preload routes (so a caller never sees a
+    position in `positions`/`imported` that the other route would silently refuse to
+    import). See this task's `decisions` entry for why "no cost basis, no import" was
+    chosen over inventing a placeholder cost basis."""
+    return [
+        p
+        for p in positions
+        if p.avg_cost is not None and math.isfinite(p.avg_cost) and p.avg_cost > 0
+    ]
+
+
+@router.get(
+    "/portfolio-preview",
+    response_model=IBKRPortfolioPreviewResponse,
+    operation_id="get_ibkr_portfolio_preview",
+    summary="Preview which of the IBKR account's current positions would be imported, and which conflict with an existing local position",
+    responses={
+        503: {
+            "model": ErrorDetail,
+            "description": "The account-positions fetch itself failed transiently (not a "
+            "gateway/session unavailability -- see GET /api/ibkr/status for that)",
+        }
+    },
+)
+def get_ibkr_portfolio_preview(
+    provider: IBKRProvider | None = Depends(get_ibkr_provider),
+    db: Session = Depends(get_db),
+) -> IBKRPortfolioPreviewResponse:
+    """Read-only preview for the "preload my IBKR positions" feature
+    (docs/tasks/backend-ibkr-portfolio-preload.json, requirements 1-2): fetches the
+    connected IBKR account's current equity positions
+    (`IBKRProvider.get_account_positions`) and flags each one with whether its ticker
+    already exists in the local `positions` table right now. Makes no DB writes at all --
+    a caller can call this as many times as it likes while deciding which existing local
+    positions (if any) to delete before calling `POST /api/ibkr/portfolio-preload`.
+
+    'disabled'/`gateway_unreachable`/`not_authenticated` states behave exactly like
+    `GET /api/ibkr/scanner/params` -- a normal `200` response, never an HTTP error, with
+    `positions` left null. A transient failure of the account-positions fetch itself
+    against an otherwise-`available` gateway is surfaced as `503`, same convention as
+    every other IBKR data-fetching route in this module (see
+    `_resolve_ibkr_call_unavailable`).
+
+    Only positions `IBKRProvider.get_account_positions()` could actually resolve to a
+    clean ticker AND a usable cost basis appear here at all (`_valid_import_candidates`) --
+    the same filter `POST /api/ibkr/portfolio-preload` applies before importing, so a
+    caller never sees a position previewed here that the preload route would then
+    silently skip for an unrelated reason.
+    """
+    if provider is None:
+        return IBKRPortfolioPreviewResponse(state="disabled", detail=_DISABLED_DETAIL, positions=None)
+
+    try:
+        account_positions = provider.get_account_positions()
+    except IBKRUnavailableError as exc:
+        status = _resolve_ibkr_call_unavailable(provider, exc)
+        return IBKRPortfolioPreviewResponse(state=status.state, detail=status.detail, positions=None)
+
+    existing_tickers = _existing_position_tickers(db)
+    candidates = _valid_import_candidates(account_positions)
+
+    return IBKRPortfolioPreviewResponse(
+        state="available",
+        detail=None,
+        positions=[
+            IBKRPortfolioPreviewPositionOut(
+                conid=p.conid,
+                ticker=p.ticker,
+                quantity=p.quantity,
+                avg_cost=p.avg_cost,
+                conflicts_with_existing_position=p.ticker in existing_tickers,
+            )
+            for p in candidates
+        ],
+    )
+
+
+@router.post(
+    "/portfolio-preload",
+    response_model=IBKRPortfolioPreloadResponse,
+    operation_id="preload_ibkr_portfolio",
+    summary="Import every current IBKR account position that doesn't conflict with an existing local position",
+    responses={
+        503: {
+            "model": ErrorDetail,
+            "description": "The account-positions fetch itself failed transiently (not a "
+            "gateway/session unavailability -- see GET /api/ibkr/status for that)",
+        }
+    },
+)
+def preload_ibkr_portfolio(
+    provider: IBKRProvider | None = Depends(get_ibkr_provider),
+    db: Session = Depends(get_db),
+) -> IBKRPortfolioPreloadResponse:
+    """Actually imports the connected IBKR account's current equity positions into the
+    local `positions` table (docs/tasks/backend-ibkr-portfolio-preload.json, requirements
+    3 and 5) -- the write half of the preview/preload pair above.
+
+    Re-fetches IBKR positions and re-checks each one's ticker against the `positions`
+    table's CURRENT state at the moment this endpoint runs (`_existing_position_tickers`),
+    NOT whatever an earlier `GET /api/ibkr/portfolio-preview` call happened to see -- so a
+    ticker the caller deleted via `DELETE /api/portfolio/positions/{id}` in between the two
+    calls is correctly treated as no-longer-conflicting (requirement 5's exact ordering:
+    "the chosen deletions must be applied BEFORE that conflict check runs"). A ticker still
+    present in the DB at this point is skipped entirely and reported in
+    `skipped_conflicting_tickers` -- this NEVER goes through `POST
+    /api/portfolio/positions`'s same-ticker-merge path (requirement 3): a still-held local
+    position is left completely untouched, not updated/combined with the IBKR data in any
+    way. Two fetched IBKR positions resolving to the same ticker (an edge case
+    `_parse_account_positions`'s equity-only filtering doesn't rule out, e.g. the same
+    company held under the same symbol text in more than one sub-account) are likewise
+    de-duplicated within this same call -- only the first is imported, and every
+    subsequent same-ticker entry is reported in `skipped_conflicting_tickers` too, since
+    `PositionORM.ticker` has a uniqueness constraint that would otherwise fail the second
+    insert outright. See this task's `decisions` entry.
+
+    `entry_date` on every imported position is always today's date (see
+    `IBKRPortfolioPreloadImportedPositionOut.entry_date`'s own description for why), and
+    `entry_notes` records that fact explicitly so it's visible later rather than silently
+    misleading (`_IBKR_IMPORT_ENTRY_NOTE_TEMPLATE`). `strategy` is always null -- IBKR's
+    positions response carries nothing this app could map onto a personal named strategy
+    tag, and guessing one would misrepresent the trader's own intent. See this task's
+    `decisions` entry.
+
+    'disabled'/`gateway_unreachable`/`not_authenticated` states behave exactly like
+    `GET /api/ibkr/portfolio-preview` -- a normal `200` response, never an HTTP error, with
+    `imported`/`skipped_conflicting_tickers` both left null and nothing written to the DB.
+    A transient failure of the account-positions fetch itself is surfaced as `503`, same
+    convention as every other IBKR data-fetching route in this module.
+    """
+    if provider is None:
+        return IBKRPortfolioPreloadResponse(
+            state="disabled", detail=_DISABLED_DETAIL, imported=None, skipped_conflicting_tickers=None
+        )
+
+    try:
+        account_positions = provider.get_account_positions()
+    except IBKRUnavailableError as exc:
+        status = _resolve_ibkr_call_unavailable(provider, exc)
+        return IBKRPortfolioPreloadResponse(
+            state=status.state, detail=status.detail, imported=None, skipped_conflicting_tickers=None
+        )
+
+    existing_tickers = _existing_position_tickers(db)
+    candidates = _valid_import_candidates(account_positions)
+    entry_date = today()
+    entry_notes = _IBKR_IMPORT_ENTRY_NOTE_TEMPLATE.format(entry_date=entry_date)
+
+    imported: list[IBKRPortfolioPreloadImportedPositionOut] = []
+    skipped: list[str] = []
+    seen_this_batch: set[str] = set()
+    for p in candidates:
+        if p.ticker in existing_tickers or p.ticker in seen_this_batch:
+            skipped.append(p.ticker)
+            continue
+        seen_this_batch.add(p.ticker)
+        # _valid_import_candidates already filtered out a None/non-finite/non-positive
+        # avg_cost -- narrowed explicitly for mypy, matching this codebase's existing
+        # assert-narrow convention (e.g. app.api.day_trader_signal).
+        assert p.avg_cost is not None
+        db.add(
+            PositionORM(
+                id=f"pos_{uuid.uuid4().hex[:12]}",
+                ticker=p.ticker,
+                quantity=p.quantity,
+                avg_cost_basis=p.avg_cost,
+                entry_date=entry_date,
+                entry_notes=entry_notes,
+                strategy=None,
+            )
+        )
+        imported.append(
+            IBKRPortfolioPreloadImportedPositionOut(
+                ticker=p.ticker,
+                quantity=p.quantity,
+                avg_cost_basis=p.avg_cost,
+                entry_date=entry_date,
+            )
+        )
+    db.commit()
+
+    return IBKRPortfolioPreloadResponse(
+        state="available",
+        detail=None,
+        imported=imported,
+        skipped_conflicting_tickers=skipped,
     )
