@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #314's review (backend-day-trader-timeframe-mode-ibkr-intraday-followups)",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-day-trader-timeframe-mode-ibkr-intraday-followups"],
   "references": [
     "docs/tasks/backend-day-trader-timeframe-mode-ibkr-intraday-followups.json",
@@ -13,17 +13,30 @@
   "checklist": [
     {
       "step": "`tests/unit/data/test_day_trader_intraday.py`'s `test_two_of_three_minute_unit_legs_are_fetched` (asserts `provider.get_hourly_bars.call_count == 2`) and `test_all_three_legs_fetched_for_a_fully_intraday_triple` (asserts `== 3`) now exercise `get_intraday_bars_for_triple`'s genuinely concurrent (`ThreadPoolExecutor`) leg fetching, but still assert on `unittest.mock.Mock.call_count`, whose increment is a non-atomic read-modify-write that can lose updates under real concurrent invocation from separate OS threads (confirmed empirically during this PR's review: 0/20,000 trials mismatched at this test's exact 2-3-calls-per-run scale, but the same harness reliably undercounted `call_count` at high call volume in the same run, while `len(call_args_list)` stayed exact in every trial at every volume tested). The one other test whose assertion became order-dependent under concurrency (`test_non_composable_interval_resamples_from_finest_evenly_dividing_bar_size`) was already updated in this PR to check `call_args_list` membership instead of position -- these two `call_count` assertions should likewise be made robust against the same underlying non-atomicity, e.g. by asserting on `len(provider.get_hourly_bars.call_args_list)` instead of `.call_count`, even though no actual flake has been observed at this test's call volume.",
-      "done": false
+      "done": true
     },
     {
       "step": "`get_intraday_bars_for_triple` (`backend/app/data/day_trader_intraday.py`, the `with ThreadPoolExecutor(...) as executor: futures = {...}; results = {k: f.result() for k, f in futures.items()}` block) duplicates the same fan-out/fan-in shape already used by `backend/app/api/routers/stocks.py`'s indicator-history endpoint (`with ThreadPoolExecutor(max_workers=2) as executor: daily_future = executor.submit(...); weekly_future = executor.submit(...)`) -- both hand-roll \"submit N independent synchronous calls to a small thread pool, then collect every result\" with no shared helper, the same class of duplication this very PR's `resample_ohlcv` extraction fixed for OHLCV resampling. Worth considering a small shared helper (e.g. in a `app.concurrency`-style module) if a third call site appears, though note the two current sites aren't a byte-for-byte match the way the two resample call sites were -- `stocks.py`'s version deliberately resolves futures in a fixed order to preserve a specific error-priority contract (daily-fetch failure takes priority over weekly-fetch failure), which `day_trader_intraday.py`'s version has no equivalent requirement for, so any extraction needs to accommodate that ordering-vs-no-ordering difference rather than assuming the two are identical.",
-      "done": false
+      "done": true
     },
     {
       "step": "The newly-extracted `app.data.base.resample_ohlcv(frame, rule)` helper has no direct unit test of its own -- it's exercised only indirectly via `StooqProvider._resample_weekly`'s and `day_trader_intraday._resample_to_target`'s existing tests (both of which pass unchanged, confirming behavior-preservation for those two specific rule strings, but not locking down `resample_ohlcv`'s own contract independent of either caller). Worth adding a small direct test module (e.g. `tests/unit/data/test_base.py::TestResampleOhlcv`) covering the aggregation rule and the incomplete-bin-dropped behavior directly, so a future third caller (or a future edit to either existing caller) can't silently break the shared helper's contract without a test catching it at the source.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-25T03:05:12Z",
+      "recorded_by": "task-worker",
+      "decision": "Swapped `.call_count` for `len(.call_args_list)` in the two flagged assertions (`test_two_of_three_minute_unit_legs_are_fetched`, `test_all_three_legs_fetched_for_a_fully_intraday_triple`) in `backend/tests/unit/data/test_day_trader_intraday.py`. Verified the underlying claim directly against CPython 3.12's `unittest.mock` source (`CallableMixin._increment_mock_call`): `call_count` is incremented via `self.call_count += 1` (a load/add/store sequence the GIL can interleave across threads, losing updates), while `call_args_list.append(_call)` is a single atomic list append. My own empirical trials (2000 runs at this test's 2-3-call scale, and 2000 calls across 64 threads) didn't reproduce a mismatch on either assertion -- consistent with the reviewer's own note that no flake was observed at this test's call volume either -- but the source-level asymmetry confirms `call_args_list` is the more robust choice regardless, matching the rationale already applied to `test_non_composable_interval_resamples_from_finest_evenly_dividing_bar_size` in the same file.",
+      "rationale": "The fix is low-risk and strictly more correct (asserting `len(call_args_list) == N` is equivalent to `call_count == N` when no race occurs, and strictly better when one does), so there was no real alternative to reject here beyond leaving `.call_count` as-is, which the reviewer had already identified as the weaker choice."
+    },
+    {
+      "timestamp": "2026-09-25T03:05:12Z",
+      "recorded_by": "task-worker",
+      "decision": "Decided NOT to extract a shared fan-out/fan-in helper for the three ThreadPoolExecutor call sites (`app/api/routers/stocks.py`'s daily/weekly fetch, `app/data/day_trader_intraday.py`'s `_fetch_legs_concurrently`, and `app/api/day_trader_signal.py`'s already-self-shared `_fan_out_per_ticker`, used twice within that module) -- left all three as-is.",
+      "rationale": "Re-examined all three sites (the third, `_fan_out_per_ticker`, is the one that appeared since this PR's review, per the checklist item's own prediction). They differ in three ways that make a single shared helper either impossible without new layering or not worth the abstraction: (1) `stocks.py`'s ordering requirement (daily-fetch failure must take priority over weekly-fetch failure) is a load-bearing behavior documented with an inline comment right at the two `.result()` calls -- burying that inside a generic helper's contract makes it a non-obvious invariant a future editor of the helper (working on an unrelated call site) could break without realizing it mattered here; (2) `_fetch_legs_concurrently` lives in `app.data`, which must not depend on `app.api` (the reverse of this codebase's documented dependency direction, docs/architecture/Backend.md), so unifying it with `_fan_out_per_ticker` (currently in `app.api.day_trader_signal`) would require carving out a brand-new shared module (e.g. `app.concurrency`) solely to host a ~6-line `ThreadPoolExecutor`-submit-and-collect pattern, for three call sites whose per-site logic (dedup + capped `max_workers` for the N-ticker case; fixed 3-key dict for the leg case; fixed 2-key ordered case for stocks.py) would still need distinct wrapper functions anyway -- the shared core would save only a few lines of genuinely identical code per site while adding a new module, an extra import per caller, and a fourth place to look when debugging a fan-out issue; (3) unlike the `resample_ohlcv` case this same PR's precedent set (two byte-for-byte identical resample bodies, extracting which removed real duplicated logic with a real shared contract to test), these three sites were never near-duplicates of each other in the way that made `resample_ohlcv` worth extracting -- each already reads clearly at its own call site, and `_fan_out_per_ticker` already unified the two sites that actually were identical (within `app.api.day_trader_signal`). Net: a shared helper here would be abstraction for its own sake, not a genuine duplication fix; leaving the three sites as-is is the better trade-off. This is a legitimate 'not worth unifying' outcome per this task's own description, not a skipped step."
+    }
+  ],
   "questions": []
 }
