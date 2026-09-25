@@ -125,6 +125,7 @@ _BAR_INTERVAL_STEP: dict[str, timedelta] = {
 # framing: "recent-bar entry timing, not deep history").
 _MAX_PAGINATION_PAGES = 20
 
+
 def max_lookback_days_for_bar_size(bar_size: str) -> float:
     """The most calendar days of history `get_hourly_bars(bar_size=bar_size)` can *ever* return,
     given `_MAX_PAGINATION_PAGES`'s own safety bound on page count -- `_MAX_PAGINATION_PAGES *

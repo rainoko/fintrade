@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #316's review (backend-day-trader-timeframe-mode-history)",
   "area": "backend/signals",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-day-trader-timeframe-mode-history"],
   "references": [
     "docs/tasks/backend-day-trader-timeframe-mode-history.json",
@@ -13,17 +13,30 @@
   "checklist": [
     {
       "step": "Add a dedicated test proving `analyse()`'s new `_short_term_ohlcv_already_clean=True` escape hatch actually skips the redundant `drop_malformed_daily_bars` re-clean (e.g. malformed `short_term_ohlcv` + `_short_term_ohlcv_already_clean=True` produces a visibly different/uncleaned result than the same input with the flag left at its default `False`) -- today the branch is only exercised indirectly via `analyse_history_day_trader`'s own tests, whose `short_term_ohlcv` is always pre-cleaned before the flag is set, so 100% branch coverage doesn't actually prove the flag's discriminating effect. Consider covering the pre-existing sibling `_daily_ohlcv_already_clean` the same way while at it, since it has the identical gap.",
-      "done": false
+      "done": true
     },
     {
       "step": "When `backend-day-trader-timeframe-mode-api-followups` builds the API-layer glue connecting `app.data.day_trader_intraday.get_intraday_history_bars_for_triple`'s fetched bars to `app.signals.engine.analyse_history_day_trader`'s inputs, add an end-to-end test (mocked `IBKRProvider`) chaining the two -- this task's own checklist item 4 asked for exactly this, but the two layers were only tested in isolation here (a mocked-provider test for the fetch/clamp behavior in `test_day_trader_intraday.py`, and a plain-DataFrame test for the walk-forward replay in `test_engine.py`) since the connecting glue code doesn't exist yet (deliberately deferred, per this task's own description). Confirm the fetched frames' shape (columns, index dtype/name) is genuinely compatible with what `analyse_history_day_trader` expects.",
-      "done": false
+      "done": true
     },
     {
       "step": "Minor style nit: `max_lookback_days_for_bar_size` in `backend/app/data/ibkr_provider.py` (immediately after `_MAX_PAGINATION_PAGES = 20`) is separated from the preceding constant by only one blank line instead of the file's usual two-blank-line separation between top-level definitions (confirmed via `ruff format --check`, which isn't part of this project's static-verify gate today, so it wasn't caught automatically).",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-25T02:08:23Z",
+      "recorded_by": "task-worker",
+      "decision": "Checklist item 1 (dedicated discriminating tests for `_daily_ohlcv_already_clean=True`/`_short_term_ohlcv_already_clean=True`) is satisfied by two new tests in `backend/tests/unit/signals/test_engine.py`'s new `TestAlreadyCleanEscapeHatchesGenuinelySkipCleaning` class, one per flag. Each passes the *same* malformed (NaN-OHLC latest bar) frame twice -- once with the flag left at its default `False` (cleaned, Trigger fires, signal BUY, matching the existing regression tests) and once with the flag forced `True` (left dirty, the NaN latest close flips `evaluate_trigger`'s `today_close > prior_high` comparison to quietly evaluate False instead of raising, flipping the outcome to HOLD) -- proving the flag genuinely skips `drop_malformed_daily_bars` rather than being a silent no-op.",
+      "rationale": "Verified this is genuinely discriminating (not just plausible-looking) by running both fixtures through `analyse()` directly in a standalone script before writing the tests: the `_daily_ohlcv_already_clean=True` case flips `screens.trigger.fired` from True to False and `signal` from BUY to HOLD versus the default-`False` case on the identical malformed input, and the `_short_term_ohlcv_already_clean=True` case does the same for the short-term leg. Reused the exact malformed-latest-bar fixture shape from `TestAnalyseEndToEnd.test_malformed_latest_bar_is_excluded_and_does_not_change_signal` (daily) and `TestAnalyseShortTermOhlcvGenericTrigger.test_short_term_ohlcv_is_cleaned_of_malformed_bars` (short-term) rather than inventing new fixtures, so the new tests read as direct siblings of the ones they're closing the gap for."
+    },
+    {
+      "timestamp": "2026-09-25T02:08:23Z",
+      "recorded_by": "task-worker",
+      "decision": "Checklist item 2 (mocked-IBKR-provider end-to-end test chaining `get_intraday_history_bars_for_triple`'s fetch into `analyse_history_day_trader`) is judged already satisfied by `backend-day-trader-timeframe-mode-api-followups`'s own PR #319 -- no new test was added for this item; this decision documents that rather than duplicating existing coverage.",
+      "rationale": "Confirmed directly by reading code, not just the merged task's own claims: `backend/app/api/routers/stocks.py`'s `GET /api/stocks/{ticker}/indicators` day-trader-mode branch calls `app.api.day_trader_signal.fetch_day_trader_history_legs`, which itself calls `app.data.day_trader_intraday.get_intraday_history_bars_for_triple` (the exact real production chain this checklist item names), and feeds the result straight into `app.signals.engine.analyse_history_day_trader` (stocks.py line 668). `backend/tests/integration/test_stocks_indicator_history.py::TestDayTraderMode::test_fully_intraday_triple_replays_a_real_walk_forward_history` exercises this real chain end to end through a `TestClient` request against the router, with a `_StubIBKRProvider` standing in for `IBKRProvider` (mocked, no live network call) supplying three distinct fixture legs. It is genuinely discriminating, not a happy-path-only check: it asserts `points[0]['signal'] != 'BUY' or points[0]['confidence'] != last_point['confidence']`, which a bug that silently reused `analyse_day_trader`'s single latest-bar snapshot for every point (rather than genuinely walking forward bar-by-bar) would fail -- proving the fetched frames' shape is genuinely compatible with what `analyse_history_day_trader` expects (a 200 response with 27 correctly-shaped points, not a shape-mismatch exception). Adding a second, near-duplicate end-to-end test at the `app.signals.engine`/`app.data.day_trader_intraday` module boundary (bypassing the router) was considered and rejected: it would repeat the exact same chain the existing router-level test already drives for real, with no additional discriminating power -- this codebase's own review history (e.g. `backend-day-trader-timeframe-mode-history`'s own decisions entry) already favors one well-targeted test over duplicated near-identical coverage."
+    }
+  ],
   "questions": []
 }

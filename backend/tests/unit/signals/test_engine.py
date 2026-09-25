@@ -1190,6 +1190,141 @@ class TestAnalyseShortTermOhlcvGenericTrigger:
         assert malformed_result.signal == clean_result.signal == "BUY"
 
 
+class TestAlreadyCleanEscapeHatchesGenuinelySkipCleaning:
+    """`_daily_ohlcv_already_clean`/`_short_term_ohlcv_already_clean` (backend-day-trader-
+    timeframe-mode-history-followups): dedicated coverage that setting either flag to ``True``
+    actually skips the ``drop_malformed_daily_bars`` re-clean, rather than merely leaving the
+    default (``False``) behavior unchanged.
+
+    Every existing test of these two parameters --
+    ``TestAnalyseEndToEnd.test_malformed_latest_bar_is_excluded_and_does_not_change_signal``
+    (daily) and ``TestAnalyseShortTermOhlcvGenericTrigger
+    .test_short_term_ohlcv_is_cleaned_of_malformed_bars`` (short-term), plus
+    ``analyse_history``/``analyse_history_day_trader``'s own tests, which always pass an
+    already-pre-cleaned slice before setting the flag -- only exercises the flag left at its
+    default ``False``, or with an input that's already clean either way. None of them can tell
+    a real skip-cleaning effect apart from the flag being a silent no-op: 100% branch coverage
+    of ``if not _..._already_clean:`` doesn't by itself prove the branch's effect is real. These
+    two tests close that gap directly: the *same* malformed frame is passed twice, once with the
+    flag left at its default (cleaned, matching the existing regression tests' outcome) and once
+    with the flag forced ``True`` (left dirty, producing a visibly different result) -- proving
+    the flag genuinely changes what `analyse()` does with the malformed bar.
+    """
+
+    @staticmethod
+    def _malformed_daily_and_weekly() -> tuple[pd.DataFrame, pd.DataFrame]:
+        # Same BUY-fixture-plus-malformed-latest-bar construction as
+        # TestAnalyseEndToEnd.test_malformed_latest_bar_is_excluded_and_does_not_change_signal.
+        closes = [100 + i * 0.5 for i in range(20)]
+        closes += [closes[-1] - 3 * i for i in range(1, 6)]
+        closes.append(closes[-1] + 8.0)
+        volumes = [1_000_000] * 24 + [9_000_000, 3_000_000]
+        daily_ohlcv = pd.DataFrame(
+            {
+                "open": closes,
+                "high": [c + 0.3 for c in closes],
+                "low": [c - 0.3 for c in closes],
+                "close": closes,
+                "volume": volumes,
+            }
+        )
+        weekly_closes = pd.Series([100 * (1.05**i) for i in range(40)], dtype=float)
+        weekly_ohlcv = pd.DataFrame(
+            {
+                "open": weekly_closes,
+                "high": weekly_closes * 1.01,
+                "low": weekly_closes * 0.99,
+                "close": weekly_closes,
+                "volume": 1_000_000,
+            }
+        )
+        malformed_row = pd.DataFrame(
+            {
+                "open": [float("nan")],
+                "high": [float("nan")],
+                "low": [float("nan")],
+                "close": [float("nan")],
+                "volume": [500_000],
+            }
+        )
+        daily_with_malformed_latest_bar = pd.concat(
+            [daily_ohlcv, malformed_row], ignore_index=True
+        )
+        return daily_with_malformed_latest_bar, weekly_ohlcv
+
+    def test_daily_ohlcv_already_clean_true_leaves_the_malformed_latest_bar_in_place(self) -> None:
+        daily_with_malformed_latest_bar, weekly_ohlcv = self._malformed_daily_and_weekly()
+
+        cleaned = analyse("TEST", daily_with_malformed_latest_bar, weekly_ohlcv)
+        left_dirty = analyse(
+            "TEST",
+            daily_with_malformed_latest_bar,
+            weekly_ohlcv,
+            _daily_ohlcv_already_clean=True,
+        )
+
+        # Default (`False`): the malformed bar is dropped, Trigger fires on the real 25-bar
+        # series -- BUY, matching TestAnalyseEndToEnd's own regression test.
+        assert bool(cleaned.screens["trigger"]["fired"]) is True
+        assert cleaned.signal == "BUY"
+        # Forced `True`: the malformed bar is trusted as "already clean" and never dropped, so
+        # its NaN close becomes daily_ohlcv's own latest bar -- evaluate_trigger's
+        # `today_close > prior_high` comparison against a NaN today_close quietly evaluates
+        # False (a NaN comparison, not an error) instead of raising, flipping the outcome all
+        # the way to HOLD. This is only reachable if `_daily_ohlcv_already_clean=True` genuinely
+        # skipped `drop_malformed_daily_bars` -- proving the flag isn't a no-op.
+        assert bool(left_dirty.screens["trigger"]["fired"]) is False
+        assert left_dirty.signal == "HOLD"
+        assert left_dirty.screens["trigger"] != cleaned.screens["trigger"]
+
+    def test_short_term_ohlcv_already_clean_true_leaves_the_malformed_latest_bar_in_place(
+        self,
+    ) -> None:
+        daily_ohlcv, weekly_ohlcv = (
+            TestAnalyseShortTermOhlcvGenericTrigger._bullish_daily_and_weekly_with_trigger_suppressed()
+        )
+        short_term_ohlcv = (
+            TestAnalyseShortTermOhlcvGenericTrigger._short_term_ohlcv_that_fires_a_bullish_trigger()
+        )
+        malformed_row = pd.DataFrame(
+            {
+                "open": [float("nan")],
+                "high": [float("nan")],
+                "low": [float("nan")],
+                "close": [float("nan")],
+                "volume": [500_000],
+            }
+        )
+        malformed_short_term_ohlcv = pd.concat(
+            [short_term_ohlcv, malformed_row], ignore_index=True
+        )
+
+        cleaned = analyse(
+            "TEST", daily_ohlcv, weekly_ohlcv, short_term_ohlcv=malformed_short_term_ohlcv
+        )
+        left_dirty = analyse(
+            "TEST",
+            daily_ohlcv,
+            weekly_ohlcv,
+            short_term_ohlcv=malformed_short_term_ohlcv,
+            _short_term_ohlcv_already_clean=True,
+        )
+
+        # Default (`False`): the malformed bar is dropped, leaving the real 2-row series --
+        # Trigger fires (BUY), matching TestAnalyseShortTermOhlcvGenericTrigger's own
+        # regression test.
+        assert bool(cleaned.screens["trigger"]["fired"]) is True
+        assert cleaned.signal == "BUY"
+        # Forced `True`: the malformed bar is trusted as "already clean" and never dropped, so
+        # its NaN close becomes short_term_ohlcv's own latest bar -- the same
+        # NaN-comparison-quietly-evaluates-False effect as the daily case above, flipping the
+        # outcome to HOLD. Only reachable if `_short_term_ohlcv_already_clean=True` genuinely
+        # skipped `drop_malformed_daily_bars` on `short_term_ohlcv`.
+        assert bool(left_dirty.screens["trigger"]["fired"]) is False
+        assert left_dirty.signal == "HOLD"
+        assert left_dirty.screens["trigger"] != cleaned.screens["trigger"]
+
+
 class TestAnalyseDayTrader:
     """Tests for `analyse_day_trader()` (`backend-day-trader-timeframe-mode-signal-engine`) --
     the day-trader-mode entry point that plumbs a `TimeframeTriple`'s three legs through the
