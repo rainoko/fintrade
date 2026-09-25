@@ -1,0 +1,73 @@
+{
+  "id": "frontend-ibkr-portfolio-preload-followups-followups",
+  "title": "Non-blocking finding from PR #338's review (frontend-ibkr-portfolio-preload-followups)",
+  "area": "frontend/portfolio",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-ibkr-portfolio-preload-followups"],
+  "references": [
+    "docs/tasks/done/frontend-ibkr-portfolio-preload-followups.json",
+    "https://github.com/rainoko/fintrade/pull/338"
+  ],
+  "description": "Tracked follow-up for a non-blocking finding raised in pr-reviewer's review of PR #338 (frontend-ibkr-portfolio-preload-followups) -- doesn't block the accept (PR #338's own decisions entry already explicitly scoped this out, with reasonable rationale), but is worth fixing so it isn't lost once PR #338 merges and the review comment disappears from view.",
+  "checklist": [
+    {
+      "step": "`AddPositionDialog.tsx`'s `<Dialog open={open} onClose={onClose} fullWidth maxWidth=\"sm\">` (line 153) still has the identical Escape-key/backdrop-click dismissal gap `IbkrPreloadDialog.tsx` had before PR #338: only the dialog's own Cancel/Confirm buttons are guarded by `disabled={addPosition.isPending}` (lines 224/227), but MUI's `Dialog` fires `onClose` on Escape and backdrop click regardless of any button's disabled state, so a user can dismiss the dialog mid-`useAddPosition()` mutation. PR #338 fixed this exact pattern in `IbkrPreloadDialog.tsx` via a `handleDialogClose` wrapper that no-ops while the mutation is pending (see that PR's diff and its own `decisions` entry, which explicitly deferred fixing `AddPositionDialog.tsx` in the same PR as a scope call, not an oversight). Apply the same guard here -- either a local `handleDialogClose` wrapper mirroring `IbkrPreloadDialog.tsx`'s, or, now that this pattern exists in two dialogs, consider extracting a small shared helper/hook (e.g. `useGuardedDialogClose(onClose, isPending)`) if that's judged worth the abstraction at this point.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-25T23:28:43Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted a shared `useGuardedDialogClose(onClose, isPending)` hook (`frontend/src/features/portfolio/hooks/useGuardedDialogClose.ts`) rather than applying a second copy of `IbkrPreloadDialog.tsx`'s inline `handleDialogClose` wrapper directly to `AddPositionDialog.tsx`. Both dialogs now call the shared hook; `IbkrPreloadDialog.tsx`'s own inline wrapper was replaced with a call to it too, so there is exactly one copy of the guard logic.",
+      "rationale": "The parent task's (frontend-ibkr-portfolio-preload-followups) own prior decisions entry explicitly deferred a shared abstraction as 'speculative generality until there's a third case' -- but that was written when only one confirmed instance (IbkrPreloadDialog) existed; this task is itself the second confirmed instance (AddPositionDialog), so extracting now eliminates real, already-existing duplication rather than anticipating a hypothetical future one. This mirrors the codebase's own precedent for the identical judgment call: `useResetOnSubjectChange` (frontend-trade-apgar-followups) was extracted from exactly two dialogs' (`TradeApgarDialog`/`FollowUpReviewDialog`) identical boilerplate, not held back for a third. Rejected leaving two independent inline copies: any future fix to this guard (e.g. also checking a `reason` argument) would then need to land in two places and could silently drift out of sync.",
+      "context": "`ClosePositionDialog.tsx`, `FollowUpReviewDialog.tsx`, and `TradeApgarDialog.tsx` were found to have the same unguarded onClose-while-pending pattern during this task, but none of them are in this task's checklist scope -- left untouched and unfixed here; a future task should decide whether to extend `useGuardedDialogClose` to them too."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-ibkr-portfolio-preload-followups-followups",
+    "pr_number": 339,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/339",
+    "pushed_at": "2026-09-25T23:33:28Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-25T23:46:50Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/339",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Refactor safety confirmed: diffed IbkrPreloadDialog.tsx's old inline handleDialogClose against the new useGuardedDialogClose(onClose, isPending) call -- identical logic (no-op while isPending, otherwise call onClose), argument order matches, and IbkrPreloadDialog.test.tsx (unmodified by this PR) still passes unchanged as part of the full 941/941 vitest run, confirming no behavior regression from the extraction.",
+        "file": "frontend/src/features/portfolio/components/IbkrPreloadDialog.tsx",
+        "line": 132
+      },
+      {
+        "summary": "Guard behavior verified for AddPositionDialog.tsx both by reading the code (Dialog's onClose wired to useGuardedDialogClose(onClose, addPosition.isPending), Cancel button unchanged) and with a live headless-Chromium Playwright walkthrough against the running dev stack: with the POST /api/portfolio/positions request held pending, both an Escape keypress and a forced backdrop click left the dialog open and onClose uncalled; once the mutation resolved (success screen shown), Escape then closed the dialog normally. No console errors or failed network requests observed during the walkthrough.",
+        "file": "frontend/src/features/portfolio/components/AddPositionDialog.tsx",
+        "line": 160
+      },
+      {
+        "summary": "The shared-hook extraction decision (useGuardedDialogClose, rather than a second inline copy) is well-reasoned: correctly identifies this as the second confirmed instance of the pattern (not speculative), cites the useResetOnSubjectChange precedent (also extracted from exactly two call sites) accurately, and gives a concrete reason to prefer sharing (avoiding future drift between two copies of the same guard). No corrections needed.",
+        "file": "docs/tasks/frontend-ibkr-portfolio-preload-followups-followups.json",
+        "line": 23
+      },
+      {
+        "summary": "Verified the task-worker's report that ClosePositionDialog.tsx, FollowUpReviewDialog.tsx, and TradeApgarDialog.tsx all still have the identical unguarded onClose-while-pending pattern (each dialog's Dialog onClose is wired directly to a caller-provided/local close handler with no isPending check, only the Cancel button is disabled). Since the shared useGuardedDialogClose hook now exists and applying it to these three is a small, well-scoped fix, filed as a new tracked follow-up (frontend-ibkr-portfolio-preload-followups-followups-followups) rather than leaving it only in this PR's description, per this codebase's every-non-blocking-finding-becomes-a-task convention.",
+        "file": "frontend/src/features/portfolio/components/ClosePositionDialog.tsx",
+        "line": 172
+      },
+      {
+        "summary": "useGuardedDialogClose.ts's placement under features/portfolio/hooks/ (a domain-agnostic hook -- takes only onClose/isPending, no portfolio-specific types) was considered against Frontend.md §3's common-vs-feature placement rule. No components/common/ (or equivalent common-hooks) location exists for non-domain hooks in this codebase; the closest precedent (useResetOnSubjectChange.ts's useOnValueChange, also domain-agnostic and already cross-imported by features/homework) already lives in exactly this location. This placement matches established, previously-accepted convention rather than introducing a new one, so not treated as a new finding.",
+        "file": "frontend/src/features/portfolio/hooks/useGuardedDialogClose.ts",
+        "line": 1
+      },
+      {
+        "summary": "Full independent verification: frontend vitest 941/941 passed, coverage 99.78%/99.13%/99.81%/99.83% (statements/branches/functions/lines); eslint and tsc -b both clean; profit-target wording guard clean; validate_tasks.py clean (328 files); e2e suite (make e2e) 26/26 specs passed. Backend unchanged by this PR's diff; backend pytest run showed 1443/1443 relevant passes plus one pre-existing, environment-only failure (test_ibkr_base_url_defaults_to_localhost_gateway, caused by this dev container's own gitignored backend/.env overriding FINTRADE_IBKR_BASE_URL to a real gateway hostname -- the same root cause already diagnosed and confirmed unrelated in PR #338's review), 100% coverage otherwise. code-review skill (self-run, single-pass) found zero findings.",
+        "file": null,
+        "line": null
+      }
+    ],
+    "notes": "Accepted. The refactor of IbkrPreloadDialog.tsx onto the new shared useGuardedDialogClose hook is behavior-preserving (confirmed by diff + its own unmodified, still-passing test suite), AddPositionDialog.tsx's new guard is genuinely effective (confirmed by both code reading and a live browser walkthrough covering Escape, backdrop-click, and post-settle normal dismissal, with clean console/network), and the extraction decision is well-justified against real codebase precedent. The task's own checklist item is correctly marked done. One non-blocking finding (the three remaining unguarded dialogs, now a small fix given the shared hook) filed as docs/tasks/frontend-ibkr-portfolio-preload-followups-followups-followups.json so it isn't lost once this PR merges."
+  }
+}
