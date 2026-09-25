@@ -2294,8 +2294,15 @@
       "id": "frontend-ibkr-portfolio-preload-followups-followups",
       "area": "frontend/portfolio",
       "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-ibkr-portfolio-preload-followups-followups.json"
+    },
+    {
+      "id": "frontend-ibkr-portfolio-preload-followups-followups-followups",
+      "area": "frontend/portfolio",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/frontend-ibkr-portfolio-preload-followups-followups.json"
+      "path": "docs/tasks/frontend-ibkr-portfolio-preload-followups-followups-followups.json"
     }
   ]
 }

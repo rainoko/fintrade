@@ -27,6 +27,7 @@ import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import UnavailableState from '../../../components/common/UnavailableState/UnavailableState'
 import { formatCurrency, formatNullableCurrency } from '../../../utils/format'
+import { useGuardedDialogClose } from '../hooks/useGuardedDialogClose'
 import { useIbkrPortfolioPreload } from '../hooks/useIbkrPortfolioPreload'
 import { useIbkrPortfolioPreview } from '../hooks/useIbkrPortfolioPreview'
 import { useOnValueChange } from '../hooks/useResetOnSubjectChange'
@@ -129,22 +130,13 @@ export default function IbkrPreloadDialog({
     onClose()
   }
 
-  // MUI's `Dialog` fires its own `onClose` on Escape/backdrop-click
-  // regardless of any button's own `disabled` state, so guarding only the
-  // Cancel button (below) still leaves those two dismissal paths free to
-  // close the dialog mid-mutation -- the mutation itself keeps running
-  // (onSettled still invalidates portfolioKeys.all either way), but the
-  // success/error outcome is silently discarded once the dialog is reopened
-  // (useOnValueChange's reopen effect calls preloadMutation.reset()
-  // immediately). No-op instead while the mutation is pending, same as the
-  // Cancel button. See this task's `decisions` entry for why this is fixed
-  // only here, not also in AddPositionDialog's identical pre-existing gap.
-  const handleDialogClose = () => {
-    if (preloadMutation.isPending) {
-      return
-    }
-    onClose()
-  }
+  // Guards against MUI's `Dialog` firing its own `onClose` on
+  // Escape/backdrop-click mid-mutation, regardless of any button's own
+  // `disabled` state -- see `useGuardedDialogClose`'s own doc comment.
+  // Originally an inline wrapper here only; now shared with
+  // `AddPositionDialog`'s identical gap
+  // (frontend-ibkr-portfolio-preload-followups-followups).
+  const handleDialogClose = useGuardedDialogClose(onClose, preloadMutation.isPending)
 
   const allPositions = previewQuery.data?.positions ?? []
   const nonConflicting = allPositions.filter(
