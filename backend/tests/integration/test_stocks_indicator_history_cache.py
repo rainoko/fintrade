@@ -22,7 +22,9 @@ from app.data.base import ExtendedData
 from app.db.models import Base, IndicatorHistoryCacheORM
 from app.db.session import get_db
 from app.main import app
+from app.signals.timeframe import TradingMode
 from app.time_utils import utcnow
+from app.trading_mode import set_trading_mode_setting
 
 _EMPTY_EXTENDED_DATA = ExtendedData(
     earnings_date=None,
@@ -166,6 +168,51 @@ class TestIndicatorHistoryResponseCacheWiring:
 
         assert second.status_code == 200
         assert second.json() == first.json()
+
+    def test_cache_hit_still_echoes_a_trading_mode_change_made_after_it_was_cached(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        """A cached response's `trading_mode` field must never be served stale: if the global
+        setting changes after the response was cached (but the request still lands in this
+        swing-cache branch -- day_trader with no configured triple is treated the same as
+        swing, per `get_indicator_history`'s own docstring), the field on a cache hit must
+        reflect the freshly-resolved setting, not whatever was baked into the payload at
+        write time. A non-discriminating version of this fix (returning `cached_response`
+        as-is) would make this test fail with `trading_mode.mode == "swing"`."""
+        provider = _CountingStubProvider(_hold_daily_ohlcv(), _hold_weekly_ohlcv())
+
+        first = _get_indicator_history(client, provider, range="1y")
+        assert first.status_code == 200
+        assert first.json()["trading_mode"]["mode"] == "swing"
+        assert provider.daily_calls == 1
+
+        # Switch the global mode to day_trader with no triple configured -- still routed
+        # through this same swing-cache branch (see get_indicator_history's own docstring),
+        # so this is a genuine cache-hit case, not the separate day-trader-mode branch that
+        # never touches this cache at all.
+        set_trading_mode_setting(
+            db_session, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=None
+        )
+
+        class _ExplodingProvider:
+            def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
+                raise AssertionError("cache hit should never call get_daily_ohlcv")
+
+            def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
+                raise AssertionError("cache hit should never call get_weekly_ohlcv")
+
+            def get_extended_data(self, ticker: str) -> ExtendedData:
+                return _EMPTY_EXTENDED_DATA
+
+        second = _get_indicator_history(client, _ExplodingProvider(), range="1y")
+
+        assert second.status_code == 200
+        assert second.json()["trading_mode"]["mode"] == "day_trader"
+        # Every other field of the response is still served straight from the cache
+        # (the provider was never called, per _ExplodingProvider above).
+        second_sans_mode = {**second.json(), "trading_mode": None}
+        first_sans_mode = {**first.json(), "trading_mode": None}
+        assert second_sans_mode == first_sans_mode
 
     def test_different_range_is_a_separate_cache_key(self, client: TestClient) -> None:
         provider = _CountingStubProvider(_hold_daily_ohlcv(), _hold_weekly_ohlcv())

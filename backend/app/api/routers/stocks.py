@@ -811,7 +811,17 @@ def get_indicator_history(
     response_cache = IndicatorHistoryResponseCache(db)
     cached_response = response_cache.get(ticker, range)
     if cached_response is not None:
-        return cached_response
+        # `trading_mode` itself is re-attached to the freshly-resolved current setting on
+        # every cache hit, rather than served as whatever was baked into the cached payload
+        # at write time -- everything else about the cached response (points, computed from
+        # daily/weekly OHLCV as of whenever it was cached) still carries this endpoint's
+        # existing, documented same-calendar-day staleness tradeoff (see this function's own
+        # docstring and IndicatorHistoryResponse.points's field description); only this one
+        # field is cheap and correct to refresh unconditionally, since it isn't part of the
+        # cache key and a global trading-mode change is otherwise invisible on a swing-branch
+        # cache hit for the rest of the calendar day. See docs/tasks/
+        # backend-day-trader-timeframe-mode-api-followups-followups.json's `decisions` entry.
+        return cached_response.model_copy(update={"trading_mode": trading_mode_setting_out})
 
     try:
         with ThreadPoolExecutor(max_workers=2) as executor:
