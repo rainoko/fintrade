@@ -24,5 +24,11 @@
       "rationale": "Confirmed against `docs/Analyse.md` directly: `## 10. Open Questions / Next Steps` is the heading at line 381, and the 'partially resolved by `backend-day-trader-timeframe-mode-signal-engine`' Screen 3 precedent bullet sits at line ~384, inside §10 -- not inside `## 9. Data Sources (free)` (lines 346-380). This task's own checklist item asks to correct the reference 'wherever it's repeated' but explicitly frames the done task's own fix as 'consider a fresh corrective decisions entry ... per CLAUDE.md's append-only-correction convention' -- it does not call out the existing entry's own text as the thing to fix, so CLAUDE.md's 'Decision memory' default (append a brand-new entry, don't amend the existing one in place) applies rather than the narrower in-place-edit carve-out (which requires the checklist to explicitly name the existing entry's text as the target, as `backend-cftc-cot-data-followups` did for PR #274). The original mislabeled text in that task's existing entry remains untouched and recoverable via git history; the correction lives in the new entry appended there."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-day-trader-timeframe-mode-signal-engine-followups-followups-followups",
+    "pr_number": 325,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/325",
+    "pushed_at": "2026-09-25T02:46:05Z"
+  }
 }
