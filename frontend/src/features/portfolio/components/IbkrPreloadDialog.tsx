@@ -19,7 +19,9 @@ import type {
   IBKRPortfolioPreviewPositionOut,
 } from '../../../api/ibkr'
 import type { PositionOut } from '../../../api/portfolio'
-import DataTable, { type DataTableColumn } from '../../../components/common/DataTable/DataTable'
+import DataTable, {
+  type DataTableColumn,
+} from '../../../components/common/DataTable/DataTable'
 import EmptyState from '../../../components/common/EmptyState/EmptyState'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
@@ -127,6 +129,23 @@ export default function IbkrPreloadDialog({
     onClose()
   }
 
+  // MUI's `Dialog` fires its own `onClose` on Escape/backdrop-click
+  // regardless of any button's own `disabled` state, so guarding only the
+  // Cancel button (below) still leaves those two dismissal paths free to
+  // close the dialog mid-mutation -- the mutation itself keeps running
+  // (onSettled still invalidates portfolioKeys.all either way), but the
+  // success/error outcome is silently discarded once the dialog is reopened
+  // (useOnValueChange's reopen effect calls preloadMutation.reset()
+  // immediately). No-op instead while the mutation is pending, same as the
+  // Cancel button. See this task's `decisions` entry for why this is fixed
+  // only here, not also in AddPositionDialog's identical pre-existing gap.
+  const handleDialogClose = () => {
+    if (preloadMutation.isPending) {
+      return
+    }
+    onClose()
+  }
+
   const allPositions = previewQuery.data?.positions ?? []
   const nonConflicting = allPositions.filter(
     (position) => !position.conflicts_with_existing_position,
@@ -138,7 +157,22 @@ export default function IbkrPreloadDialog({
       local: existingPositions.find((existing) => existing.ticker === position.ticker),
     }))
 
-  const importCount = nonConflicting.length + selectedDeleteIds.size
+  // `POST /api/ibkr/portfolio-preload`'s own contract de-duplicates two
+  // fetched IBKR positions that resolve to the same ticker within one call
+  // (only the first is imported -- `PositionORM.ticker`'s uniqueness
+  // constraint would otherwise fail the second insert), but
+  // `conflicts_with_existing_position` only checks against the local DB, not
+  // within-batch duplicates -- so a genuinely duplicated ticker across two
+  // IBKR sub-accounts, say, can land in `nonConflicting` twice. Counting
+  // unique tickers here (rather than `nonConflicting.length`) keeps the
+  // promised "Import N positions" count matching what will actually land in
+  // the portfolio; the success screen already reports the true outcome
+  // (`preloadMutation.data.imported`), this just keeps the pre-commit
+  // promise honest too. See this task's `decisions` entry.
+  const nonConflictingImportCount = new Set(
+    nonConflicting.map((position) => position.ticker),
+  ).size
+  const importCount = nonConflictingImportCount + selectedDeleteIds.size
   const hasNoPositions = allPositions.length === 0
   const isAvailable = previewQuery.data?.state === 'available'
 
@@ -166,7 +200,7 @@ export default function IbkrPreloadDialog({
   ]
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
+    <Dialog open={open} onClose={handleDialogClose} fullWidth maxWidth="md">
       <DialogTitle>Preload from IBKR</DialogTitle>
       {preloadMutation.isSuccess ? (
         <>
@@ -202,13 +236,16 @@ export default function IbkrPreloadDialog({
         <>
           <DialogContent>
             <Stack spacing={2}>
-              {previewQuery.isLoading && <LoadingState message="Fetching IBKR positions..." />}
+              {previewQuery.isLoading && (
+                <LoadingState message="Fetching IBKR positions..." />
+              )}
               {previewQuery.isError && <ErrorState error={previewQuery.error} />}
               {previewQuery.data && !isAvailable && (
                 <UnavailableState
                   heading="IBKR unavailable"
                   message={
-                    previewQuery.data.detail ?? 'The IBKR integration is not available right now.'
+                    previewQuery.data.detail ??
+                    'The IBKR integration is not available right now.'
                   }
                 />
               )}
@@ -221,8 +258,8 @@ export default function IbkrPreloadDialog({
                     <Stack spacing={1}>
                       <ErrorState error={preloadMutation.error} />
                       <Typography variant="body2" color="text.secondary">
-                        Any positions already deleted before this failure remain deleted — check
-                        the positions table before retrying.
+                        Any positions already deleted before this failure remain deleted —
+                        check the positions table before retrying.
                       </Typography>
                     </Stack>
                   )}
@@ -259,10 +296,19 @@ export default function IbkrPreloadDialog({
                                 {row.local ? (
                                   <Checkbox
                                     checked={selectedDeleteIds.has(row.local.id)}
-                                    onChange={() => row.local && toggleSelected(row.local.id)}
+                                    onChange={() =>
+                                      row.local && toggleSelected(row.local.id)
+                                    }
                                     slotProps={{
                                       input: {
-                                        'aria-label': `Delete existing ${row.ibkr.ticker} position`,
+                                        // Includes the IBKR `conid` (not just
+                                        // the ticker) so two conflicting rows
+                                        // that happen to share a ticker --
+                                        // the same rare within-fetch
+                                        // duplicate case `importCount` above
+                                        // accounts for -- still get distinct
+                                        // labels rather than colliding.
+                                        'aria-label': `Delete existing ${row.ibkr.ticker} position (IBKR conid ${row.ibkr.conid})`,
                                       },
                                     }}
                                   />
@@ -277,7 +323,8 @@ export default function IbkrPreloadDialog({
                                   : 'Not found locally'}
                               </TableCell>
                               <TableCell align="right">
-                                {row.ibkr.quantity} @ {formatNullableCurrency(row.ibkr.avg_cost)}
+                                {row.ibkr.quantity} @{' '}
+                                {formatNullableCurrency(row.ibkr.avg_cost)}
                               </TableCell>
                             </TableRow>
                           ))}
@@ -286,10 +333,12 @@ export default function IbkrPreloadDialog({
                     </TableContainer>
                   )}
                   <Typography variant="body2" color="text.secondary">
-                    Confirming will delete {selectedDeleteIds.size} selected existing position
-                    {selectedDeleteIds.size === 1 ? '' : 's'}, then import {importCount} IBKR
-                    position{importCount === 1 ? '' : 's'}. A conflicting position you don't select
-                    stays exactly as it is — it is never merged or updated.
+                    Confirming will delete {selectedDeleteIds.size} selected existing
+                    position
+                    {selectedDeleteIds.size === 1 ? '' : 's'}, then import {importCount}{' '}
+                    IBKR position{importCount === 1 ? '' : 's'}. A conflicting position
+                    you don't select stays exactly as it is — it is never merged or
+                    updated.
                   </Typography>
                 </>
               )}

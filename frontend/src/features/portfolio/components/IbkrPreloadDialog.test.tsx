@@ -1,6 +1,6 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { http, HttpResponse } from 'msw'
+import { HttpResponse, delay, http } from 'msw'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PositionOut } from '../../../api/portfolio'
 import { resetPortfolioStore } from '../../../../tests/mocks/handlers'
@@ -18,7 +18,11 @@ const AAPL_POSITION: PositionOut = {
 
 function renderDialog(open: boolean, existingPositions: PositionOut[] = [AAPL_POSITION]) {
   return renderWithProviders(
-    <IbkrPreloadDialog open={open} onClose={vi.fn()} existingPositions={existingPositions} />,
+    <IbkrPreloadDialog
+      open={open}
+      onClose={vi.fn()}
+      existingPositions={existingPositions}
+    />,
   )
 }
 
@@ -41,11 +45,19 @@ describe('IbkrPreloadDialog', () => {
     await waitFor(() =>
       expect(screen.getByText('New positions to import (1)')).toBeInTheDocument(),
     )
-    expect(screen.getByRole('table', { name: 'Non-conflicting IBKR positions' })).toBeInTheDocument()
-    expect(within(screen.getByRole('table', { name: 'Non-conflicting IBKR positions' })).getByText('NVDA')).toBeInTheDocument()
+    expect(
+      screen.getByRole('table', { name: 'Non-conflicting IBKR positions' }),
+    ).toBeInTheDocument()
+    expect(
+      within(
+        screen.getByRole('table', { name: 'Non-conflicting IBKR positions' }),
+      ).getByText('NVDA'),
+    ).toBeInTheDocument()
 
     expect(screen.getByText('Conflicting tickers (1)')).toBeInTheDocument()
-    const conflictTable = screen.getByRole('table', { name: 'Conflicting IBKR positions' })
+    const conflictTable = screen.getByRole('table', {
+      name: 'Conflicting IBKR positions',
+    })
     expect(within(conflictTable).getByText('AAPL')).toBeInTheDocument()
     expect(within(conflictTable).queryByText('Not found locally')).not.toBeInTheDocument()
 
@@ -101,7 +113,9 @@ describe('IbkrPreloadDialog', () => {
     renderDialog(true)
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Import 1 position' })).toBeInTheDocument(),
+      expect(
+        screen.getByRole('button', { name: 'Import 1 position' }),
+      ).toBeInTheDocument(),
     )
     await user.click(screen.getByRole('button', { name: 'Import 1 position' }))
 
@@ -146,7 +160,13 @@ describe('IbkrPreloadDialog', () => {
           state: 'available',
           detail: null,
           positions: [
-            { conid: 1, ticker: 'AAPL', quantity: 50, avg_cost: 150, conflicts_with_existing_position: true },
+            {
+              conid: 1,
+              ticker: 'AAPL',
+              quantity: 50,
+              avg_cost: 150,
+              conflicts_with_existing_position: true,
+            },
           ],
         }),
       ),
@@ -155,7 +175,9 @@ describe('IbkrPreloadDialog', () => {
     renderDialog(true)
 
     await waitFor(() =>
-      expect(screen.getByText('No new IBKR positions to import right now.')).toBeInTheDocument(),
+      expect(
+        screen.getByText('No new IBKR positions to import right now.'),
+      ).toBeInTheDocument(),
     )
     expect(screen.getByText('New positions to import (0)')).toBeInTheDocument()
   })
@@ -167,7 +189,13 @@ describe('IbkrPreloadDialog', () => {
           state: 'available',
           detail: null,
           positions: [
-            { conid: 1, ticker: 'NVDA', quantity: 10, avg_cost: 900, conflicts_with_existing_position: false },
+            {
+              conid: 1,
+              ticker: 'NVDA',
+              quantity: 10,
+              avg_cost: 900,
+              conflicts_with_existing_position: false,
+            },
           ],
         }),
       ),
@@ -177,7 +205,9 @@ describe('IbkrPreloadDialog', () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText('No conflicts — every fetched IBKR position can be imported directly.'),
+        screen.getByText(
+          'No conflicts — every fetched IBKR position can be imported directly.',
+        ),
       ).toBeInTheDocument(),
     )
     expect(screen.getByRole('button', { name: 'Import 1 position' })).toBeInTheDocument()
@@ -191,7 +221,9 @@ describe('IbkrPreloadDialog', () => {
     renderDialog(true, [])
 
     await waitFor(() => expect(screen.getByText('Not found locally')).toBeInTheDocument())
-    const conflictTable = screen.getByRole('table', { name: 'Conflicting IBKR positions' })
+    const conflictTable = screen.getByRole('table', {
+      name: 'Conflicting IBKR positions',
+    })
     expect(within(conflictTable).queryByRole('checkbox')).not.toBeInTheDocument()
   })
 
@@ -200,14 +232,24 @@ describe('IbkrPreloadDialog', () => {
     renderDialog(true)
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Import 1 position' })).toBeInTheDocument(),
+      expect(
+        screen.getByRole('button', { name: 'Import 1 position' }),
+      ).toBeInTheDocument(),
     )
 
-    await user.click(screen.getByRole('checkbox', { name: 'Delete existing AAPL position' }))
+    await user.click(
+      screen.getByRole('checkbox', {
+        name: 'Delete existing AAPL position (IBKR conid 265598)',
+      }),
+    )
 
     expect(screen.getByRole('button', { name: 'Import 2 positions' })).toBeInTheDocument()
 
-    await user.click(screen.getByRole('checkbox', { name: 'Delete existing AAPL position' }))
+    await user.click(
+      screen.getByRole('checkbox', {
+        name: 'Delete existing AAPL position (IBKR conid 265598)',
+      }),
+    )
 
     expect(screen.getByRole('button', { name: 'Import 1 position' })).toBeInTheDocument()
   })
@@ -219,7 +261,13 @@ describe('IbkrPreloadDialog', () => {
           state: 'available',
           detail: null,
           positions: [
-            { conid: 1, ticker: 'AAPL', quantity: 50, avg_cost: 150, conflicts_with_existing_position: true },
+            {
+              conid: 1,
+              ticker: 'AAPL',
+              quantity: 50,
+              avg_cost: 150,
+              conflicts_with_existing_position: true,
+            },
           ],
         }),
       ),
@@ -237,7 +285,9 @@ describe('IbkrPreloadDialog', () => {
     renderDialog(true)
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Import 1 position' })).toBeInTheDocument(),
+      expect(
+        screen.getByRole('button', { name: 'Import 1 position' }),
+      ).toBeInTheDocument(),
     )
     await user.click(screen.getByRole('button', { name: 'Import 1 position' }))
 
@@ -255,9 +305,15 @@ describe('IbkrPreloadDialog', () => {
     renderDialog(true)
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Import 1 position' })).toBeInTheDocument(),
+      expect(
+        screen.getByRole('button', { name: 'Import 1 position' }),
+      ).toBeInTheDocument(),
     )
-    await user.click(screen.getByRole('checkbox', { name: 'Delete existing AAPL position' }))
+    await user.click(
+      screen.getByRole('checkbox', {
+        name: 'Delete existing AAPL position (IBKR conid 265598)',
+      }),
+    )
     await user.click(screen.getByRole('button', { name: 'Import 2 positions' }))
 
     await waitFor(() =>
@@ -269,7 +325,7 @@ describe('IbkrPreloadDialog', () => {
     expect(screen.queryByText(/Still skipped as conflicting/)).not.toBeInTheDocument()
   })
 
-  it("clicking Done on the success screen closes the dialog", async () => {
+  it('clicking Done on the success screen closes the dialog', async () => {
     const user = userEvent.setup()
     const onClose = vi.fn()
     renderWithProviders(
@@ -277,10 +333,14 @@ describe('IbkrPreloadDialog', () => {
     )
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Import 1 position' })).toBeInTheDocument(),
+      expect(
+        screen.getByRole('button', { name: 'Import 1 position' }),
+      ).toBeInTheDocument(),
     )
     await user.click(screen.getByRole('button', { name: 'Import 1 position' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Done' })).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Done' })).toBeInTheDocument(),
+    )
 
     await user.click(screen.getByRole('button', { name: 'Done' }))
 
@@ -297,13 +357,17 @@ describe('IbkrPreloadDialog', () => {
     renderDialog(true)
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Import 1 position' })).toBeInTheDocument(),
+      expect(
+        screen.getByRole('button', { name: 'Import 1 position' }),
+      ).toBeInTheDocument(),
     )
     await user.click(screen.getByRole('button', { name: 'Import 1 position' }))
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
     expect(
-      screen.getByText(/Any positions already deleted before this failure remain deleted/),
+      screen.getByText(
+        /Any positions already deleted before this failure remain deleted/,
+      ),
     ).toBeInTheDocument()
     // Still on the review screen, not the success screen.
     expect(screen.getByRole('button', { name: /^Import/ })).toBeInTheDocument()
@@ -314,19 +378,33 @@ describe('IbkrPreloadDialog', () => {
     let preloadCalled = false
     server.use(
       http.delete('/api/portfolio/positions/:id', () =>
-        HttpResponse.json({ detail: 'Cannot close: manual override validation failed.' }, { status: 422 }),
+        HttpResponse.json(
+          { detail: 'Cannot close: manual override validation failed.' },
+          { status: 422 },
+        ),
       ),
       http.post('/api/ibkr/portfolio-preload', () => {
         preloadCalled = true
-        return HttpResponse.json({ state: 'available', detail: null, imported: [], skipped_conflicting_tickers: [] })
+        return HttpResponse.json({
+          state: 'available',
+          detail: null,
+          imported: [],
+          skipped_conflicting_tickers: [],
+        })
       }),
     )
     renderDialog(true)
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Import 1 position' })).toBeInTheDocument(),
+      expect(
+        screen.getByRole('button', { name: 'Import 1 position' }),
+      ).toBeInTheDocument(),
     )
-    await user.click(screen.getByRole('checkbox', { name: 'Delete existing AAPL position' }))
+    await user.click(
+      screen.getByRole('checkbox', {
+        name: 'Delete existing AAPL position (IBKR conid 265598)',
+      }),
+    )
     await user.click(screen.getByRole('button', { name: 'Import 2 positions' }))
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
@@ -343,9 +421,15 @@ describe('IbkrPreloadDialog', () => {
     renderDialog(true)
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Import 1 position' })).toBeInTheDocument(),
+      expect(
+        screen.getByRole('button', { name: 'Import 1 position' }),
+      ).toBeInTheDocument(),
     )
-    await user.click(screen.getByRole('checkbox', { name: 'Delete existing AAPL position' }))
+    await user.click(
+      screen.getByRole('checkbox', {
+        name: 'Delete existing AAPL position (IBKR conid 265598)',
+      }),
+    )
     await user.click(screen.getByRole('button', { name: 'Import 2 positions' }))
 
     // The delete 404 is swallowed, so the mutation still succeeds and reaches
@@ -364,21 +448,186 @@ describe('IbkrPreloadDialog', () => {
     )
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Import 1 position' })).toBeInTheDocument(),
+      expect(
+        screen.getByRole('button', { name: 'Import 1 position' }),
+      ).toBeInTheDocument(),
     )
-    await user.click(screen.getByRole('checkbox', { name: 'Delete existing AAPL position' }))
+    await user.click(
+      screen.getByRole('checkbox', {
+        name: 'Delete existing AAPL position (IBKR conid 265598)',
+      }),
+    )
     expect(screen.getByRole('button', { name: 'Import 2 positions' })).toBeInTheDocument()
 
     rerender(
-      <IbkrPreloadDialog open={false} onClose={vi.fn()} existingPositions={[AAPL_POSITION]} />,
+      <IbkrPreloadDialog
+        open={false}
+        onClose={vi.fn()}
+        existingPositions={[AAPL_POSITION]}
+      />,
     )
-    rerender(<IbkrPreloadDialog open onClose={vi.fn()} existingPositions={[AAPL_POSITION]} />)
+    rerender(
+      <IbkrPreloadDialog open onClose={vi.fn()} existingPositions={[AAPL_POSITION]} />,
+    )
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Import 1 position' })).toBeInTheDocument(),
+      expect(
+        screen.getByRole('button', { name: 'Import 1 position' }),
+      ).toBeInTheDocument(),
     )
     expect(
-      screen.getByRole('checkbox', { name: 'Delete existing AAPL position' }),
+      screen.getByRole('checkbox', {
+        name: 'Delete existing AAPL position (IBKR conid 265598)',
+      }),
     ).not.toBeChecked()
+  })
+
+  // frontend-ibkr-portfolio-preload-followups #1: two fetched IBKR positions
+  // that resolve to the same ticker, neither conflicting locally, both land
+  // in `nonConflicting` -- but the backend's own within-fetch dedup only
+  // actually imports the first. The promised count must reflect that.
+  it('counts a within-fetch duplicate ticker toward the import count only once', async () => {
+    server.use(
+      http.get('/api/ibkr/portfolio-preview', () =>
+        HttpResponse.json({
+          state: 'available',
+          detail: null,
+          positions: [
+            {
+              conid: 501,
+              ticker: 'TSLA',
+              quantity: 5,
+              avg_cost: 200,
+              conflicts_with_existing_position: false,
+            },
+            {
+              conid: 502,
+              ticker: 'TSLA',
+              quantity: 3,
+              avg_cost: 210,
+              conflicts_with_existing_position: false,
+            },
+          ],
+        }),
+      ),
+    )
+
+    renderDialog(true, [])
+
+    await waitFor(() =>
+      expect(screen.getByText('New positions to import (2)')).toBeInTheDocument(),
+    )
+    // Both TSLA rows are still shown (the preview response is honest about
+    // what IBKR actually reported), but only one of them will actually be
+    // importable, so the confirm button promises 1, not 2.
+    expect(screen.getByRole('button', { name: 'Import 1 position' })).toBeInTheDocument()
+  })
+
+  // frontend-ibkr-portfolio-preload-followups #4: two conflicting rows that
+  // happen to share a ticker must still get distinct checkbox labels, even
+  // though they resolve to the same local position (so their checked state
+  // is legitimately tied together -- deleting "the local AAPL position" is a
+  // single action regardless of how many IBKR rows point at it).
+  it('gives each conflicting row a distinct checkbox label even when two rows share a ticker', async () => {
+    server.use(
+      http.get('/api/ibkr/portfolio-preview', () =>
+        HttpResponse.json({
+          state: 'available',
+          detail: null,
+          positions: [
+            {
+              conid: 601,
+              ticker: 'AAPL',
+              quantity: 20,
+              avg_cost: 100,
+              conflicts_with_existing_position: true,
+            },
+            {
+              conid: 602,
+              ticker: 'AAPL',
+              quantity: 30,
+              avg_cost: 110,
+              conflicts_with_existing_position: true,
+            },
+          ],
+        }),
+      ),
+    )
+
+    renderDialog(true)
+
+    await waitFor(() =>
+      expect(screen.getByText('Conflicting tickers (2)')).toBeInTheDocument(),
+    )
+    expect(
+      screen.getByRole('checkbox', {
+        name: 'Delete existing AAPL position (IBKR conid 601)',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('checkbox', {
+        name: 'Delete existing AAPL position (IBKR conid 602)',
+      }),
+    ).toBeInTheDocument()
+  })
+
+  // frontend-ibkr-portfolio-preload-followups #3: MUI's Dialog fires its own
+  // onClose on Escape regardless of any button's own disabled state -- only
+  // guarding the Cancel button isn't enough.
+  it('does not let Escape dismiss the dialog while the preload mutation is pending', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    server.use(
+      http.post('/api/ibkr/portfolio-preload', async () => {
+        await delay('infinite')
+        return HttpResponse.json({
+          state: 'available',
+          detail: null,
+          imported: [],
+          skipped_conflicting_tickers: [],
+        })
+      }),
+    )
+    renderWithProviders(
+      <IbkrPreloadDialog open onClose={onClose} existingPositions={[AAPL_POSITION]} />,
+    )
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Import 1 position' }),
+      ).toBeInTheDocument(),
+    )
+    await user.click(screen.getByRole('button', { name: 'Import 1 position' }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled(),
+    )
+    // Dispatched directly on the dialog itself (fireEvent, not
+    // userEvent.keyboard): once the Import button is disabled by the
+    // pending mutation's loading state, the browser blurs it, moving
+    // `document.activeElement` outside the modal -- userEvent.keyboard()
+    // dispatches to `document.activeElement`, which would then never reach
+    // MUI's Modal keydown handler at all, making this assertion pass
+    // vacuously regardless of whether the guard actually works.
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape', code: 'Escape' })
+
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('lets Escape dismiss the dialog normally once no mutation is pending', async () => {
+    const onClose = vi.fn()
+    renderWithProviders(
+      <IbkrPreloadDialog open onClose={onClose} existingPositions={[AAPL_POSITION]} />,
+    )
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Import 1 position' }),
+      ).toBeInTheDocument(),
+    )
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape', code: 'Escape' })
+
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })

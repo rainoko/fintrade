@@ -48,9 +48,33 @@ export default function PortfolioPage() {
   )
 
   const ibkrAvailable = ibkrStatusQuery.data?.state === 'available'
-  const preloadTooltip = ibkrStatusQuery.data
-    ? (ibkrStatusQuery.data.detail ?? 'IBKR is not currently available.')
-    : 'Checking IBKR availability…'
+  // `isError` is checked before `!data`, mirroring `IbkrStatusIndicator`'s
+  // own check on this exact query (useIbkrStatus.ts's own docstring): a
+  // genuine transport failure (this app's backend unreachable) must never
+  // be mistaken for "still loading" -- without this, a backend-unreachable
+  // state would leave this tooltip reading "Checking IBKR availability…"
+  // forever, even though the button itself already stays correctly disabled
+  // either way (`ibkrAvailable` is false whenever `data` is undefined).
+  const preloadTooltip = ibkrStatusQuery.isError
+    ? ibkrStatusQuery.error.detail
+    : ibkrStatusQuery.data
+      ? (ibkrStatusQuery.data.detail ?? 'IBKR is not currently available.')
+      : 'Checking IBKR availability…'
+
+  // `usePortfolio()` uses this app's global 60s `staleTime` (main.tsx), while
+  // `IbkrPreloadDialog`'s own preview query deliberately uses `staleTime: 0`
+  // (useIbkrPortfolioPreview.ts) for a fresh read every time it opens. Without
+  // this, a ticker added/removed locally in the last 60s that hasn't yet
+  // reappeared in `usePortfolio()`'s cache could render as "Not found
+  // locally" in the dialog's conflict table (no checkbox, so it couldn't be
+  // selected for deletion) even though the fresh preview correctly flags it
+  // as conflicting. Refetching (not just invalidating) right when the dialog
+  // opens closes that window entirely rather than only degrading gracefully
+  // through it. See this task's `decisions` entry.
+  const handleOpenPreloadDialog = () => {
+    void portfolioQuery.refetch()
+    setPreloadDialogOpen(true)
+  }
 
   return (
     <>
@@ -63,7 +87,7 @@ export default function PortfolioPage() {
                 <Button
                   variant="outlined"
                   startIcon={<CloudDownloadOutlinedIcon />}
-                  onClick={() => setPreloadDialogOpen(true)}
+                  onClick={handleOpenPreloadDialog}
                   disabled={!ibkrAvailable}
                 >
                   Preload from IBKR
