@@ -3,7 +3,7 @@
   "title": "Day-trader mode: wire GET /api/stocks/{ticker}/indicators and GET /api/portfolio/GET /api/portfolio/risk once their prerequisites land",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-day-trader-timeframe-mode-api",
     "backend-day-trader-timeframe-mode-history",
@@ -78,5 +78,33 @@
     "pr_number": 319,
     "pr_url": "https://github.com/rainoko/fintrade/pull/319",
     "pushed_at": "2026-09-25T00:42:32Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-25T01:01:52Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/319",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "GET /api/stocks/{ticker}/indicators's same-calendar-day response cache can serve a stale `trading_mode` field after the global trading mode changes between requests -- a cached IndicatorHistoryResponse's trading_mode is baked in at write time and returned as-is on a cache hit, never refreshed to the freshly-resolved current setting. Narrow in practice (only reachable while the swing branch is still being taken with a cache hit) but undocumented as an accepted tradeoff. Non-blocking; tracked on backend-day-trader-timeframe-mode-api-followups-followups.",
+        "file": "backend/app/api/routers/stocks.py",
+        "line": 812
+      },
+      {
+        "summary": "GET /api/portfolio/risk's first-pass loop duplicates ~15 lines of near-identical logic (drop_malformed_daily_bars/length-check/protective_stop try-except) across the day_trader_active and swing branches, differing only in where daily_ohlcv/weekly_ohlcv come from -- a maintenance hazard, not a bug. Non-blocking; tracked on backend-day-trader-timeframe-mode-api-followups-followups.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 963
+      },
+      {
+        "summary": "position_risk_pct's 'distance to stop' in day-trader mode mixes a swing-derived current_price (EOD daily close) with a day-trader-mode-derived protective_stop (IBKR intraday-leg-based) for the same position -- the 2%-rule risk percentage spans two different data sources/timeframes. Follows the already-reviewed PR #317 generalization precedent (not introduced fresh here), but this PR makes it reachable end-to-end via the real endpoint with no decisions entry addressing the interaction. Non-blocking; tracked on backend-day-trader-timeframe-mode-api-followups-followups.",
+        "file": "backend/app/portfolio/risk.py",
+        "line": 546
+      },
+      {
+        "summary": "test_portfolio_get.py's TestDayTraderMode class only exercises single-position scenarios -- the discriminating 'does the concurrent fan-out mix up which ticker gets which outcome' test exists at the unit level (test_day_trader_signal.py) but not as a GET /api/portfolio integration test with 2+ positions. Non-blocking; tracked on backend-day-trader-timeframe-mode-api-followups-followups.",
+        "file": "backend/tests/integration/test_portfolio_get.py",
+        "line": 597
+      }
+    ],
+    "notes": "Full review: independently re-ran backend (pytest --cov=app, 1398 passed, 100% coverage), frontend (yarn test:coverage, 882 passed, 99%+), ruff/mypy/eslint/tsc (all clean), scripts/check_profit_target_wording.py and scripts/validate_tasks.py (clean). Regenerated backend/openapi.json and frontend/src/api/types.ts myself -- zero diff against committed snapshots, confirming genuine sync. Ran the full persisted e2e Playwright suite (make e2e) against a fresh stack -- 26/26 specs passed. No Playwright MCP browser tool was available in this session, so substituted a manual API-level (curl) golden-path + edge-case walkthrough of every touched endpoint in both swing and day-trader (IBKR-disabled) mode against a live make dev stack -- all responses matched documented behavior exactly. Mutation-tested all three claims flagged for extra scrutiny: (1) reproduced the pre-fix TypeError directly and confirmed the tz-localize fix in ratchet_trailing_profit_stop is semantically correct (unit test asserts tz-aware result equals naive-equivalent exactly, not just non-crashing); (2) disabled the day-trader-mode dispatch in get_indicator_history and confirmed all 7 TestDayTraderMode tests genuinely fail (proving mode-check-before-swing-DataProvider ordering); (3) made _fan_out_per_ticker return the last-completed future's result for every ticker key and confirmed the swap-detection unit tests genuinely fail. Ran code-review (found the two non-blocking findings above plus confirmed no other correctness bugs), verify-elder-signal (no methodology drift -- app.portfolio.risk/profit_target/exits logic itself unchanged, only the tz fix touches risk.py), and architecture-review (module placement, API doc standard, no new dependency/layer all conform) checklists explicitly. Cross-checked the one 'decide X' checklist item against the decisions array -- present and adequately reasoned. Spot-checked several of the ~12 updated frontend fixture files -- all mechanical (adding the required trading_mode field) plus incidental prettier reformatting of unrelated nearby lines, no assertion/behavior changes."
   }
 }
