@@ -187,14 +187,53 @@ describe('PortfolioPage', () => {
       renderPortfolioPage()
 
       await waitFor(() =>
-        expect(screen.getByRole('button', { name: 'Preload from IBKR' })).toBeInTheDocument(),
+        expect(
+          screen.getByRole('button', { name: 'Preload from IBKR' }),
+        ).toBeInTheDocument(),
       )
       expect(screen.getByRole('button', { name: 'Preload from IBKR' })).toBeDisabled()
     })
 
+    // frontend-ibkr-portfolio-preload-followups #2: a genuine transport
+    // failure (this app's backend unreachable) must show a distinct tooltip,
+    // not the "Checking IBKR availability…" loading fallback forever --
+    // mirrors IbkrStatusIndicator's own isError-first check on this same
+    // query.
+    it('shows a distinct tooltip (not "Checking...") when GET /api/ibkr/status is unreachable', async () => {
+      server.use(http.get('/api/ibkr/status', () => HttpResponse.error()))
+
+      renderPortfolioPage()
+
+      await waitFor(() =>
+        expect(
+          screen.getByRole('button', { name: 'Preload from IBKR' }),
+        ).toBeInTheDocument(),
+      )
+      const button = screen.getByRole('button', { name: 'Preload from IBKR' })
+      expect(button).toBeDisabled()
+
+      const user = userEvent.setup()
+      // Hover the wrapping <span> (Tooltip's actual event target here), not
+      // the disabled <button> itself -- a disabled MUI Button has
+      // pointer-events: none, which is exactly why this button is wrapped in
+      // a <span> in the first place (PortfolioPage.tsx).
+      await user.hover(button.parentElement as HTMLElement)
+
+      await waitFor(() =>
+        expect(screen.queryByText('Checking IBKR availability…')).not.toBeInTheDocument(),
+      )
+      expect(
+        await screen.findByText(
+          'Unable to reach the API. Check your connection and try again.',
+        ),
+      ).toBeInTheDocument()
+    })
+
     it('enables the button once GET /api/ibkr/status reports available, and opens the review dialog on click', async () => {
       server.use(
-        http.get('/api/ibkr/status', () => HttpResponse.json({ state: 'available', detail: null })),
+        http.get('/api/ibkr/status', () =>
+          HttpResponse.json({ state: 'available', detail: null }),
+        ),
       )
       const user = userEvent.setup()
       renderPortfolioPage()
@@ -213,14 +252,67 @@ describe('PortfolioPage', () => {
       )
       // The dialog resolves AAPL's conflict against PortfolioPage's own
       // already-loaded usePortfolio() positions, not a second fetch.
-      const conflictTable = screen.getByRole('table', { name: 'Conflicting IBKR positions' })
+      const conflictTable = screen.getByRole('table', {
+        name: 'Conflicting IBKR positions',
+      })
       expect(within(conflictTable).getByText('AAPL')).toBeInTheDocument()
-      expect(within(conflictTable).queryByText('Not found locally')).not.toBeInTheDocument()
+      expect(
+        within(conflictTable).queryByText('Not found locally'),
+      ).not.toBeInTheDocument()
+    })
+
+    // frontend-ibkr-portfolio-preload-followups #5: usePortfolio() uses this
+    // app's global 60s staleTime, while IbkrPreloadDialog's own preview query
+    // uses staleTime: 0 -- refetching usePortfolio() right when the dialog
+    // opens closes the window where a very recent local add/remove hasn't
+    // yet reappeared in usePortfolio()'s cache, instead of only degrading
+    // gracefully through it (the existing "Not found locally" fallback).
+    it('refetches GET /api/portfolio when the dialog opens, not just once on initial page load', async () => {
+      server.use(
+        http.get('/api/ibkr/status', () =>
+          HttpResponse.json({ state: 'available', detail: null }),
+        ),
+      )
+      let portfolioFetchCount = 0
+      server.use(
+        http.get('/api/portfolio', () => {
+          portfolioFetchCount += 1
+          return HttpResponse.json({
+            trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
+            equity: { cash: 5000, positions_value: 22890, total: 27890 },
+            positions: [
+              {
+                id: 'pos_123',
+                ticker: 'AAPL',
+                quantity: 100,
+                avg_cost_basis: 195.3,
+                entry_date: '2026-05-14',
+              },
+            ],
+          })
+        }),
+      )
+      const user = userEvent.setup()
+      renderPortfolioPage()
+
+      await waitFor(() =>
+        expect(screen.getByRole('table', { name: 'Positions' })).toBeInTheDocument(),
+      )
+      expect(portfolioFetchCount).toBe(1)
+
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Preload from IBKR' })).toBeEnabled(),
+      )
+      await user.click(screen.getByRole('button', { name: 'Preload from IBKR' }))
+
+      await waitFor(() => expect(portfolioFetchCount).toBeGreaterThanOrEqual(2))
     })
 
     it('preloads NVDA end to end and shows it in the refreshed positions table', async () => {
       server.use(
-        http.get('/api/ibkr/status', () => HttpResponse.json({ state: 'available', detail: null })),
+        http.get('/api/ibkr/status', () =>
+          HttpResponse.json({ state: 'available', detail: null }),
+        ),
       )
       const user = userEvent.setup()
       renderPortfolioPage()
@@ -233,7 +325,9 @@ describe('PortfolioPage', () => {
       )
       await user.click(screen.getByRole('button', { name: 'Preload from IBKR' }))
       await waitFor(() =>
-        expect(screen.getByRole('button', { name: 'Import 1 position' })).toBeInTheDocument(),
+        expect(
+          screen.getByRole('button', { name: 'Import 1 position' }),
+        ).toBeInTheDocument(),
       )
       await user.click(screen.getByRole('button', { name: 'Import 1 position' }))
       await waitFor(() =>
