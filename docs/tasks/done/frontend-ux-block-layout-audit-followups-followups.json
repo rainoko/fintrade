@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #332's review (frontend-ux-block-layout-audit-followups)",
   "area": "frontend/ux",
   "skill": null,
-  "state": "planned",
+  "state": "done",
   "depends_on": ["frontend-ux-block-layout-audit-followups"],
   "references": [
     "docs/tasks/done/frontend-ux-block-layout-audit.json",
@@ -15,9 +15,16 @@
   "checklist": [
     {
       "step": "docs/tasks/done/frontend-ux-block-layout-audit.json's 'Narrowing note' decisions entry (timestamped 2026-09-25T16:19:38Z) states that frontend-dashboard-sell-flags 'backs the unrelated Dashboard SellFlaggedPositionsCard judgment ... correctly cited in their own per-view entries above'. This is inaccurate: grep-confirmed the task id 'frontend-dashboard-sell-flags' is never actually cited by name anywhere in the audit's per-view decisions entries (lines ~42-90 of the file). The Dashboard per-view entry describes the 'Positions Flagged to Sell' alert table (the component frontend-dashboard-sell-flags actually introduced, per docs/tasks/done/frontend-dashboard-sell-flags.json) but only names frontend-dashboard-page in its rationale, for an unrelated point about RiskSummaryCard. So the Narrowing note's claim that frontend-dashboard-sell-flags is 'correctly cited in their own per-view entries above' does not hold literally -- the component is described, but the task id backing it is never named there. By contrast, frontend-indicator-seasons-badge genuinely is cited by name in the Stock Detail per-view entry, so only half of the Narrowing note's 'both correctly cited' claim is accurate. Fix: append a new decisions entry (per CLAUDE.md's append-only-by-default rule) on docs/tasks/done/frontend-ux-block-layout-audit.json further correcting the Narrowing note -- clarifying that frontend-dashboard-sell-flags is not itself named in the Dashboard per-view entry (even though the component it introduced is described there), while frontend-indicator-seasons-badge's citation claim does hold.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-25T16:52:00Z",
+      "recorded_by": "manual",
+      "decision": "Fixed directly by appending a further-narrowing decisions entry (timestamp 2026-09-25T16:52:00Z) to docs/tasks/done/frontend-ux-block-layout-audit.json, rather than through the full task-worker/pr-reviewer/pr-decision/pr-merger pipeline.",
+      "rationale": "The fix is a single sentence of task-JSON metadata correcting a citation-precision gap, with no code or UX content and no risk to the actual audit conclusion -- the user explicitly chose 'fix it directly, no pipeline' when asked how to handle this trailing item, given the UX audit itself (the substantive deliverable) was already independently confirmed twice over by pr-reviewer and pr-decision on PR #331."
+    }
+  ],
   "questions": []
 }
