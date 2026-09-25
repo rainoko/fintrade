@@ -87,7 +87,12 @@ class TestGetIntradayBarsForTripleUnitScoping:
         assert result.intermediate is not None
         assert result.short_term.state == "available"
         assert result.intermediate.state == "available"
-        assert provider.get_hourly_bars.call_count == 2
+        # `get_hourly_bars.call_count`'s increment is a non-atomic read-modify-write that can
+        # lose updates under real concurrent invocation from separate OS threads (the three
+        # legs are fetched concurrently -- see `_fetch_legs_concurrently`); `call_args_list`
+        # (a plain list append) stays exact under the same concurrency, so assert on its
+        # length instead (docs/tasks/backend-day-trader-timeframe-mode-ibkr-intraday-followups-followups.json).
+        assert len(provider.get_hourly_bars.call_args_list) == 2
 
     def test_all_three_legs_fetched_for_a_fully_intraday_triple(self, mocker) -> None:
         """ch. 39's own day-trading examples (25-min/5-min/2-min, 39-min/8-min) are fully
@@ -111,7 +116,9 @@ class TestGetIntradayBarsForTripleUnitScoping:
         assert result.long_term.ibkr_bar_size == "5min"
         assert result.short_term.state == "available"
         assert result.intermediate.state == "available"
-        assert provider.get_hourly_bars.call_count == 3
+        # See the same call_count -> call_args_list rationale in
+        # test_two_of_three_minute_unit_legs_are_fetched above.
+        assert len(provider.get_hourly_bars.call_args_list) == 3
 
     def test_no_leg_needs_ibkr_when_none_is_minute_unit(self, mocker) -> None:
         provider = mocker.create_autospec(IBKRProvider, instance=True)
