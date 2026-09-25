@@ -177,4 +177,76 @@ describe('PortfolioPage', () => {
       ).toBeInTheDocument(),
     )
   })
+
+  // frontend-ibkr-portfolio-preload: the "Preload from IBKR" action is gated
+  // on GET /api/ibkr/status, which defaults to 'disabled' (the real backend's
+  // own default, tests/mocks/handlers.ts) -- so every other test above never
+  // sees this button enabled, matching the real app's out-of-the-box state.
+  describe('Preload from IBKR', () => {
+    it('renders the button disabled, with an explanatory tooltip, when IBKR is disabled (the default)', async () => {
+      renderPortfolioPage()
+
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Preload from IBKR' })).toBeInTheDocument(),
+      )
+      expect(screen.getByRole('button', { name: 'Preload from IBKR' })).toBeDisabled()
+    })
+
+    it('enables the button once GET /api/ibkr/status reports available, and opens the review dialog on click', async () => {
+      server.use(
+        http.get('/api/ibkr/status', () => HttpResponse.json({ state: 'available', detail: null })),
+      )
+      const user = userEvent.setup()
+      renderPortfolioPage()
+
+      await waitFor(() =>
+        expect(screen.getByRole('table', { name: 'Positions' })).toBeInTheDocument(),
+      )
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Preload from IBKR' })).toBeEnabled(),
+      )
+      await user.click(screen.getByRole('button', { name: 'Preload from IBKR' }))
+
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+      await waitFor(() =>
+        expect(screen.getByText('Conflicting tickers (1)')).toBeInTheDocument(),
+      )
+      // The dialog resolves AAPL's conflict against PortfolioPage's own
+      // already-loaded usePortfolio() positions, not a second fetch.
+      const conflictTable = screen.getByRole('table', { name: 'Conflicting IBKR positions' })
+      expect(within(conflictTable).getByText('AAPL')).toBeInTheDocument()
+      expect(within(conflictTable).queryByText('Not found locally')).not.toBeInTheDocument()
+    })
+
+    it('preloads NVDA end to end and shows it in the refreshed positions table', async () => {
+      server.use(
+        http.get('/api/ibkr/status', () => HttpResponse.json({ state: 'available', detail: null })),
+      )
+      const user = userEvent.setup()
+      renderPortfolioPage()
+
+      await waitFor(() =>
+        expect(screen.getByRole('table', { name: 'Positions' })).toBeInTheDocument(),
+      )
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Preload from IBKR' })).toBeEnabled(),
+      )
+      await user.click(screen.getByRole('button', { name: 'Preload from IBKR' }))
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Import 1 position' })).toBeInTheDocument(),
+      )
+      await user.click(screen.getByRole('button', { name: 'Import 1 position' }))
+      await waitFor(() =>
+        expect(screen.getByText('Imported 1 position from IBKR.')).toBeInTheDocument(),
+      )
+      await user.click(screen.getByRole('button', { name: 'Done' }))
+
+      await waitFor(() => {
+        const table = screen.getByRole('table', { name: 'Positions' })
+        expect(within(table).getByText('NVDA')).toBeInTheDocument()
+        // The still-conflicting AAPL position was never touched/merged.
+        expect(within(table).getByText('AAPL')).toBeInTheDocument()
+      })
+    }, 15000)
+  })
 })

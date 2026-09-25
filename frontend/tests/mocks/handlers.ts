@@ -32,6 +32,10 @@ import type {
   WatchlistResponse,
 } from '../../src/api/watchlist'
 import type {
+  IBKRPortfolioPreloadImportedPositionOut,
+  IBKRPortfolioPreloadResponse,
+  IBKRPortfolioPreviewPositionOut,
+  IBKRPortfolioPreviewResponse,
   IBKRScannerParamsResponse,
   IBKRScannerResultOut,
   IBKRScannerRunResponse,
@@ -421,6 +425,20 @@ const initialPositions: StoredPosition[] = [
     avg_cost_basis: 195.3,
     entry_date: '2026-05-14',
   },
+]
+
+// Fixture IBKR-side account positions backing GET /api/ibkr/portfolio-preview
+// / POST /api/ibkr/portfolio-preload below (frontend-ibkr-portfolio-preload):
+// AAPL conflicts with `initialPositions`' own AAPL row by default; NVDA never
+// appears in `initialPositions`, so it starts out non-conflicting.
+const IBKR_ACCOUNT_POSITIONS: Array<{
+  conid: number
+  ticker: string
+  quantity: number
+  avg_cost: number
+}> = [
+  { conid: 265598, ticker: 'AAPL', quantity: 50, avg_cost: 150.25 },
+  { conid: 272093, ticker: 'NVDA', quantity: 10, avg_cost: 900.5 },
 ]
 
 // Mock market prices backing the enrichment above. A ticker with no entry
@@ -1127,6 +1145,76 @@ export const handlers: HttpHandler[] = [
       { conid: 1002, symbol: 'MSFT', company_name: 'Microsoft Corp.', rank: 2 },
     ]
     const response: IBKRScannerRunResponse = { state: 'available', detail: null, results }
+    return HttpResponse.json(response)
+  }),
+
+  // GET /api/ibkr/portfolio-preview, POST /api/ibkr/portfolio-preload
+  // (frontend-ibkr-portfolio-preload): default to an 'available' gateway,
+  // same convention as GET /api/ibkr/scanner/params above (these are the
+  // first frontend consumers of either route) -- a test overrides either
+  // handler via server.use() for the disabled/gateway_unreachable/
+  // not_authenticated/503 cases. `IBKR_ACCOUNT_POSITIONS` is a fixed IBKR-side
+  // fixture (AAPL, matching the shared `positions` store's own default AAPL
+  // row, so it starts out conflicting; NVDA, which never appears in
+  // `initialPositions`, so it starts out non-conflicting) -- both handlers
+  // below compute `conflicts_with_existing_position`/skip-vs-import against
+  // the SAME mutable `positions` array `GET/POST/DELETE
+  // /api/portfolio/positions` already read/write, exactly mirroring the real
+  // backend's own "re-check against the local table's current state" (not a
+  // snapshot from an earlier preview call) contract this feature's whole
+  // delete-then-import ordering depends on.
+  http.get('/api/ibkr/portfolio-preview', () => {
+    const existingTickers = new Set(positions.map((position) => position.ticker))
+    const previewPositions: IBKRPortfolioPreviewPositionOut[] = IBKR_ACCOUNT_POSITIONS.map(
+      (position) => ({
+        conid: position.conid,
+        ticker: position.ticker,
+        quantity: position.quantity,
+        avg_cost: position.avg_cost,
+        conflicts_with_existing_position: existingTickers.has(position.ticker),
+      }),
+    )
+    const response: IBKRPortfolioPreviewResponse = {
+      state: 'available',
+      detail: null,
+      positions: previewPositions,
+    }
+    return HttpResponse.json(response)
+  }),
+
+  http.post('/api/ibkr/portfolio-preload', () => {
+    const existingTickers = new Set(positions.map((position) => position.ticker))
+    const imported: IBKRPortfolioPreloadImportedPositionOut[] = []
+    const skipped: string[] = []
+    const entryDate = new Date().toISOString().slice(0, 10)
+    for (const position of IBKR_ACCOUNT_POSITIONS) {
+      if (existingTickers.has(position.ticker)) {
+        skipped.push(position.ticker)
+        continue
+      }
+      const stored: StoredPosition = {
+        id: `pos_${nextPositionId++}`,
+        ticker: position.ticker,
+        quantity: position.quantity,
+        avg_cost_basis: position.avg_cost,
+        entry_date: entryDate,
+        entry_notes: 'Imported from IBKR.',
+      }
+      positions.push(stored)
+      existingTickers.add(position.ticker)
+      imported.push({
+        ticker: stored.ticker,
+        quantity: stored.quantity,
+        avg_cost_basis: stored.avg_cost_basis,
+        entry_date: stored.entry_date,
+      })
+    }
+    const response: IBKRPortfolioPreloadResponse = {
+      state: 'available',
+      detail: null,
+      imported,
+      skipped_conflicting_tickers: skipped,
+    }
     return HttpResponse.json(response)
   }),
 

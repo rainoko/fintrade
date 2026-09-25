@@ -2273,7 +2273,7 @@
       "id": "frontend-ibkr-portfolio-preload",
       "area": "frontend/portfolio",
       "skill": "add-frontend-feature",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-ibkr-portfolio-preload.json"
     },
     {

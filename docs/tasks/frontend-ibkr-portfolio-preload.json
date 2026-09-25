@@ -3,7 +3,7 @@
   "title": "Preload-from-IBKR button on the Portfolio page: conflict review + delete-then-import flow",
   "area": "frontend/portfolio",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-ibkr-portfolio-preload"],
   "references": [
     "docs/architecture/Frontend.md",
@@ -13,25 +13,62 @@
   "checklist": [
     {
       "step": "Add a 'Preload from IBKR' button to the Portfolio page, following this app's existing `common/`-vs-feature-specific placement convention. Gate its visibility/enabled state on `GET /api/ibkr/status` reporting `state: \"available\"` (reuse whatever existing hook/pattern the Scanner page already uses for this same gating, rather than reinventing it).",
-      "done": false
+      "done": true
     },
     {
       "step": "On click, call the backend's preview endpoint and render a review UI: the list of non-conflicting IBKR positions that will be preloaded, and the list of conflicting tickers (IBKR position vs. existing local position) with a per-ticker checkbox/control letting the user choose which existing local positions to delete.",
-      "done": false
+      "done": true
     },
     {
       "step": "A confirm/apply action that deletes exactly the user-selected local positions first, then calls the preload endpoint to import every non-conflicting IBKR position -- matching the backend's required ordering (delete chosen conflicts, then preload). Never presents this as a 'merge' or 'update' of an existing position the user didn't choose to delete.",
-      "done": false
+      "done": true
     },
     {
       "step": "Handle the no-conflicts and nothing-new-to-preload edge cases with clear empty-state messaging rather than a blank/confusing review screen.",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests (vitest/Testing Library/MSW, no live network calls): the IBKR-availability gating on the button itself, the conflict-review rendering (both non-conflicting and conflicting cases), and the delete-then-preload call ordering. Storybook coverage for any new component placed under `components/common/`.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-25T21:44:11Z",
+      "recorded_by": "task-worker",
+      "decision": "The 'Preload from IBKR' button reuses `features/ibkr/hooks/useIbkrStatus` (the exact `GET /api/ibkr/status` hook `IbkrStatusIndicator` already calls) rather than a new status query, and always renders on the Portfolio page -- it is never hidden entirely -- disabled with an explanatory `Tooltip` (the backend's own `detail` string, or a generic fallback) whenever `state !== 'available'`.",
+      "rationale": "Reusing `useIbkrStatus` is what the checklist itself asked for ('reuse whatever existing hook/pattern ... rather than reinventing it'). Always-visible-but-disabled was chosen over ScannerPage's own whole-page `UnavailableState` swap because the two situations aren't analogous: ScannerPage's entire content IS the IBKR-dependent feature, so swapping the whole page for an explanatory placeholder when it's unavailable is the right call: there is nothing else on that page to show. The Portfolio page's IBKR-dependent surface is a single optional action among several always-usable ones (Add Position, the positions table, risk panel, trade journal); hiding the button outright would make a user who doesn't currently have IBKR connected wonder whether the feature exists at all, rather than understanding it's just not connected right now, whereas a disabled button with a tooltip is discoverable and self-explanatory. Rejected alternative: hiding the button entirely when unavailable (ScannerPage's own pattern) -- rejected for the reason above; this is a narrower, more surgical placement of an already-existing status check onto one button, not a full-page gate."
+    },
+    {
+      "timestamp": "2026-09-25T21:44:11Z",
+      "recorded_by": "task-worker",
+      "decision": "No new `components/common/` component was added for this task. The review dialog (`IbkrPreloadDialog`, `features/portfolio/components/`) is built entirely from existing common building blocks (`DataTable`, `EmptyState`, `LoadingState`, `ErrorState`, `UnavailableState`) plus one hand-rolled MUI `Table` for the conflicting-tickers section specifically (not `common/DataTable`) -- since `DataTableColumn<T>.key` must be a real, distinct `keyof T` per column and doubles as each cell's React key, and the conflict row's actual shape (`{ ibkr, local }`) only has two real fields but needs four visually distinct columns (a checkbox, ticker, the local side, the IBKR side), which would force reusing the same two keys twice each and collide as duplicate React keys within a row.",
+      "rationale": "Every other table this dialog renders (non-conflicting positions, imported positions) has a genuine single-source row shape with four-plus distinct real fields, so `common/DataTable` fits them cleanly and was used as-is. The conflicting-tickers table's row is fundamentally a join of two different API shapes (`IBKRPortfolioPreviewPositionOut` and the resolved local `PositionOut`), which `DataTableColumn`'s single-`keyof T`-per-column contract doesn't accommodate without an awkward workaround (inventing extra unused fields on the row type purely to get unique keys, which would misrepresent the row's real shape for no benefit). A plain hand-rolled `Table`/`TableHead`/`TableBody` gives full, natural control over per-cell keys with no such contortion, and is no less tested (100% line/branch coverage on this file) or consistent (same MUI `Table` primitives `common/DataTable` itself wraps) than reusing the wrapper would have been. Since no new `common/` component was added, no new Storybook story was needed either -- the checklist's own Storybook requirement is conditional on 'any new component placed under `components/common/`', and none was."
+    },
+    {
+      "timestamp": "2026-09-25T21:44:11Z",
+      "recorded_by": "task-worker",
+      "decision": "Each conflicting local position the user selects for deletion is deleted via `DELETE /api/portfolio/positions/{id}` with `exit_reason: 'unspecified'` -- the same default the backend itself falls back to when no reason is supplied.",
+      "rationale": "None of Elder's own exit-reason taxonomy (`target_hit`/`stop_hit`/`reached_value_zone`/`going_nowhere`/`starting_to_turn`/`couldnt_stand_the_pain`/`recognized_junk_trade_after_entry`) describes 'deleted this local position to make way for a freshly-imported IBKR version of the same ticker' -- this isn't a trading exit decision at all, it's clearing a name collision so a re-import can proceed. Picking any of Elder's real trading-exit reasons here would misrepresent why the position was actually closed in the trade journal/closed-trades history this delete call also writes to (`backend-trade-history-table`). `unspecified` is the one value in the enum that doesn't claim a trading rationale that didn't happen, and it's already the backend's own documented default for exactly the 'no real reason to report' case. Rejected: adding a new IBKR-import-specific exit reason to the shared `ExitReason` enum -- that's backend schema surface this frontend-only task has no mandate to change, and would need its own `decisions`/schema-doc/OpenAPI-regeneration pass on the already-merged `backend-ibkr-portfolio-preload` PR, disproportionate for what's fundamentally a labeling nuance on an edge-case action."
+    },
+    {
+      "timestamp": "2026-09-25T21:44:11Z",
+      "recorded_by": "task-worker",
+      "decision": "`useIbkrPortfolioPreload` deletes the user-selected local positions sequentially (one `DELETE` call awaited at a time, not `Promise.all`), and treats a `404 Not Found` from any one of those delete calls as 'already gone' -- silently continuing to the next id (or to the final preload call) -- rather than treating it as a mutation failure.",
+      "rationale": "Sequential (not parallel) deletes directly guarantee the backend's own required ordering (every chosen deletion commits before the re-check-and-import call runs) with no need for a second synchronization mechanism -- `Promise.all` would fire all the DELETEs concurrently with no guarantee they'd all be durably committed server-side before the immediately-following `POST /api/ibkr/portfolio-preload` starts its own conflict re-check, especially for more than one selected id. Swallowing a 404 specifically (not any other status) makes a *retry* of this same mutation safe after a partial failure: if an earlier attempt's final preload call itself failed (e.g. a transient 503, `backend-ibkr-portfolio-preload`'s documented failure mode for a concurrent-write race), the deletes before it may have already succeeded, so a user-initiated retry re-sends the exact same `deleteIds` -- without this, the very first id would 404 on retry (since it's already gone) and the mutation would never reach the preload call at all, permanently blocking recovery from that specific failure mode. Rejected alternatives: (1) `Promise.all` for speed -- rejected for the ordering-guarantee reason above, and the realistic case count (a handful of conflicting tickers at most) makes the latency difference immaterial; (2) surfacing every delete failure including 404 -- rejected because it would make exactly the most likely retry-after-partial-failure scenario permanently un-retryable through this dialog."
+    },
+    {
+      "timestamp": "2026-09-25T21:44:11Z",
+      "recorded_by": "task-worker",
+      "decision": "`useIbkrPortfolioPreload` invalidates `portfolioKeys.all` in `onSettled`, not `onSuccess` -- meaning a delete-then-preload attempt that fails partway (a later delete, or the final preload call, throws) still triggers the same invalidation as a full success would. `portfolioKeys.ibkrPreview` (the dialog's own preview query key) was added nested under `portfolioKeys.all` (`['portfolio', 'ibkr-preview']`) specifically so this one invalidation call also covers it via TanStack Query's prefix-matching, mirroring `risk`/`closedTrades`/`dueForFollowUpTrades`'s existing precedent in the same file. `useIbkrPortfolioPreview` additionally sets `staleTime: 0` on that query, overriding this app's global 60s default (`main.tsx`).",
+      "rationale": "Checked against `useUpdateTradingMode`'s own PR #328 regression (dropping a needed query-key invalidation left a stale pre-save cache visible on a later remount) as directed: the failure mode here is the mirror image of that one -- not a *dropped* key, but a *conditional* invalidation that would silently skip firing on a partial failure. A delete call inside the sequential loop can succeed even when a later step (another delete, or the final preload call) fails -- the position is genuinely gone server-side at that point regardless of the mutation's overall outcome -- so gating the invalidation on the mutation's own success (the naive default, matching `useDeletePosition`'s own `onSuccess`) would leave the Portfolio page's positions table showing an already-deleted position as still held until some unrelated later refetch happened to occur. `staleTime: 0` on the preview query exists for the same underlying reason from the read side: this app's global 60s `staleTime` is tuned for data that 'doesn't change second-to-second' (main.tsx's own comment) -- but the whole point of `GET /api/ibkr/portfolio-preview` is to answer 'what conflicts right now', and a cached answer from up to 60s ago, re-shown on a re-opened dialog after the user has since added/deleted/re-preloaded positions elsewhere, would misinform exactly the choice this dialog exists to support. Rejected: leaving both at this app's ordinary defaults (`onSuccess`-only invalidation, the global 60s `staleTime`) -- both would reintroduce a real, if narrower, staleness bug of the same shape PR #328 already found and fixed once in this codebase."
+    },
+    {
+      "timestamp": "2026-09-25T21:44:11Z",
+      "recorded_by": "task-worker",
+      "decision": "The dialog's 'Import N position(s)' count (and the confirm button's disabled state) is `nonConflicting.length + selectedDeleteIds.size`, not just the previewed non-conflicting count -- i.e. every conflicting ticker the user selects for deletion is counted as an additional import, on top of whatever was already non-conflicting at preview time.",
+      "rationale": "This matches what the backend's own `POST /api/ibkr/portfolio-preload` actually does, per `backend-ibkr-portfolio-preload`'s own decisions: it takes no per-ticker selection parameter and imports every ticker that is non-conflicting *at the moment it runs* (after the caller's chosen deletions have already committed) -- so a ticker the user just freed up by deleting its conflicting local position becomes non-conflicting and IS imported, exactly like one that was never conflicting in the first place. Showing only the previewed non-conflicting count (ignoring what a selected deletion would additionally free up) would understate what confirming actually does and could make a user believe they need to separately re-run the flow after deleting a conflict, when one single confirm already handles both steps in the required order."
+    }
+  ],
   "questions": []
 }
