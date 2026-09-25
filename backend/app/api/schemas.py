@@ -1128,6 +1128,112 @@ class IBKRBreadthSnapshotResponse(BaseModel):
     )
 
 
+# --- /api/ibkr/portfolio-preview, /api/ibkr/portfolio-preload ---------------
+#
+# backend-ibkr-portfolio-preload: preload the connected IBKR account's current equity
+# positions into the local `positions` table, without ever merging into an already-held
+# same-ticker position (that merge behavior belongs solely to `POST
+# /api/portfolio/positions` -- see PositionIn's own docstring). The preview endpoint is a
+# read-only "what would happen" check; the preload endpoint actually imports, re-checking
+# conflicts against the DB's CURRENT state so a ticker the caller just deleted via
+# `DELETE /api/portfolio/positions/{id}` is picked up as no-longer-conflicting.
+
+
+class IBKRPortfolioPreviewPositionOut(BaseModel):
+    conid: int = Field(description="IBKR's own numeric contract id for this position.")
+    ticker: str = Field(
+        description="Ticker symbol, resolved from the IBKR positions response and "
+        "uppercased to match this app's own ticker-normalization convention "
+        "(PositionIn.ticker). See the backend-ibkr-portfolio-preload task's `decisions` "
+        "entry for how this is derived."
+    )
+    quantity: float = Field(description="Number of shares currently held in this IBKR position.")
+    avg_cost: float | None = Field(
+        default=None,
+        description="Average cost per share as reported by IBKR, if available. Null "
+        "positions are still shown here for visibility, but "
+        "`POST /api/ibkr/portfolio-preload` will not import one -- a `PositionORM` row "
+        "requires a known cost basis (`PositionIn.avg_cost_basis` is a required, "
+        "positive field) and IBKR's own response can omit this even for an otherwise "
+        "well-formed equity position.",
+    )
+    conflicts_with_existing_position: bool = Field(
+        description="True if this ticker already has a position in the local `positions` "
+        "table right now. A conflicting ticker is never merged/updated/overwritten by "
+        "`POST /api/ibkr/portfolio-preload` -- the caller must first delete the existing "
+        "local position (`DELETE /api/portfolio/positions/{id}`) if they want the IBKR "
+        "position imported instead; see this task's `decisions` entry for why this reuses "
+        "that existing single-position endpoint rather than a new bulk-delete one.",
+    )
+
+
+class IBKRPortfolioPreviewResponse(BaseModel):
+    state: IBKRGatewayState = Field(
+        description="Same semantics/values as GET /api/ibkr/status's `state`. 'available' "
+        "means `positions` below reflects a completed fetch; every other value means this "
+        "feature is currently unavailable (never an HTTP error) and `positions` is null.",
+    )
+    detail: str | None = Field(
+        default=None,
+        description="Human-readable context for `state`, same convention as "
+        "GET /api/ibkr/status's `detail`.",
+    )
+    positions: list[IBKRPortfolioPreviewPositionOut] | None = Field(
+        default=None,
+        description="Every IBKR equity position this app could resolve a ticker for, each "
+        "flagged with whether it conflicts with an existing local position right now. "
+        "Non-null if and only if `state` is 'available'; an empty list is a valid response "
+        "(the IBKR account currently holds no equity positions this app can represent). "
+        "No DB writes happen from calling this endpoint.",
+    )
+
+
+class IBKRPortfolioPreloadImportedPositionOut(BaseModel):
+    ticker: str = Field(description="Ticker symbol of the newly-created local position.")
+    quantity: float = Field(description="Quantity imported from the IBKR position, unchanged.")
+    avg_cost_basis: float = Field(description="Average cost per share imported from the IBKR position, unchanged.")
+    entry_date: date = Field(
+        description="Always today's date -- IBKR's positions endpoint does not report when "
+        "a position was originally opened, so this can't be backfilled with the real "
+        "purchase date. See this task's `decisions` entry.",
+    )
+
+
+class IBKRPortfolioPreloadResponse(BaseModel):
+    state: IBKRGatewayState = Field(
+        description="Same semantics/values as GET /api/ibkr/status's `state`. 'available' "
+        "means `imported`/`skipped_conflicting_tickers` below reflect a completed import "
+        "attempt; every other value means this feature is currently unavailable (never an "
+        "HTTP error) and both are null. Nothing is imported (and no field below is "
+        "populated) when `state` isn't 'available'.",
+    )
+    detail: str | None = Field(
+        default=None,
+        description="Human-readable context for `state`, same convention as "
+        "GET /api/ibkr/status's `detail`.",
+    )
+    imported: list[IBKRPortfolioPreloadImportedPositionOut] | None = Field(
+        default=None,
+        description="Every IBKR position that was actually inserted as a new local "
+        "position (i.e. its ticker did not already exist in the local `positions` table "
+        "at the moment this endpoint ran). Non-null if and only if `state` is 'available'; "
+        "an empty list is a valid response (nothing new to import). Never includes a "
+        "ticker that already existed locally -- see `skipped_conflicting_tickers`.",
+    )
+    skipped_conflicting_tickers: list[str] | None = Field(
+        default=None,
+        description="Tickers from the fetched IBKR positions that were NOT imported "
+        "because a local position for that ticker still existed at the moment this "
+        "endpoint ran (the caller didn't delete it first via "
+        "`DELETE /api/portfolio/positions/{id}`, or it was a duplicate ticker within this "
+        "same IBKR fetch -- see this task's `decisions` entry). A still-conflicting "
+        "ticker's existing local position is left completely untouched -- this endpoint "
+        "NEVER merges/updates it, unlike `POST /api/portfolio/positions`'s own "
+        "same-ticker-merge behavior. Non-null if and only if `state` is 'available'; an "
+        "empty list means every fetched, importable IBKR position was non-conflicting.",
+    )
+
+
 # --- /api/daily-homework ----------------------------------------------------
 
 HomeworkBandOut = Literal["red", "yellow", "green"]

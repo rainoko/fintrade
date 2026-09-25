@@ -15,6 +15,7 @@ import pytest
 
 from app.data.ibkr_provider import (
     DEFAULT_BASE_URL,
+    IBKRAccountPosition,
     IBKRBar,
     IBKRProvider,
     IBKRRateLimitedError,
@@ -854,6 +855,337 @@ class TestResolveConid:
         mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
 
         assert IBKRProvider().resolve_conid("AAPL") is None
+
+
+class TestGetAccountPositions:
+    """docs/tasks/backend-ibkr-portfolio-preload.json -- `GET /iserver/accounts` +
+    `GET /portfolio/{accountId}/positions/{pageId}`, mocked per this module's own
+    no-live-gateway testing constraint (see this task's `decisions` entry for the exact
+    documented shape both calls were implemented against)."""
+
+    @staticmethod
+    def _stk_row(
+        ticker: str, conid: int, *, quantity: float = 10.0, avg_cost: float | None = 100.0
+    ) -> dict:
+        row: dict[str, object] = {
+            "conid": conid,
+            "contractDesc": ticker,
+            "position": quantity,
+            "assetClass": "STK",
+        }
+        if avg_cost is not None:
+            row["avgCost"] = avg_cost
+        return row
+
+    def test_raises_when_gateway_not_available(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="gateway_unreachable", detail=None),
+        )
+        request = mocker.patch("app.data.ibkr_provider.IBKRProvider._request")
+
+        with pytest.raises(IBKRUnavailableError):
+            IBKRProvider().get_account_positions()
+
+        request.assert_not_called()
+
+    def test_discovers_account_via_selected_account(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[
+                {"accounts": ["DU000001", "DU000002"], "selectedAccount": "DU000002"},
+                [],
+            ],
+        )
+
+        IBKRProvider().get_account_positions()
+
+        first_call = request.call_args_list[0]
+        assert first_call.args == ("GET", "/iserver/accounts")
+        second_call = request.call_args_list[1]
+        assert second_call.args == ("GET", "/portfolio/DU000002/positions/0")
+
+    def test_falls_back_to_first_account_when_no_selected_account(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU000001"]}, []],
+        )
+
+        IBKRProvider().get_account_positions()
+
+        second_call = request.call_args_list[1]
+        assert second_call.args == ("GET", "/portfolio/DU000001/positions/0")
+
+    def test_no_usable_account_id_raises(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value={"accounts": []})
+
+        with pytest.raises(IBKRUnavailableError):
+            IBKRProvider().get_account_positions()
+
+    def test_non_dict_accounts_payload_raises(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=["unexpected"])
+
+        with pytest.raises(IBKRUnavailableError):
+            IBKRProvider().get_account_positions()
+
+    def test_single_page_returns_parsed_positions(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        page = [self._stk_row("AAPL", 265598, quantity=10, avg_cost=130.5)]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, page, []],
+        )
+
+        positions = IBKRProvider().get_account_positions()
+
+        assert positions == [
+            IBKRAccountPosition(conid=265598, ticker="AAPL", quantity=10.0, avg_cost=130.5)
+        ]
+
+    def test_ticker_uppercased(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        page = [self._stk_row("aapl", 265598)]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, page, []],
+        )
+
+        positions = IBKRProvider().get_account_positions()
+
+        assert positions[0].ticker == "AAPL"
+
+    def test_non_stk_asset_class_is_dropped(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        page = [
+            {"conid": 1, "contractDesc": "AAPL  JAN24 150 C", "position": 1, "assetClass": "OPT"},
+            self._stk_row("MSFT", 2),
+        ]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, page, []],
+        )
+
+        positions = IBKRProvider().get_account_positions()
+
+        assert [p.ticker for p in positions] == ["MSFT"]
+
+    def test_non_positive_quantity_is_dropped(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        page = [
+            self._stk_row("SHORT", 1, quantity=-5),
+            self._stk_row("FLAT", 2, quantity=0),
+            self._stk_row("LONG", 3, quantity=5),
+        ]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, page, []],
+        )
+
+        positions = IBKRProvider().get_account_positions()
+
+        assert [p.ticker for p in positions] == ["LONG"]
+
+    def test_non_numeric_quantity_is_dropped(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        page = [
+            {"conid": 1, "contractDesc": "BAD", "position": "not-a-number", "assetClass": "STK"},
+            self._stk_row("MSFT", 2),
+        ]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, page, []],
+        )
+
+        positions = IBKRProvider().get_account_positions()
+
+        assert [p.ticker for p in positions] == ["MSFT"]
+
+    def test_non_finite_avg_cost_becomes_none_not_dropped(self, mocker) -> None:
+        """A non-finite `avgCost` (e.g. `"nan"`, which bare `float()` would otherwise
+        happily accept) must degrade to `avg_cost=None`, not a NaN value or a dropped
+        row -- `position`/`ticker`/`conid` are still perfectly valid."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        page = [
+            {
+                "conid": 1,
+                "contractDesc": "AAPL",
+                "position": 10.0,
+                "avgCost": "nan",
+                "assetClass": "STK",
+            }
+        ]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, page, []],
+        )
+
+        positions = IBKRProvider().get_account_positions()
+
+        assert len(positions) == 1
+        assert positions[0].avg_cost is None
+
+    def test_missing_avg_cost_keeps_row_with_none(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        page = [self._stk_row("AAPL", 1, avg_cost=None)]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, page, []],
+        )
+
+        positions = IBKRProvider().get_account_positions()
+
+        assert positions[0].avg_cost is None
+
+    def test_malformed_conid_row_is_skipped(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        page = [
+            {"conid": "bad", "contractDesc": "AAPL", "position": 1, "assetClass": "STK"},
+            self._stk_row("MSFT", 2),
+        ]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, page, []],
+        )
+
+        positions = IBKRProvider().get_account_positions()
+
+        assert [p.ticker for p in positions] == ["MSFT"]
+
+    def test_blank_contract_desc_is_skipped(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        page = [
+            {"conid": 1, "contractDesc": "   ", "position": 1, "assetClass": "STK"},
+            self._stk_row("MSFT", 2),
+        ]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, page, []],
+        )
+
+        positions = IBKRProvider().get_account_positions()
+
+        assert [p.ticker for p in positions] == ["MSFT"]
+
+    def test_non_dict_rows_are_skipped(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        page = ["unexpected", self._stk_row("MSFT", 2)]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, page, []],
+        )
+
+        positions = IBKRProvider().get_account_positions()
+
+        assert [p.ticker for p in positions] == ["MSFT"]
+
+    def test_non_list_page_payload_returns_empty(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, {"unexpected": "shape"}],
+        )
+
+        positions = IBKRProvider().get_account_positions()
+
+        assert positions == []
+
+    def test_paginates_until_empty_page(self, mocker) -> None:
+        page_one = [self._stk_row("AAPL", 1)]
+        page_two = [self._stk_row("MSFT", 2)]
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, page_one, page_two, []],
+        )
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+
+        positions = IBKRProvider().get_account_positions()
+
+        assert [p.ticker for p in positions] == ["AAPL", "MSFT"]
+        # accounts call + 3 position-page calls (two full pages, one empty terminator).
+        assert request.call_count == 4
+        page_paths = [c.args[1] for c in request.call_args_list[1:]]
+        assert page_paths == [
+            "/portfolio/DU1/positions/0",
+            "/portfolio/DU1/positions/1",
+            "/portfolio/DU1/positions/2",
+        ]
+
+    def test_stops_at_the_page_safety_bound_when_never_empty(self, mocker) -> None:
+        """A pathological source that never returns an empty page must still terminate at
+        `_MAX_ACCOUNT_POSITIONS_PAGES`, not loop forever."""
+
+        def _one_position_page(*_args, **_kwargs) -> list[dict]:
+            return [self._stk_row(f"T{request.call_count}", request.call_count)]
+
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=lambda *args, **kwargs: (
+                {"accounts": ["DU1"]} if args[1] == "/iserver/accounts" else _one_position_page()
+            ),
+        )
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+
+        positions = IBKRProvider().get_account_positions()
+
+        from app.data.ibkr_provider import _MAX_ACCOUNT_POSITIONS_PAGES
+
+        assert request.call_count == 1 + _MAX_ACCOUNT_POSITIONS_PAGES
+        assert len(positions) == _MAX_ACCOUNT_POSITIONS_PAGES
 
 
 class TestRequest:

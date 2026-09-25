@@ -1,0 +1,137 @@
+{
+  "id": "backend-ibkr-portfolio-preload",
+  "title": "IBKR-backed portfolio preload: preview conflicts, delete-then-import without merging",
+  "area": "backend/api",
+  "skill": "add-api-endpoint",
+  "state": "done",
+  "depends_on": [],
+  "references": [
+    "docs/architecture/API.md",
+    "docs/architecture/Backend.md",
+    "app/data/ibkr_provider.py",
+    "app/db/models.py",
+    "app/api/routers/portfolio.py"
+  ],
+  "description": "User-requested feature (5 numbered requirements, verbatim): (1) if IBKR is enabled, add the possibility to preload tickers with information from IBKR; (2) a preload action that first validates what's already in the local DB; (3) never merge tickers -- an already-present ticker is never updated/combined with IBKR data by this feature; (4) let the user choose which already-in-DB tickers should be deleted first; (5) when preloading, load only the IBKR tickers that do not conflict with the DB, and the chosen deletions from (4) must be applied BEFORE that conflict check runs (so a ticker the user just deleted is treated as available, not as a conflict).\n\nResolved scope decisions (asked and answered by the user directly): the ticker source is the connected IBKR account's actual current positions (not the market scanner, not a manually-typed list), and the target table is `PositionORM` (real portfolio positions with quantity/avg_cost_basis), not the separate `WatchlistItemORM` table.\n\nThis is the backend half of the feature -- it exposes the IBKR-fetch, conflict-preview, and delete-then-import capability as API endpoints. The frontend half (button, conflict-review/delete-selection UI) is `frontend-ibkr-portfolio-preload`, which depends on this task.\n\n`app/data/ibkr_provider.py` currently has no capability to fetch account positions at all (only hourly bars, the market scanner, and per-ticker conid resolution via secdef/search) -- this is new IBKR API surface, not a rewire of something existing. IBKR's Client Portal Web API exposes account positions via `GET /portfolio/{accountId}/positions/{pageId}` (paginated), and the accountId itself must first be discovered via `GET /iserver/accounts` -- research and document the actual documented response shape the same way `resolve_conid`'s own `decisions` entry did for `/iserver/secdef/search`, since this codebase has no prior implementation to copy. Positions there are keyed by conid, not by ticker symbol -- work out (and record as a `decisions` entry) how to derive the human-readable ticker string the rest of this app uses everywhere else, e.g. via `/iserver/secdef/info?conid=...` or whatever field the positions response itself already includes; do not guess without checking the actual response.\n\n`GET /api/portfolio/positions` (via `POST /api/portfolio/positions`) has an existing same-ticker MERGE behavior (quantity-weighted avg_cost_basis, notes concatenation, strategy overwrite -- see `PositionORM.entry_notes`/`.strategy` docstrings). Requirement 3 explicitly means this new preload feature must NOT go through that merge path at all for a ticker that's still present in the DB at import time -- such a ticker must be skipped entirely, never touched, unless the user explicitly chose to delete it first (requirement 4/5).",
+  "checklist": [
+    {
+      "step": "Add IBKR account-positions fetching to `app/data/ibkr_provider.py`: discover the account id via `GET /iserver/accounts`, then fetch all pages of `GET /portfolio/{accountId}/positions/{pageId}`. Research and record the actual response shape (field names for conid, position size, average cost) as a `decisions` entry, matching how `resolve_conid`'s own decisions entry documents the shape it was implemented against. Resolve each position's conid to a human-readable ticker symbol -- record how, and why, as a `decisions` entry.",
+      "done": true
+    },
+    {
+      "step": "New read-only preview endpoint (e.g. `GET /api/ibkr/portfolio-preview`) returning every fetched IBKR position plus, per position, whether its ticker already exists in the local `positions` table right now (a conflict flag) -- no DB writes at this endpoint. Returns an `unavailable`/503-style response (mirroring `GET /api/ibkr/status`'s existing state model: disabled/gateway_unreachable/not_authenticated) when `ibkr_enabled` is false or the gateway isn't `available`, per requirement 1.",
+      "done": true
+    },
+    {
+      "step": "A way for the frontend to delete a user-chosen set of existing local positions before preloading (requirement 4) -- decide, and record as a `decisions` entry, whether this reuses the existing single-position `DELETE /api/portfolio/positions/{id}` in a loop from the frontend, or a new bulk-delete endpoint is warranted, and why.",
+      "done": true
+    },
+    {
+      "step": "New import endpoint (e.g. `POST /api/ibkr/portfolio-preload`) that re-fetches IBKR positions, re-checks each against the CURRENT state of the local `positions` table (i.e. after any deletions from the checklist item above have already happened -- requirement 5's exact ordering), and inserts only the tickers that still do not exist locally. A ticker still present in the DB at this point (the user did not choose to delete it) must be skipped entirely -- never merged, updated, or duplicated. Decide (and record as a `decisions` entry, or a `questions` entry if it's genuinely the user's call) reasonable defaults for the `PositionORM` fields IBKR's positions response won't supply directly: `entry_date` (IBKR's positions endpoint does not report when a position was opened), `entry_notes`, `strategy`.",
+      "done": true
+    },
+    {
+      "step": "Full CLAUDE.md API documentation standard compliance for every new/changed route: `response_model`, declared error responses (`ErrorDetail` for 404/422/503 as applicable), explicit `operation_id`, a `summary` + docstring, and `description` fields on any new Pydantic schema fields. Regenerate `backend/openapi.json` via `python scripts/export_openapi.py` and confirm `frontend/src/api/types.ts` stays in sync.",
+      "done": true
+    },
+    {
+      "step": "Tests (mocked IBKR responses only, no live network calls, per docs/architecture/Testing.md): the account-positions fetch and conid-to-ticker resolution; the preview endpoint's conflict-flagging logic; a genuinely discriminating test proving a still-present (not-deleted) conflicting ticker is skipped rather than merged (mutation-test it yourself -- temporarily make the import path merge instead of skip, confirm the test fails, then revert); the delete-then-preload ordering (a ticker deleted in one call is treated as non-conflicting by the very next preload call). 90%+ coverage per the project-wide gate.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-25T20:33:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Implemented `IBKRProvider.get_account_positions()` against `GET /iserver/accounts` and `GET /portfolio/{accountId}/positions/{pageId}`'s documented Web API shapes: `/iserver/accounts` returns a JSON object with an `\"accounts\"` list of account-id strings and (usually) a `\"selectedAccount\"` string identifying the session's active account -- `selectedAccount` is preferred when present, falling back to the first `accounts` entry otherwise, and `IBKRUnavailableError` is raised if neither is usable. `/portfolio/{accountId}/positions/{pageId}` returns a plain JSON array (not wrapped in an envelope, unlike `/iserver/marketdata/history`'s `{\"data\": [...]}` shape) of position objects roughly `{\"conid\": 265598, \"contractDesc\": \"AAPL\", \"position\": 100.0, \"avgCost\": 130.5, \"assetClass\": \"STK\", ...}` alongside many other fields (market value, currency, exchange, sector, etc.) this app has no use for. Pagination walks `pageId` forward from 0 until a page comes back empty, per IBKR's own documented convention for this endpoint, rather than hardcoding a fixed per-page size (community-reported figures put it in the tens of positions per page, but this can't be confirmed against a live gateway in this session) -- a new `_MAX_ACCOUNT_POSITIONS_PAGES=50` safety bound only guarantees termination if that 'empty page ends it' signal is ever wrong.",
+      "rationale": "Matches this module's established no-live-gateway research pattern (see `resolve_conid`'s own `decisions` entry, and `app/data/ibkr_provider.py`'s own module docstring/`docs/architecture/Backend.md` §8's 'Known, accepted limitation' section): every method on `IBKRProvider` so far was implemented directly against IBKR's own documented Web API request/response shapes with no live gateway available to verify against, and every test mocks the `_request` boundary. Avoiding a hardcoded page-size assumption (rather than guessing e.g. 30/page) is a deliberate hedge against exactly that unverified-shape risk -- the pagination loop's correctness doesn't depend on the guessed number being right, only on 'an empty page means no more positions' holding, which is the one behavior IBKR's own docs are unambiguous about. Not independently re-verified against a live gateway in this session -- same accepted limitation as the rest of this module, recorded rather than silently assumed away."
+    },
+    {
+      "timestamp": "2026-09-25T20:33:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Ticker resolution uses the position row's own `contractDesc` field, uppercased, for exactly the rows whose `assetClass` is `\"STK\"` -- not a separate `GET /iserver/secdef/info?conid=...` lookup per position. Every other `assetClass` (options, futures, warrants, cash, etc.) is dropped outright, along with a row with a non-positive `position` (quantity) -- short, flat, or closed-out positions have no valid representation in this app's long-only `PositionORM` model.",
+      "rationale": "IBKR's own documented example response for this exact endpoint shows `contractDesc` as simply the plain ticker symbol for an equity row (unlike a derivative row, where it also encodes strike/expiry) -- so it's usable as-is with no extra parsing, and needs no second round-trip HTTP call per position (a `secdef/info` lookup for every held position would multiply request volume for information the positions response already carries for a `\"STK\"` row). Rejected: (1) a `secdef/info` call per position -- extra network round-trips and gateway load for no benefit once `contractDesc` is already known-clean for the one asset class this app can represent; (2) representing a non-STK/non-positive-quantity row with a null ticker instead of dropping it -- this app's portfolio model (`PositionORM`) has no field for asset class or short-position sign, so a null-ticker row would be unactionable noise in the preview/import response rather than useful information, mirroring `ScannerResult`'s/`resolve_conid`'s own 'drop what we can't use' precedent in this same module. Restricting to `\"STK\"`-only also mirrors `resolve_conid`'s own equity-only scope, so this provider's notion of 'a position this app understands' is consistent everywhere."
+    },
+    {
+      "timestamp": "2026-09-25T20:33:16Z",
+      "recorded_by": "task-worker",
+      "decision": "The 'let the user choose which existing local positions to delete first' requirement (4) is satisfied entirely on the frontend, by calling the existing `DELETE /api/portfolio/positions/{id}` once per chosen position in a loop -- no new bulk-delete backend endpoint was added for this task.",
+      "rationale": "`DELETE /api/portfolio/positions/{id}` already does exactly what deleting a position for this purpose needs (removes the row, records a `closed_trades` entry with a caller-choosable `exit_reason`) with full existing test coverage and OpenAPI documentation; a new bulk endpoint would either duplicate that logic or wrap it in a loop server-side for no real benefit over the frontend doing the same loop, since this preload flow is not high-frequency/high-volume enough (a handful of conflicting tickers at most, once per preload attempt) to need one round trip instead of several. Also keeps `POST /api/ibkr/portfolio-preload`'s own contract simpler (it only ever needs to read the DB's current state, never take a list of ids to delete as part of the same call) and keeps the deletion step visibly a distinct, ordinary use of the existing delete-a-position feature (with its own `exit_reason` semantics) rather than a special-cased delete path unique to this feature. Revisit only if usage shows real positions counts large enough to make N sequential DELETE calls a genuine latency problem -- not expected for a personal single-user portfolio."
+    },
+    {
+      "timestamp": "2026-09-25T20:33:16Z",
+      "recorded_by": "task-worker",
+      "decision": "`POST /api/ibkr/portfolio-preload` takes no request body and imports every currently-non-conflicting fetched IBKR position in one call -- there is no per-ticker selection parameter letting a caller import only a subset of the non-conflicting positions.",
+      "rationale": "The task's own requirement 5 phrasing ('load only the IBKR tickers that do not conflict with the DB') and the frontend companion task's (`frontend-ibkr-portfolio-preload`) own checklist ('then calls the preload endpoint to import every non-conflicting IBKR position') both describe an all-non-conflicting-positions import, not a selective one -- the only selection the user makes in this flow is which *conflicting* local positions to delete first (requirement 4), not which non-conflicting IBKR positions to skip. Adding an unused selection parameter now would be speculative scope with no current caller."
+    },
+    {
+      "timestamp": "2026-09-25T20:33:16Z",
+      "recorded_by": "task-worker",
+      "decision": "On import, `entry_date` is always today's date (the date `POST /api/ibkr/portfolio-preload` runs). `entry_notes` is set to a fixed, generated note stating the position was imported from IBKR on that date and that `entry_date` reflects the import date, not the real purchase date. `strategy` is always left null.",
+      "rationale": "`entry_date`: IBKR's positions endpoint reports no purchase-date field at all (checklist's own framing), so there is no real date to backfill with -- today's date is the only value that isn't fabricated. `entry_notes`: rather than leaving it null (which would silently let a later view of this position assume `entry_date` is the real purchase date, feeding a wrong trade-duration/entry-timing read the next time this position is reviewed), the generated note makes that caveat visible on the row itself going forward -- a cheap, low-risk addition since `entry_notes` is free-text and this app already treats it as informational-only, never parsed. `strategy`: left null rather than guessing a default tag, since IBKR's response carries no signal this app could map onto Elder ch. 55/56/58/59's personal named strategy concept, and fabricating one (e.g. 'IBKR import') would misrepresent it as the trader's own chosen strategy label rather than metadata about the position's origin -- unlike `entry_notes`, `strategy` is meant to be grouped/aggregated on by the trader's own real strategies (`backend-trade-strategy-tagging`'s own decisions entry), so seeding it with a non-strategy value would pollute that aggregation. This is a clear-enough judgment call from the checklist's own framing (not a genuine open product question) -- decided rather than escalated to `questions`."
+    },
+    {
+      "timestamp": "2026-09-25T20:33:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Within a single `POST /api/ibkr/portfolio-preload` call, if the fetched IBKR positions include two entries that resolve to the same ticker (after the DB-conflict check), only the first is imported -- every subsequent same-ticker entry is treated the same as a DB conflict and reported in `skipped_conflicting_tickers`, not imported as a second row or merged into the first.",
+      "rationale": "`PositionORM.ticker` has a uniqueness constraint (`app/db/models.py`), so inserting a second row for the same ticker within one call would raise an unhandled `IntegrityError` on commit; merging the two IBKR-side entries together would need a whole additional merge policy this task's requirement 3 (never merge) doesn't intend to reopen for IBKR-vs-IBKR data specifically. This is a genuine edge case identified while implementing, not one requirement 3-5 explicitly calls out (they only describe existing-local-position vs. incoming-IBKR-position conflicts) -- a real occurrence would be unusual (it requires two distinct IBKR conids resolving to the identical ticker string, e.g. the same company held identically-labeled across more than one sub-account under one login) but not impossible, and failing the whole request with a raw 500 for one duplicate among many otherwise-good positions would be a much worse outcome than silently skipping the duplicate and reporting it."
+    },
+    {
+      "timestamp": "2026-09-25T20:33:16Z",
+      "recorded_by": "task-worker",
+      "decision": "An IBKR position with a missing, non-finite, zero, or negative `avg_cost` is excluded entirely from both `GET /api/ibkr/portfolio-preview`'s `positions` list and from anything `POST /api/ibkr/portfolio-preload` would import -- it is not shown as an unimportable candidate, and not counted in `skipped_conflicting_tickers` either (that field is specifically for a DB-ticker conflict, not this unrelated reason).",
+      "rationale": "`PositionORM.avg_cost_basis` is a required, non-nullable column and `PositionIn.avg_cost_basis` is a required positive field everywhere else this app creates a position -- there is no valid `PositionORM` row without a real cost basis, so surfacing such a position as an importable preview candidate (only for the import to then silently refuse it) would be misleading. Applying the identical filter on both routes (`_valid_import_candidates`, shared by both handlers) guarantees the preview never shows something the import endpoint wouldn't actually import for an unrelated reason. Considered inventing a placeholder cost basis (e.g. `0.0` or the current market price) instead of excluding the row, but rejected it: `avg_cost_basis` feeds real P&L/risk math everywhere in this app (unrealized P&L%, the 2%/6% rules, profit targets), so a fabricated value would produce a plausible-looking but meaningless number rather than an honest omission."
+    },
+    {
+      "timestamp": "2026-09-25T20:33:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Renamed `app/api/routers/ibkr.py`'s existing private `_resolve_scanner_unavailable` helper to `_resolve_ibkr_call_unavailable` (updating its docstring accordingly) and reused it, unchanged in behavior, for the two new routes' own `IBKRUnavailableError` handling, rather than adding a third near-duplicate helper.",
+      "rationale": "The helper's actual logic (distinguish a gateway/session genuinely being unavailable from a transient failure of one specific call against an otherwise-`available` gateway, surfacing the latter as `503`) was already fully generic -- only its name and docstring were scanner-specific, a leftover from when it had exactly two callers. Renaming it once, now that a third and fourth caller exist, keeps the code honest about what it actually does instead of leaving a misleading 'scanner' name on a helper four unrelated routes now share; a mechanical rename with no behavior change carries negligible risk and was verified by the full existing scanner/breadth test suite continuing to pass unchanged."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/backend-ibkr-portfolio-preload",
+    "pr_number": 335,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/335",
+    "pushed_at": "2026-09-25T20:37:21Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-25T20:46:16Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/335",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified firsthand rather than trusting task-worker's claims: (1) mutation-tested test_skips_ticker_still_present_locally_never_merges myself by temporarily making preload_ibkr_portfolio's insert loop merge into the existing row instead of skipping -- the test failed exactly as claimed, then reverted cleanly (git diff empty). (2) Verified the .env/FINTRADE_IBKR_BASE_URL pre-existing-failure claim: moved backend/.env aside, ran the full backend suite (1442 passed, 0 failed, 100% coverage), restored .env byte-for-byte (md5 matched before/after); with .env restored, only test_ibkr_base_url_defaults_to_localhost_gateway fails, confirming it's genuinely pre-existing/environment-caused and unrelated to this branch. (3) Read preload_ibkr_portfolio directly: _existing_position_tickers(db) is queried fresh inside the request handler itself (not cached from a prior preview call), so the delete-then-preload ordering requirement holds. (4) FINTRADE_IBKR_ENABLED confirmed still 'false' in backend/.env. (5) Independently regenerated backend/openapi.json and frontend/src/api/types.ts -- both already in sync (git diff empty after regen). (6) ruff/mypy/eslint/tsc/check_profit_target_wording.py/validate_tasks.py all clean.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 617
+      },
+      {
+        "summary": "The entry_date=today/entry_notes=generated-caveat/strategy=null defaults for imported positions were a reasonable engineering call, not something that should have been escalated to a questions entry: the checklist item itself explicitly offered the worker the choice ('record as a decisions entry, or a questions entry if it's genuinely the user's call'), and the recorded decisions entry's rationale for each of the three fields (entry_date: no real date exists to backfill with, today's is the only non-fabricated option; entry_notes: cheap, informational-only caveat so a later reader isn't misled about entry_date's meaning; strategy: left null rather than guessing, since IBKR's response carries no signal mappable onto a personal strategy tag and a fabricated one would pollute strategy-based aggregation) is sound and leaves no live product ambiguity for the user to resolve.",
+        "file": "docs/tasks/backend-ibkr-portfolio-preload.json",
+        "line": 70
+      },
+      {
+        "summary": "Non-blocking: IBKRPortfolioPreviewPositionOut.avg_cost's Field description (and IBKRAccountPosition's dataclass docstring in ibkr_provider.py) claims a null-avg_cost position is 'still shown here for visibility' in the preview -- this is stale/incorrect. _valid_import_candidates actually excludes such a position from GET /api/ibkr/portfolio-preview's positions list entirely (matching the task's own decisions entry and _valid_import_candidates's own docstring, both of which are accurate) -- only these two docstrings, and the openapi.json/types.ts snapshots generated from the schema one, are wrong. Filed as a checklist item on backend-ibkr-portfolio-preload-followups.",
+        "file": "backend/app/api/schemas.py",
+        "line": 1151
+      },
+      {
+        "summary": "Non-blocking: preload_ibkr_portfolio's single db.commit() after its insert loop has no IntegrityError/OperationalError handling, unlike record_ibkr_breadth_snapshot earlier in the same file, which explicitly catches this exact pair for an analogous same-key concurrent-write race. existing_tickers is read once before the insert loop, so a same-ticker row inserted concurrently between that read and this commit (a second overlapping preload call, or a concurrent POST /api/portfolio/positions) would raise an uncaught IntegrityError -> a raw 500, rolling back the whole batch (every other non-conflicting position in the same call, not just the colliding ticker). Low real-world likelihood for a personal single-user app, but inconsistent with this file's own established pattern. Filed as a checklist item on backend-ibkr-portfolio-preload-followups.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 661
+      },
+      {
+        "summary": "Non-blocking: this PR's rename of _resolve_scanner_unavailable to _resolve_ibkr_call_unavailable left 3 stale cross-file references to the old name unfixed (app/data/day_trader_intraday.py:102 and :238, tests/unit/data/test_day_trader_intraday.py:311). Filed as a checklist item on backend-ibkr-portfolio-preload-followups.",
+        "file": "backend/app/data/day_trader_intraday.py",
+        "line": 102
+      }
+    ],
+    "notes": "No blocking findings. Full backend suite (1442 tests) green with .env removed (confirming the one .env-caused failure is genuinely pre-existing/unrelated); 100% backend coverage; ruff/mypy/eslint/tsc clean; validate_tasks.py clean; openapi.json/types.ts independently regenerated and confirmed already in sync. code-review skill (high effort) run independently and corroborated the concurrent-write-race and stale-comment-rename findings above. architecture-review checklist walked explicitly: module placement, doc updates (API.md/Backend.md both updated in the same change), no new dependency/DB/ORM, thin routers with business logic in small module-level helpers -- no architecture violations found. This PR has no UI surface (only backend/app, backend/tests, docs, and generated openapi.json/types.ts changed) -- the frontend half is the separate, still-planned frontend-ibkr-portfolio-preload task -- so the browser walkthrough (step 9) and e2e suite (step 9a) were explicitly skipped rather than silently omitted."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-25T20:54:09Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified pr-reviewer's accept, not on trust: re-ran the mutation test myself (made preload_ibkr_portfolio merge into the existing row instead of skipping on a ticker conflict; test_skips_ticker_still_present_locally_never_merges failed with quantity 999.0 != 5.0 as expected; reverted, git diff clean). Ran the full suite with backend/.env present (1441 passed, 1 failed -- test_ibkr_base_url_defaults_to_localhost_gateway, 100% coverage) then with .env moved aside (1442 passed, 0 failed), and restored .env with a matching md5 before/after, confirming the one failure is genuinely this container's local .env and unrelated to the branch. Read preload_ibkr_portfolio directly: _existing_position_tickers(db) is queried fresh inside the handler on every call, not cached from a prior preview call. Confirmed the 3 stale _resolve_scanner_unavailable references (day_trader_intraday.py:102/:238, test_day_trader_intraday.py:311) are prose-only comments/docstrings, not live calls to the renamed symbol -- consistent with the full suite passing. Confirmed FINTRADE_IBKR_ENABLED=false in backend/.env. Independently regenerated backend/openapi.json and frontend/src/api/types.ts (both already in sync, git diff empty) and re-ran ruff/mypy/eslint/tsc/validate_tasks.py, all clean. Skimmed the full diff (ibkr_provider.py, routers/ibkr.py, schemas.py, both test files, API.md/Backend.md) myself; the accept holds."
+  }
+}
