@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #323's review (backend-day-trader-timeframe-mode-history-followups)",
   "area": "backend/signals",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-day-trader-timeframe-mode-history-followups"],
   "references": [
     "docs/tasks/backend-day-trader-timeframe-mode-history-followups.json",
@@ -13,9 +13,16 @@
   "checklist": [
     {
       "step": "The malformed daily+weekly OHLCV fixture construction (20 rising closes + 5-day selloff + one rally bar, paired with a 40-week 5%/week-growth weekly series) is now duplicated inline in at least three places in `backend/tests/unit/signals/test_engine.py`: `TestAnalyseEndToEnd.test_end_to_end_buy_after_pullback_and_trigger`, `TestAnalyseEndToEnd.test_malformed_latest_bar_is_excluded_and_does_not_change_signal`, and this PR's new `TestAlreadyCleanEscapeHatchesGenuinelySkipCleaning._malformed_daily_and_weekly`. Separately, the malformed (`NaN` open/high/low/close, populated volume) single-row fixture is duplicated within this PR's own new class -- once inside `_malformed_daily_and_weekly` and once directly inside `test_short_term_ohlcv_already_clean_true_leaves_the_malformed_latest_bar_in_place`. Not a correctness issue and not introduced as a net-new pattern by this PR (the daily/weekly duplication predates it), but worth extracting a shared module-level helper (or two: one for the BUY-fixture daily+weekly pair, one for the single malformed NaN row) that all of these call sites reuse, so a future change to the fixture shape doesn't need to be applied by hand in 3+ places.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-25T02:29:41Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted two module-level helper functions in `backend/tests/unit/signals/test_engine.py`, alongside the existing `_daily_ohlcv`/`_weekly_ohlcv`/`_nan_tolerant_equal` module-level helpers: `_buy_fixture_daily_and_weekly()` (the 20-rising-close + 5-day-selloff + rally-bar daily OHLCV, paired with the 40-week 5%/week-growth BULLISH weekly OHLCV) and `_malformed_nan_row(volume=500_000)` (the single NaN-open/high/low/close, populated-volume bar). Rewired all identified duplication sites to call these instead of constructing the fixtures inline: `TestAnalyseEndToEnd.test_end_to_end_buy_after_pullback_and_trigger` and `.test_malformed_latest_bar_is_excluded_and_does_not_change_signal` now call `_buy_fixture_daily_and_weekly()`; `TestAlreadyCleanEscapeHatchesGenuinelySkipCleaning._malformed_daily_and_weekly` now composes both helpers via `pd.concat`; and the three remaining single-NaN-row call sites (`test_malformed_latest_bar_is_excluded_and_does_not_change_signal`, `TestAnalyseShortTermOhlcvGenericTrigger.test_short_term_ohlcv_is_cleaned_of_malformed_bars`, and `TestAlreadyCleanEscapeHatchesGenuinelySkipCleaning.test_short_term_ohlcv_already_clean_true_leaves_the_malformed_latest_bar_in_place`) now call `_malformed_nan_row()`.",
+      "rationale": "Two separate helpers (rather than one combined one) because the daily+weekly BUY pair and the single malformed row are reused independently -- `test_end_to_end_buy_after_pullback_and_trigger` needs only the former (no malformed row at all), while the short-term-OHLCV call sites need only the latter (composed with a *different* base series, `_short_term_ohlcv_that_fires_a_bullish_trigger()`, not the daily+weekly pair). A single fused 'BUY-fixture-plus-malformed-row' helper would have forced an awkward parameter to opt out of the malformed row for the one call site that doesn't want it. Module-level (not class-level) placement mirrors the file's existing `_daily_ohlcv`/`_weekly_ohlcv`/`_nan_tolerant_equal` helpers immediately above, and lets `TestAlreadyCleanEscapeHatchesGenuinelySkipCleaning` (a different test class than `TestAnalyseEndToEnd`) reuse `_buy_fixture_daily_and_weekly()` without an awkward cross-class static-method reference, matching the existing convention used elsewhere in the file for cross-class reuse of `TestAnalyseShortTermOhlcvGenericTrigger`'s own static methods (which stayed class-scoped since only two other classes needed them and both already import the class). Pure refactor, zero test-behavior change: verified by running `pytest tests/unit/signals/test_engine.py` (98 passed, matching the pre-refactor count) and the full backend suite (`pytest --cov=app`: 1402 passed, 100% line/branch coverage, matching PR #323's own review notes) both before and after -- same assertions, same pass/fail outcomes, only the fixture-construction code moved."
+    }
+  ],
   "questions": []
 }
