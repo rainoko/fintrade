@@ -3,7 +3,7 @@
   "title": "Day-trader mode: settings UI to view/switch trading mode and configure the timeframe triple",
   "area": "frontend/settings",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-day-trader-timeframe-mode-api"],
   "references": [
     "docs/tasks/backend-day-trader-timeframe-mode.json",
@@ -61,5 +61,36 @@
     "pr_number": 327,
     "pr_url": "https://github.com/rainoko/fintrade/pull/327",
     "pushed_at": "2026-09-25T03:36:04Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-25T03:49:59Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/327",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified the client-side interval-code regex (`/^[1-9][0-9]*[mdw]$/`) is character-for-character identical to the backend's `_TIMEFRAME_INTERVAL_CODE_PATTERN`/`_CODE_PATTERN` (backend/app/api/schemas.py, backend/app/signals/timeframe.py) -- no drift.",
+        "file": "frontend/src/features/settings/components/TradingModeSettingsForm.tsx",
+        "line": 30
+      },
+      {
+        "summary": "Placement check per Frontend.md §3: TradingModeSettingsForm and its radio/leg fields all reference this app's own trading-mode/timeframe-triple domain concepts, so features/settings/components/ (not components/common/) is correct; no near-duplicate of an existing common/ component was introduced. No placement finding.",
+        "file": "frontend/src/features/settings/components/TradingModeSettingsForm.tsx"
+      },
+      {
+        "summary": "useUpdateTradingMode's unfiltered queryClient.invalidateQueries() on success is a reasonable, well-justified choice given the setting's documented app-wide fan-out (API.md) -- confirmed via browser walkthrough it does not cause a jarring refetch flash (only the currently-mounted settings query is active at invalidation time; other pages refetch naturally on next mount, which already shows their normal loading state). Not blocking, but the code-review skill (run in parallel during this review) independently flagged the same blanket-invalidation choice as a real, measurable efficiency cost worth tracking even though it's a deliberate, already-documented tradeoff -- filed on frontend-day-trader-timeframe-mode-settings-followups per this project's 'track every non-blocking finding' rule rather than left as comment-only.",
+        "file": "frontend/src/features/settings/hooks/useUpdateTradingMode.ts",
+        "line": 33
+      },
+      {
+        "summary": "Browser walkthrough (Playwright, scripted since no Playwright MCP tool was available in this session -- launched a real Chromium against the running dev stack instead): golden path (view mode, switch to day-trader, fill a valid triple, submit, reload to confirm persistence) and edge cases (empty-required-fields client error, invalid-format client error, backend 422 ordering-violation surfaced via common/ErrorState with the real backend message, factor_of_five_warnings displayed non-blockingly alongside a success message, switch back to swing with the previously-configured triple preserved-but-hidden) all behaved as designed. With day-trader mode active and FINTRADE_IBKR_ENABLED=false, GET /api/stocks/{ticker}/analysis correctly 503s and the Stock Detail page shows a graceful 'Service unavailable' state (common/ErrorState), not a crash or stuck spinner.",
+        "file": "frontend/src/pages/SettingsPage.tsx"
+      },
+      {
+        "summary": "Non-blocking: TradingModeFields's client-side validation `errors` state is only recomputed inside handleSubmit, never cleared/re-validated on change (also applies to handleModeChange re-showing stale errors when toggling back to Day Trader). Reproduced independently both live (submit an invalid leg, then correct it to a valid value without resubmitting -- the red error border/helper text stays displayed until the next Save click) and by the code-review skill run in parallel during this review, which found the same root cause by static reading. Cosmetic only (final submitted data is always correctly (re-)validated); filed as frontend-day-trader-timeframe-mode-settings-followups.",
+        "file": "frontend/src/features/settings/components/TradingModeSettingsForm.tsx",
+        "line": 136
+      }
+    ],
+    "notes": "Full review: backend suite untouched by this PR (confirmed via `gh pr view --json files`) -- backend pytest --cov=app stays at 100% (1406 passed), no regression. Frontend: `vitest run --coverage` 902/902 tests passing at 99.78%/99.09%/99.8%/99.83% stmt/branch/fn/line (>=90% gate). Static analysis clean both sides: backend ruff+mypy clean, frontend eslint+tsc -b clean, profit-target stale-wording guard clean. `yarn build-storybook` succeeds (no new common/ component added, consistent with the placement decision). Persisted e2e suite (`make e2e`, step 9a) run in full: 26/26 specs passed across dashboard/navigation/portfolio/scanner/stock-analysis/watchlist -- no regression from this PR (it adds no new e2e spec of its own, which is acceptable since add-frontend-feature doesn't mandate one and the vitest/Testing-Library coverage of the new feature is thorough: 13 TradingModeSettingsForm tests, 6 api/settings.ts tests, SettingsPage/App/NavDrawer wiring tests, covering every checklist item's golden path and edge case). The `code-review` skill (medium effort) was also run against this PR's diff in parallel with the manual review below; it independently corroborated the stale-validation-error finding and additionally flagged the blanket query invalidation as a real efficiency cost (while itself noting that's a deliberate, already-documented tradeoff, not an oversight) -- both are captured in review.comments and tracked on frontend-day-trader-timeframe-mode-settings-followups; it raised no other correctness/reuse/simplification issue. All 6 recorded `decisions` entries have real, non-circular rationale and reject a concrete alternative each; the checklist's 4 items are all `done: true` and match what's actually implemented. No backend files touched -- backend/openapi.json correctly unaffected (CLAUDE.md's API-doc-sync standard doesn't apply here). Two non-blocking findings (see review.comments) filed as frontend-day-trader-timeframe-mode-settings-followups rather than blocking on either. Playwright MCP tools were not present in this review session's toolset, so the required browser walkthrough was performed by scripting a real Chromium browser via the frontend's own installed @playwright/test package against the actual running dev stack (make dev) instead -- same real-browser guarantee, different driving mechanism; noted here for transparency, not a shortcut taken."
   }
 }
