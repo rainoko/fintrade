@@ -24,5 +24,11 @@
       "rationale": "CLAUDE.md's append-only-by-default convention calls for a *new* decisions entry to correct the stale grouping, not an in-place edit of the original closing entry's text -- and this task's own checklist item asks for exactly that append, not for rewriting the closing entry's own wording (the narrower carve-out for in-place amendment doesn't apply here since the checklist never calls out the closing entry's own text as the thing to fix). Since that append already exists and independently says what this task's checklist asked for, doing it again would create a second, redundant correction entry for the same finding rather than adding new information -- which the append-only log's own point (a self-describing timeline of when each correction was made) doesn't call for once a correction has already been made once. Filing a duplicate would also misrepresent the review as having missed this rather than having already caught and fixed it during PR #331. This follow-up task itself still serves its purpose per CLAUDE.md's tracked-follow-up rule (a PR-comment-only record disappears once the PR merges) by giving the finding a durable board entry with this closing note, even though the underlying correction needed no new code/doc change beyond what pr-reviewer already committed."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-ux-block-layout-audit-followups",
+    "pr_number": 332,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/332",
+    "pushed_at": "2026-09-25T16:34:08Z"
+  }
 }
