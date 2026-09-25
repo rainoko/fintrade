@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #335's review (backend-ibkr-portfolio-preload)",
   "area": "backend/api",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-ibkr-portfolio-preload"],
   "references": [
     "docs/tasks/backend-ibkr-portfolio-preload.json",
@@ -38,5 +38,33 @@
     "pr_number": 336,
     "pr_url": "https://github.com/rainoko/fintrade/pull/336",
     "pushed_at": "2026-09-25T21:04:59Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-25T21:14:11Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/336",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Mutation-tested item 2's regression coverage myself rather than trusting the PR description's claim: temporarily deleted the try/except IntegrityError/OperationalError block around preload_ibkr_portfolio's db.commit() (restoring the bare db.commit() call), re-ran test_concurrent_write_conflict_on_commit_returns_503_and_rolls_back_whole_batch and test_operational_error_on_commit_also_returns_503 -- both failed with an unhandled sqlalchemy.exc.OperationalError/IntegrityError propagating out of the route, exactly as expected. Restored the file from a saved copy afterward (md5/git diff confirmed byte-identical to the pre-mutation state).",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 667
+      },
+      {
+        "summary": "Judged the 'roll back and 503 the whole batch' deviation from record_ibkr_breadth_snapshot's single-row-fallback pattern as sound, not a papered-over edge case: PositionORM has only two constraints (a random-uuid primary key `id`, for which a collision is not the scenario this handler is written for, and the unique `ticker` column), so an IntegrityError here can in practice only mean the same-ticker race the comment describes. The insert loop's db.add() calls are never flushed mid-loop (autoflush=False in both app/db/session.py and the test session, confirmed by reading both), so the whole batch really is one atomic unit -- there was never a partial-success case to preserve, meaning this fix converts an existing (pre-fix) uncaught-exception whole-batch loss into an equivalent 503 whole-batch loss, not a new loss of partial progress. Retrying is genuinely idempotent: _existing_position_tickers(db) and _valid_import_candidates(...) are both recomputed from scratch on every call with no stale/cached state carried across requests (get_db opens a fresh Session per request, closed in a `finally`), so a retried POST after a rollback correctly reclassifies whatever ticker just landed as conflicting and imports everything else cleanly.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 686
+      },
+      {
+        "summary": "Confirmed item 1's docstring fixes are accurate by reading _valid_import_candidates directly (backend/app/api/routers/ibkr.py): it filters out any position with avg_cost None/non-finite/non-positive before either route ever sees it, matching the corrected schemas.py/ibkr_provider.py docstring text (a null-avg_cost position is excluded entirely, never shown with a null avg_cost) and the parent task's own decisions entry. backend/openapi.json and frontend/src/api/types.ts were independently regenerated in this review and diffed clean (no changes), confirming both snapshots are current.",
+        "file": "backend/app/api/schemas.py",
+        "line": 1151
+      },
+      {
+        "summary": "Confirmed item 3's 3 fixes (day_trader_intraday.py:102, :238; test_day_trader_intraday.py:311) are comment/docstring-only via diff -- no functional lines changed in either file. grep across the repo confirms no remaining live references to the old _resolve_scanner_unavailable name outside the one historical mention in _resolve_ibkr_call_unavailable's own docstring explaining the rename.",
+        "file": "backend/app/data/day_trader_intraday.py",
+        "line": 102
+      }
+    ],
+    "notes": "No blocking findings. Independently re-ran the full backend suite: 1443 passed / 1 failed with backend/.env present, 1444 passed / 0 failed with .env moved aside and restored byte-for-byte afterward (md5 matched) -- confirming test_ibkr_base_url_defaults_to_localhost_gateway is the same pre-existing, environment-caused failure documented on PR #335/#336, not a new regression. 100% backend line+branch coverage. ruff/mypy/eslint/tsc/check_profit_target_wording.py/validate_tasks.py all clean. openapi.json and frontend/src/api/types.ts independently regenerated and confirmed already in sync (git diff empty both times). code-review skill (high effort) run independently against the PR diff and corroborated every finding above with no additional issues. Task's own decisions entry (added by task-worker) satisfies the 'decide X, or record a decisions entry' framing of checklist item 2. No architecture-review or verify-elder-signal needed (area is backend/api, no new module/dependency/layer, no signals/portfolio logic touched). This PR has no UI surface: only backend/app, backend/tests, docs/tasks, and generated openapi.json/types.ts changed, and grep across frontend/src confirms no frontend code yet consumes GET /api/ibkr/portfolio-preview or POST /api/ibkr/portfolio-preload (the frontend half, frontend-ibkr-portfolio-preload, is still state:planned) -- so the browser walkthrough (step 9) and e2e suite (step 9a) are explicitly skipped rather than silently omitted, same as PR #335's own review."
   }
 }

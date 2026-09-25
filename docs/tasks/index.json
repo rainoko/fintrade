@@ -2280,8 +2280,8 @@
       "id": "backend-ibkr-portfolio-preload-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-ibkr-portfolio-preload-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-portfolio-preload-followups.json"
     }
   ]
 }
