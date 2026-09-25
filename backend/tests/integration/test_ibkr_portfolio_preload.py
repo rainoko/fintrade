@@ -14,6 +14,7 @@ from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_ibkr_provider
@@ -405,3 +406,65 @@ class TestPreloadIbkrPortfolio:
         body = response.json()
         assert body["imported"] == []
         assert body["skipped_conflicting_tickers"] == []
+
+    def test_concurrent_write_conflict_on_commit_returns_503_and_rolls_back_whole_batch(
+        self, client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """backend-ibkr-portfolio-preload-followups checklist item 2: a same-ticker row
+        inserted concurrently between `_existing_position_tickers` and this route's own
+        `db.commit()` (e.g. an overlapping preload call, or an unrelated
+        POST /api/portfolio/positions for the same ticker) raises IntegrityError on commit.
+        Because the whole batch shares one commit, this must roll back and report every
+        position in the same call as not imported (a clean 503), not a raw 500 -- and,
+        unlike record_ibkr_breadth_snapshot's single-row fallback, there is no partial
+        winner row to recover here.
+        """
+
+        def _commit_raises_integrity_error() -> None:
+            db_session.rollback()
+            raise IntegrityError("INSERT", {}, Exception("UNIQUE constraint failed"))
+
+        monkeypatch.setattr(db_session, "commit", _commit_raises_integrity_error)
+        _override(
+            _StubIBKRProvider(
+                positions_result=[
+                    IBKRAccountPosition(conid=1, ticker="AAPL", quantity=10.0, avg_cost=150.0),
+                    IBKRAccountPosition(conid=2, ticker="MSFT", quantity=5.0, avg_cost=200.0),
+                ]
+            )
+        )
+
+        response = client.post("/api/ibkr/portfolio-preload")
+
+        assert response.status_code == 503
+        detail = response.json()["detail"]
+        assert detail == "Transient write conflict importing IBKR portfolio positions; retry."
+        assert "IntegrityError" not in detail
+        # Neither position landed -- the whole batch's commit was rolled back, not just
+        # the colliding ticker.
+        assert db_session.query(PositionORM).count() == 0
+
+    def test_operational_error_on_commit_also_returns_503(
+        self, client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Same handling extends to OperationalError ("database is locked" under SQLite's
+        default file-level locking, app/db/session.py), the other exception in the pair
+        `record_ibkr_breadth_snapshot` already catches for the identical reason."""
+
+        def _commit_raises_operational_error() -> None:
+            db_session.rollback()
+            raise OperationalError("INSERT", {}, Exception("database is locked"))
+
+        monkeypatch.setattr(db_session, "commit", _commit_raises_operational_error)
+        _override(
+            _StubIBKRProvider(
+                positions_result=[
+                    IBKRAccountPosition(conid=1, ticker="AAPL", quantity=10.0, avg_cost=150.0)
+                ]
+            )
+        )
+
+        response = client.post("/api/ibkr/portfolio-preload")
+
+        assert response.status_code == 503
+        assert db_session.query(PositionORM).count() == 0

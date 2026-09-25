@@ -308,7 +308,7 @@ class TestGracefulDegradation:
     def test_transient_failure_against_an_available_gateway_is_unavailable_not_raised(self, mocker) -> None:
         """The gateway/session itself is fine (a fresh status check says `available`), but
         this specific history call failed -- this module's equivalent of
-        app.api.routers.ibkr._resolve_scanner_unavailable's HTTPException(503) case."""
+        app.api.routers.ibkr._resolve_ibkr_call_unavailable's HTTPException(503) case."""
         provider = mocker.create_autospec(IBKRProvider, instance=True)
         provider.get_hourly_bars.side_effect = IBKRUnavailableError("HTTP 500 from /iserver/marketdata/history")
         provider.get_gateway_status.return_value = GatewayStatus(state="available")

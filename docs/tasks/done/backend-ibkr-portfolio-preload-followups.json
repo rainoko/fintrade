@@ -1,0 +1,75 @@
+{
+  "id": "backend-ibkr-portfolio-preload-followups",
+  "title": "Non-blocking findings from PR #335's review (backend-ibkr-portfolio-preload)",
+  "area": "backend/api",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-ibkr-portfolio-preload"],
+  "references": [
+    "docs/tasks/backend-ibkr-portfolio-preload.json",
+    "https://github.com/rainoko/fintrade/pull/335"
+  ],
+  "description": "Tracked follow-ups for non-blocking findings raised in pr-reviewer's review of PR #335 (backend-ibkr-portfolio-preload) -- none of these block the accept (no functional bug, no test/coverage regression, no architecture violation), but each is worth fixing so it isn't lost once PR #335 merges and the review comment disappears from view.",
+  "checklist": [
+    {
+      "step": "`IBKRPortfolioPreviewPositionOut.avg_cost`'s Field description (backend/app/api/schemas.py, ~line 1151-1158) says 'Null positions are still shown here for visibility, but POST /api/ibkr/portfolio-preload will not import one' -- this is stale/incorrect. The actual implementation (`_valid_import_candidates` in backend/app/api/routers/ibkr.py, applied identically by both GET /api/ibkr/portfolio-preview and POST /api/ibkr/portfolio-preload) excludes a position with a null/non-finite/non-positive avg_cost from the preview's `positions` list entirely -- it is never shown with a null avg_cost. This matches the task's own `decisions` entry ('An IBKR position with a missing, non-finite, zero, or negative avg_cost is excluded entirely from both GET /api/ibkr/portfolio-preview's positions list and from anything POST /api/ibkr/portfolio-preload would import -- it is not shown as an unimportable candidate') and `_valid_import_candidates`'s own docstring, both of which are accurate -- only this schema Field description text (and the committed backend/openapi.json / frontend/src/api/types.ts snapshots generated from it) is wrong. The same stale claim also appears in `IBKRAccountPosition`'s dataclass docstring in backend/app/data/ibkr_provider.py (~line 249-253: 'a position with no known cost basis is still worth surfacing in a preview even though it can't actually be imported'). Fix both docstrings to match the actual behavior (excluded entirely, never shown with a null avg_cost), and regenerate backend/openapi.json + frontend/src/api/types.ts. While here, also tighten `IBKRPortfolioPreviewResponse.positions`'s Field description, which currently only says 'Every IBKR equity position this app could resolve a ticker for' without mentioning the avg_cost filter that GET /api/ibkr/portfolio-preview's own route docstring documents.",
+      "done": true
+    },
+    {
+      "step": "`preload_ibkr_portfolio`'s single `db.commit()` after its insert loop (backend/app/api/routers/ibkr.py, ~line 661) has no IntegrityError/OperationalError handling, unlike `record_ibkr_breadth_snapshot` earlier in the same file, which explicitly catches this exact exception pair for an analogous same-key concurrent-write race. `existing_tickers` is read once via `_existing_position_tickers(db)` before the insert loop, so a same-ticker row inserted concurrently (a second overlapping POST /api/ibkr/portfolio-preload call, or a concurrent POST /api/portfolio/positions for the same ticker) between that read and this commit would violate PositionORM.ticker's uniqueness constraint on commit, raising an uncaught IntegrityError -> a raw 500 instead of a graceful, documented error -- and because the whole batch shares one commit, every other non-conflicting position imported in the same call would be rolled back and silently lost too, not just the one colliding ticker. The task's own `decisions` entry shows awareness of this exact IntegrityError risk for the intra-batch duplicate case (guarded via `seen_this_batch`) but didn't extend the same handling to a concurrent external write. Low real-world likelihood for a personal single-user app (same reasoning the task's own bulk-delete `decisions` entry used to decide against a bulk-delete endpoint), but worth the same defensive handling `record_ibkr_breadth_snapshot` already has for consistency, or an explicit `decisions` entry recording why it's deliberately omitted here.",
+      "done": true
+    },
+    {
+      "step": "This PR renamed `app/api/routers/ibkr.py`'s private `_resolve_scanner_unavailable` helper to `_resolve_ibkr_call_unavailable` (per its own `decisions` entry), but left 3 stale cross-file references to the old name unfixed: `backend/app/data/day_trader_intraday.py:102` and `:238` (comments pointing a reader at 'app.api.routers.ibkr._resolve_scanner_unavailable's HTTPException(503) case'/'exact reasoning'), and `backend/tests/unit/data/test_day_trader_intraday.py:311` (a docstring citing the same old name). A future reader following these comments into app/api/routers/ibkr.py will find no such symbol. Update all 3 references to `_resolve_ibkr_call_unavailable`.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-25T21:01:10Z",
+      "recorded_by": "task-worker",
+      "decision": "Added `except (IntegrityError, OperationalError)` handling around `preload_ibkr_portfolio`'s `db.commit()`, matching `record_ibkr_breadth_snapshot`'s exception pair -- but on catch, roll back and surface a 503 ('retry') for the whole request rather than attempting `record_ibkr_breadth_snapshot`'s single-row winner-fallback pattern.",
+      "rationale": "record_ibkr_breadth_snapshot's fallback reads a still-useful value (the concurrently-committed winner's own row) after rollback, because that route only ever writes one row keyed by (series_key, snapshot_date). preload_ibkr_portfolio's insert loop shares ONE commit across every non-conflicting candidate in the batch, so a same-ticker collision on any one candidate rolls back every other, unrelated position too -- there is no single 'winner row' to fall back to, and partially recovering (e.g. re-querying which tickers now exist and re-attempting the rest) would need a second commit and duplicate the batch's own conflict-skip logic for uncertain benefit on what's already a rare race for a personal single-user app. Retrying the whole POST is safe and cheap (re-running `_existing_position_tickers`/`_valid_import_candidates` from scratch correctly reclassifies whatever ticker just landed as conflicting), so a clean 503 was chosen over building out partial-recovery machinery for this endpoint specifically."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/backend-ibkr-portfolio-preload-followups",
+    "pr_number": 336,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/336",
+    "pushed_at": "2026-09-25T21:04:59Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-25T21:14:11Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/336",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Mutation-tested item 2's regression coverage myself rather than trusting the PR description's claim: temporarily deleted the try/except IntegrityError/OperationalError block around preload_ibkr_portfolio's db.commit() (restoring the bare db.commit() call), re-ran test_concurrent_write_conflict_on_commit_returns_503_and_rolls_back_whole_batch and test_operational_error_on_commit_also_returns_503 -- both failed with an unhandled sqlalchemy.exc.OperationalError/IntegrityError propagating out of the route, exactly as expected. Restored the file from a saved copy afterward (md5/git diff confirmed byte-identical to the pre-mutation state).",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 667
+      },
+      {
+        "summary": "Judged the 'roll back and 503 the whole batch' deviation from record_ibkr_breadth_snapshot's single-row-fallback pattern as sound, not a papered-over edge case: PositionORM has only two constraints (a random-uuid primary key `id`, for which a collision is not the scenario this handler is written for, and the unique `ticker` column), so an IntegrityError here can in practice only mean the same-ticker race the comment describes. The insert loop's db.add() calls are never flushed mid-loop (autoflush=False in both app/db/session.py and the test session, confirmed by reading both), so the whole batch really is one atomic unit -- there was never a partial-success case to preserve, meaning this fix converts an existing (pre-fix) uncaught-exception whole-batch loss into an equivalent 503 whole-batch loss, not a new loss of partial progress. Retrying is genuinely idempotent: _existing_position_tickers(db) and _valid_import_candidates(...) are both recomputed from scratch on every call with no stale/cached state carried across requests (get_db opens a fresh Session per request, closed in a `finally`), so a retried POST after a rollback correctly reclassifies whatever ticker just landed as conflicting and imports everything else cleanly.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 686
+      },
+      {
+        "summary": "Confirmed item 1's docstring fixes are accurate by reading _valid_import_candidates directly (backend/app/api/routers/ibkr.py): it filters out any position with avg_cost None/non-finite/non-positive before either route ever sees it, matching the corrected schemas.py/ibkr_provider.py docstring text (a null-avg_cost position is excluded entirely, never shown with a null avg_cost) and the parent task's own decisions entry. backend/openapi.json and frontend/src/api/types.ts were independently regenerated in this review and diffed clean (no changes), confirming both snapshots are current.",
+        "file": "backend/app/api/schemas.py",
+        "line": 1151
+      },
+      {
+        "summary": "Confirmed item 3's 3 fixes (day_trader_intraday.py:102, :238; test_day_trader_intraday.py:311) are comment/docstring-only via diff -- no functional lines changed in either file. grep across the repo confirms no remaining live references to the old _resolve_scanner_unavailable name outside the one historical mention in _resolve_ibkr_call_unavailable's own docstring explaining the rename.",
+        "file": "backend/app/data/day_trader_intraday.py",
+        "line": 102
+      }
+    ],
+    "notes": "No blocking findings. Independently re-ran the full backend suite: 1443 passed / 1 failed with backend/.env present, 1444 passed / 0 failed with .env moved aside and restored byte-for-byte afterward (md5 matched) -- confirming test_ibkr_base_url_defaults_to_localhost_gateway is the same pre-existing, environment-caused failure documented on PR #335/#336, not a new regression. 100% backend line+branch coverage. ruff/mypy/eslint/tsc/check_profit_target_wording.py/validate_tasks.py all clean. openapi.json and frontend/src/api/types.ts independently regenerated and confirmed already in sync (git diff empty both times). code-review skill (high effort) run independently against the PR diff and corroborated every finding above with no additional issues. Task's own decisions entry (added by task-worker) satisfies the 'decide X, or record a decisions entry' framing of checklist item 2. No architecture-review or verify-elder-signal needed (area is backend/api, no new module/dependency/layer, no signals/portfolio logic touched). This PR has no UI surface: only backend/app, backend/tests, docs/tasks, and generated openapi.json/types.ts changed, and grep across frontend/src confirms no frontend code yet consumes GET /api/ibkr/portfolio-preview or POST /api/ibkr/portfolio-preload (the frontend half, frontend-ibkr-portfolio-preload, is still state:planned) -- so the browser walkthrough (step 9) and e2e suite (step 9a) are explicitly skipped rather than silently omitted, same as PR #335's own review."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-25T21:20:55Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified: mutation-tested item 2 myself (replaced the try/except IntegrityError/OperationalError block with a bare db.commit(), confirmed both new tests -- test_concurrent_write_conflict_on_commit_returns_503_and_rolls_back_whole_batch and test_operational_error_on_commit_also_returns_503 -- fail with the raw exception propagating, then restored the file and confirmed byte-identical via md5/git diff). Confirmed PositionORM has only `id` (random UUID PK) and `ticker` (unique) constraints, autoflush=False in both app/db/session.py and the test session factory, and get_db opens/closes a fresh Session per request with _existing_position_tickers/_valid_import_candidates recomputed from scratch every call -- corroborating the whole-batch-rollback and retry-is-idempotent reasoning. Read _valid_import_candidates directly and confirmed the corrected schemas.py/ibkr_provider.py docstrings (avg_cost-null positions excluded entirely, never shown) match its actual filtering; independently regenerated backend/openapi.json and frontend/src/api/types.ts and both diffed empty. Re-ran the full backend suite myself: 1443 passed/1 failed with .env present, 1444 passed/0 failed with .env moved aside and restored byte-identical (md5 matched) -- same pre-existing test_ibkr_base_url_defaults_to_localhost_gateway environment failure, not a new regression. 100% coverage; ruff/mypy/validate_tasks.py clean."
+  }
+}

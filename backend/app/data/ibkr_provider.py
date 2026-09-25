@@ -248,9 +248,9 @@ class IBKRAccountPosition:
     string from) rather than representing it with a null field, matching `ScannerResult`'s
     own "drop what we can't use" precedent in this module. `avg_cost` stays independently
     nullable (unlike the other three fields) since IBKR's own response can omit it even
-    for an otherwise-well-formed STK row, and a position with no known cost basis is still
-    worth surfacing in a preview even though it can't actually be imported (see
-    `app.api.routers.ibkr`'s own filtering for the import path)."""
+    for an otherwise-well-formed STK row; a position with no known cost basis is excluded
+    entirely from both the preview and the import path, not surfaced as an unimportable
+    candidate (see `app.api.routers.ibkr._valid_import_candidates`)."""
 
     conid: int
     ticker: str

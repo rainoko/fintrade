@@ -564,8 +564,10 @@ def get_ibkr_portfolio_preview(
     responses={
         503: {
             "model": ErrorDetail,
-            "description": "The account-positions fetch itself failed transiently (not a "
-            "gateway/session unavailability -- see GET /api/ibkr/status for that)",
+            "description": "Either the account-positions fetch itself failed transiently "
+            "(not a gateway/session unavailability -- see GET /api/ibkr/status for that), "
+            "or a concurrent write raced this import's own commit (see this task's "
+            "`decisions` entry) -- both transient, safe to retry.",
         }
     },
 )
@@ -607,7 +609,11 @@ def preload_ibkr_portfolio(
     `GET /api/ibkr/portfolio-preview` -- a normal `200` response, never an HTTP error, with
     `imported`/`skipped_conflicting_tickers` both left null and nothing written to the DB.
     A transient failure of the account-positions fetch itself is surfaced as `503`, same
-    convention as every other IBKR data-fetching route in this module.
+    convention as every other IBKR data-fetching route in this module. A `503` is also
+    raised if a concurrent write (another overlapping preload call, or an unrelated `POST
+    /api/portfolio/positions` for the same ticker) races this import's own commit -- see
+    this task's `decisions` entry for why the whole batch is rolled back rather than
+    partially recovered.
     """
     if provider is None:
         return IBKRPortfolioPreloadResponse(
@@ -658,7 +664,38 @@ def preload_ibkr_portfolio(
                 entry_date=entry_date,
             )
         )
-    db.commit()
+    try:
+        db.commit()
+    except (IntegrityError, OperationalError) as exc:
+        # A same-ticker row inserted concurrently by another writer (an overlapping
+        # POST /api/ibkr/portfolio-preload call, or an unrelated POST
+        # /api/portfolio/positions for the same ticker) between `_existing_position_tickers`
+        # above and this commit would violate `PositionORM.ticker`'s uniqueness constraint,
+        # raising IntegrityError -- or, under SQLite's default file-level locking (no WAL
+        # mode/busy_timeout configured, app/db/session.py), OperationalError ("database is
+        # locked"), the same exception pair already caught this way by
+        # `record_ibkr_breadth_snapshot` above and `OHLCVCacheORM`'s
+        # `_upsert`/`_upsert_extended` (app/data/cache.py).
+        #
+        # Unlike those two call sites, there's no single conflicting row to roll back and
+        # fall back to reading here: this whole batch of `candidates` shares ONE commit, so
+        # a same-ticker race on any one of them rolls back every other, non-conflicting
+        # position from the same call too. Retrying the whole request is safe (re-running
+        # `_existing_position_tickers`/`_valid_import_candidates` from scratch correctly
+        # re-classifies whatever ticker just landed as conflicting), so this is surfaced as
+        # a `503` rather than partially recovered. See this task's `decisions` entry.
+        db.rollback()
+        logger.warning(
+            "Concurrent-write conflict importing IBKR portfolio positions; rolled back "
+            "the whole batch of %d candidate(s). (%s: %s)",
+            len(imported),
+            type(exc).__name__,
+            exc,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Transient write conflict importing IBKR portfolio positions; retry.",
+        ) from exc
 
     return IBKRPortfolioPreloadResponse(
         state="available",

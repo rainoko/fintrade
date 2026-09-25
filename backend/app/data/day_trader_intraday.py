@@ -99,7 +99,7 @@ _DISABLED_DETAIL = "IBKR integration is disabled (FINTRADE_IBKR_ENABLED is not s
 # .GatewayState` + `app.api.routers.ibkr`'s existing `"disabled"` convention exactly (this
 # module must degrade exactly the same way every other IBKR-dependent feature in this app
 # does -- checklist item 3); `"unavailable"` is this module's equivalent of
-# `app.api.routers.ibkr._resolve_scanner_unavailable`'s `HTTPException(503)` case (the
+# `app.api.routers.ibkr._resolve_ibkr_call_unavailable`'s `HTTPException(503)` case (the
 # gateway/session itself is fine, but this specific history call failed transiently) --
 # there's no HTTP layer here to raise a 503 from, so it's surfaced as a fourth state instead.
 IntradayAvailability = Literal["available", "disabled", "gateway_unreachable", "not_authenticated", "unavailable"]
@@ -235,7 +235,7 @@ def _fetch_leg(
     try:
         raw_bars = provider.get_hourly_bars(conid, lookback_days=lookback_days, bar_size=bar_size)
     except IBKRUnavailableError as exc:
-        # Mirrors app.api.routers.ibkr._resolve_scanner_unavailable's exact reasoning: a
+        # Mirrors app.api.routers.ibkr._resolve_ibkr_call_unavailable's exact reasoning: a
         # fresh gateway-status check distinguishes "the gateway/session itself isn't
         # available" (this leg's failure is just a symptom) from "the gateway is fine, but
         # this specific history call failed transiently" (state="unavailable" -- this
