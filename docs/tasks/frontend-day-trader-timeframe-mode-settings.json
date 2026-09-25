@@ -55,5 +55,11 @@
       "rationale": "Recomputing ch. 39's guideline-band ratio check in TypeScript (`TimeframeTriple.factor_of_five_warnings`'s own trading-minutes conversion and 2x-10x band) would duplicate backend business logic for a purely informational, non-blocking notice -- not worth a second implementation with no test-cross-checking, per the same Frontend.md §5 'one place, testable once' principle the ordering-validation decision above also relies on. The tradeoff (warnings shown can lag one edit behind what the user is currently typing, until they submit) was judged acceptable since these are explicitly non-blocking guideline notices, not validation the user needs live feedback on to proceed."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-day-trader-timeframe-mode-settings",
+    "pr_number": 327,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/327",
+    "pushed_at": "2026-09-25T03:36:04Z"
+  }
 }
