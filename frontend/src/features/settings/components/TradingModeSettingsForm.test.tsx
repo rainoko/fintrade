@@ -1,10 +1,12 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { HttpResponse, http } from 'msw'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetTradingModeStore } from '../../../../tests/mocks/handlers'
-import { renderWithProviders } from '../../../../tests/renderWithProviders'
+import { createTestQueryClient, renderWithProviders } from '../../../../tests/renderWithProviders'
 import { server } from '../../../../tests/mocks/server'
+import type { TradingModeOut } from '../../../api/settings'
+import { settingsKeys } from '../hooks/queryKeys'
 import TradingModeSettingsForm from './TradingModeSettingsForm'
 
 describe('TradingModeSettingsForm', () => {
@@ -176,6 +178,110 @@ describe('TradingModeSettingsForm', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(screen.getByText('Trading mode saved.')).toBeInTheDocument())
+  })
+
+  it('clears a stale validation error on a leg as the user corrects it, without resubmitting', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<TradingModeSettingsForm />)
+
+    await waitFor(() => expect(screen.getByRole('radio', { name: /swing/i })).toBeChecked())
+    await user.click(screen.getByRole('radio', { name: /day trader/i }))
+
+    await user.type(screen.getByLabelText(/long-term/i), 'abc')
+    await user.type(screen.getByLabelText(/intermediate/i), '5m')
+    await user.type(screen.getByLabelText(/short-term/i), '2m')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByText(/must be a positive whole number/i)).toBeInTheDocument()
+
+    // Correct the invalid leg without clicking Save again -- the stale
+    // error/helper text should disappear immediately as the field is
+    // edited, not linger until the next submit (PR #327's review finding,
+    // this task's checklist item 1).
+    await user.clear(screen.getByLabelText(/long-term/i))
+    await user.type(screen.getByLabelText(/long-term/i), '25m')
+
+    expect(screen.queryByText(/must be a positive whole number/i)).not.toBeInTheDocument()
+  })
+
+  it('clears stale validation errors when toggling the mode radio', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<TradingModeSettingsForm />)
+
+    await waitFor(() => expect(screen.getByRole('radio', { name: /swing/i })).toBeChecked())
+    await user.click(screen.getByRole('radio', { name: /day trader/i }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findAllByText('Required.')).toHaveLength(3)
+
+    // Toggle away and back to Day Trader without fixing anything -- the
+    // previous attempt's stale "Required." errors should not reappear
+    // before any new edit or submit (this task's checklist item 1).
+    await user.click(screen.getByRole('radio', { name: /swing/i }))
+    await user.click(screen.getByRole('radio', { name: /day trader/i }))
+
+    expect(screen.queryByText('Required.')).not.toBeInTheDocument()
+  })
+
+  it('invalidates only the stocks/watchlist/portfolio/settings query-key prefixes on a successful save, not every cached query', async () => {
+    const queryClient = createTestQueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    const user = userEvent.setup()
+    renderWithProviders(<TradingModeSettingsForm />, { queryClient })
+
+    await waitFor(() => expect(screen.getByRole('radio', { name: /swing/i })).toBeChecked())
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(screen.getByText('Trading mode saved.')).toBeInTheDocument())
+
+    expect(invalidateSpy).toHaveBeenCalledTimes(4)
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['stocks'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['watchlist'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['portfolio'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['settings', 'trading-mode'] })
+    // Never called unfiltered (the app-wide blanket this task's checklist
+    // item replaced).
+    expect(invalidateSpy).not.toHaveBeenCalledWith()
+  })
+
+  it('keeps the settings query itself in sync, so a fresh mount after saving does not show stale mode/triple (PR #328 review finding)', async () => {
+    const queryClient = createTestQueryClient()
+    // Mirror main.tsx's real staleTime (60s), not a fresh test QueryClient's
+    // implicit staleTime: 0 -- at staleTime: 0, every mount refetches
+    // regardless of invalidation, which would mask the exact bug PR #328's
+    // review reproduced live: a within-staleTime revisit to Settings serving
+    // the pre-save cached GET response.
+    queryClient.setDefaultOptions({ queries: { retry: false, staleTime: 60_000 } })
+    const user = userEvent.setup()
+    const { unmount } = renderWithProviders(<TradingModeSettingsForm />, { queryClient })
+
+    await waitFor(() => expect(screen.getByRole('radio', { name: /swing/i })).toBeChecked())
+    await user.click(screen.getByRole('radio', { name: /day trader/i }))
+    await user.type(screen.getByLabelText(/long-term/i), '25m')
+    await user.type(screen.getByLabelText(/intermediate/i), '5m')
+    await user.type(screen.getByLabelText(/short-term/i), '2m')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(screen.getByText('Trading mode saved.')).toBeInTheDocument())
+
+    // The mutation must make settingsKeys.tradingMode itself stale (or
+    // otherwise update its cache) -- not just the stocks/watchlist/
+    // portfolio prefixes -- so the cache actually reflects the just-saved
+    // mode, rather than only asserting invalidateQueries' call args (which
+    // is all the previous version of this test file did, and didn't catch
+    // this regression).
+    await waitFor(() =>
+      expect(queryClient.getQueryData<TradingModeOut>(settingsKeys.tradingMode)?.mode).toBe(
+        'day_trader',
+      ),
+    )
+
+    // Simulate a client-side navigation away and back (e.g. via
+    // react-router): unmount this form instance, then mount a brand new one
+    // against the same QueryClient, the same way the review reproduced it.
+    unmount()
+    renderWithProviders(<TradingModeSettingsForm />, { queryClient })
+
+    await waitFor(() => expect(screen.getByRole('radio', { name: /day trader/i })).toBeChecked())
+    expect(screen.getByLabelText(/long-term/i)).toHaveValue('25m')
   })
 
   it('clears a stale success/error message once the user edits a field again', async () => {

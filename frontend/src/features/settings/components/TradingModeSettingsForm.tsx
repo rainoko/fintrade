@@ -130,12 +130,32 @@ function TradingModeFields({ initialData }: TradingModeFieldsProps) {
 
   const handleModeChange: RadioGroupProps['onChange'] = (event) => {
     updateTradingMode.reset()
+    // Clear every leg's stale validation error alongside the mode switch —
+    // otherwise toggling back to Day Trader re-shows whatever errors were
+    // set on a previous failed attempt before any new edit or submit (this
+    // task's `decisions` entry, filed as a follow-up finding from PR #327's
+    // review).
+    setErrors({})
     setMode(event.target.value as TradingModeOut['mode'])
   }
 
   const handleTripleChange = (leg: TripleLeg) => (event: { target: { value: string } }) => {
     updateTradingMode.reset()
     setTriple((current) => ({ ...current, [leg]: event.target.value }))
+    // Clear this leg's stale validation error as the user edits it, rather
+    // than only recomputing `errors` inside `handleSubmit` — otherwise a
+    // corrected value keeps showing the old error until the next Save click
+    // (this task's `decisions` entry). `handleSubmit` still re-validates
+    // everything from scratch before submitting, so this doesn't weaken
+    // what's actually enforced.
+    setErrors((current) => {
+      if (!(leg in current)) {
+        return current
+      }
+      const next = { ...current }
+      delete next[leg]
+      return next
+    })
   }
 
   const handleSubmit = (event: FormEvent) => {
