@@ -38,5 +38,11 @@
       "rationale": "Re-examined all three sites (the third, `_fan_out_per_ticker`, is the one that appeared since this PR's review, per the checklist item's own prediction). They differ in three ways that make a single shared helper either impossible without new layering or not worth the abstraction: (1) `stocks.py`'s ordering requirement (daily-fetch failure must take priority over weekly-fetch failure) is a load-bearing behavior documented with an inline comment right at the two `.result()` calls -- burying that inside a generic helper's contract makes it a non-obvious invariant a future editor of the helper (working on an unrelated call site) could break without realizing it mattered here; (2) `_fetch_legs_concurrently` lives in `app.data`, which must not depend on `app.api` (the reverse of this codebase's documented dependency direction, docs/architecture/Backend.md), so unifying it with `_fan_out_per_ticker` (currently in `app.api.day_trader_signal`) would require carving out a brand-new shared module (e.g. `app.concurrency`) solely to host a ~6-line `ThreadPoolExecutor`-submit-and-collect pattern, for three call sites whose per-site logic (dedup + capped `max_workers` for the N-ticker case; fixed 3-key dict for the leg case; fixed 2-key ordered case for stocks.py) would still need distinct wrapper functions anyway -- the shared core would save only a few lines of genuinely identical code per site while adding a new module, an extra import per caller, and a fourth place to look when debugging a fan-out issue; (3) unlike the `resample_ohlcv` case this same PR's precedent set (two byte-for-byte identical resample bodies, extracting which removed real duplicated logic with a real shared contract to test), these three sites were never near-duplicates of each other in the way that made `resample_ohlcv` worth extracting -- each already reads clearly at its own call site, and `_fan_out_per_ticker` already unified the two sites that actually were identical (within `app.api.day_trader_signal`). Net: a shared helper here would be abstraction for its own sake, not a genuine duplication fix; leaving the three sites as-is is the better trade-off. This is a legitimate 'not worth unifying' outcome per this task's own description, not a skipped step."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-day-trader-timeframe-mode-ibkr-intraday-followups-followups",
+    "pr_number": 326,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/326",
+    "pushed_at": "2026-09-25T03:07:48Z"
+  }
 }
