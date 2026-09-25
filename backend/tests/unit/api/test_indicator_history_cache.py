@@ -19,6 +19,7 @@ from app.api.schemas import (
     IndicatorHistoryPoint,
     IndicatorHistoryResponse,
     TideScreen,
+    TradingModeOut,
     TrendStrength,
 )
 from app.db.models import Base, IndicatorHistoryCacheORM
@@ -41,6 +42,7 @@ def db_session():
 def _response(ticker: str = "AAPL") -> IndicatorHistoryResponse:
     return IndicatorHistoryResponse(
         ticker=ticker,
+        trading_mode=TradingModeOut(mode="swing", day_trader_timeframe_triple=None),
         points=[
             IndicatorHistoryPoint(
                 date="2026-01-01",

@@ -416,7 +416,28 @@ class IndicatorHistoryPoint(BaseModel):
 
 class IndicatorHistoryResponse(BaseModel):
     ticker: str
-    points: list[IndicatorHistoryPoint] = Field(description="Oldest-first, one entry per daily bar in the requested range. The last entry matches GET /api/stocks/{ticker}/analysis's signal/confidence/indicators for this same ticker (same as_of date, computed from the same inputs) whenever both are computed fresh -- but this endpoint's own same-calendar-day response cache can serve a hit computed from an earlier OHLCV snapshot than /analysis's own always-fresh call, for the rest of that calendar day (see the backend-indicator-history-performance task's decisions). Screen 1 (Tide) IS point-in-time recomputed per bar, from only the weekly data as-of that bar's own calendar week -- not held fixed at today's value (see the api-stocks-indicator-history task's decisions).")
+    trading_mode: TradingModeOut = Field(
+        description="The global trading mode active when this response was computed -- same "
+        "field/semantics as AnalysisResponse.trading_mode (docs/tasks/"
+        "backend-day-trader-timeframe-mode-api-followups.json). While 'swing' (unchanged), "
+        "`points` is one entry per daily bar, computed via `app.signals.engine.analyse_history`. "
+        "While 'day_trader', `points` is instead one entry per bar of the active "
+        "`trading_mode.day_trader_timeframe_triple`'s *intermediate* leg (`app.signals.engine "
+        ".analyse_history_day_trader`) -- so `IndicatorHistoryPoint.date` can repeat across "
+        "several consecutive `points` entries whenever that leg's own bar width is finer than "
+        "one calendar day (e.g. several 10-minute bars sharing the same calendar date): this "
+        "field is still typed as a plain `date` (not renamed/widened to a full timestamp) since "
+        "no frontend consumer can reach day-trader mode yet (no settings UI) -- see this task's "
+        "`decisions` entry for the same non-breaking-change rationale backend-day-trader-"
+        "timeframe-mode-api's own field-naming decision already established. This endpoint's "
+        "same-calendar-day response cache (see `points`' own description) is never consulted "
+        "or populated in day-trader mode -- every day-trader-mode response is computed fresh, "
+        "matching GET /api/stocks/{ticker}/analysis/GET /api/watchlist's own always-live "
+        "day-trader-mode convention, since a whole-calendar-day cache TTL designed for "
+        "once-a-day-cadence swing data would serve a stale-by-hours (or wrong-mode) response "
+        "for intraday data that can change every few minutes."
+    )
+    points: list[IndicatorHistoryPoint] = Field(description="Oldest-first, one entry per bar in the requested range (a daily bar in swing mode, or the active day-trader triple's intermediate-leg bar in day-trader mode -- see `trading_mode`'s own description). The last entry matches GET /api/stocks/{ticker}/analysis's signal/confidence/indicators for this same ticker (same as_of date, computed from the same inputs) whenever both are computed fresh -- but this endpoint's own same-calendar-day response cache (swing mode only) can serve a hit computed from an earlier OHLCV snapshot than /analysis's own always-fresh call, for the rest of that calendar day (see the backend-indicator-history-performance task's decisions). Screen 1 (Tide) IS point-in-time recomputed per bar, from only the long-term-role data as-of that bar's own calendar week/timestamp -- not held fixed at today's value (see the api-stocks-indicator-history task's decisions).")
 
 
 # --- /api/portfolio -------------------------------------------------------
@@ -440,15 +461,22 @@ class PositionOut(BaseModel):
         default=None,
         description="BUY/SELL/HOLD from the exact same Triple Screen signal engine "
         "GET /api/stocks/{ticker}/analysis and GET /api/watchlist use (docs/Analyse.md §5) -- "
-        "not a separately-implemented buy check. Null if this position's signal couldn't be "
-        "computed right now -- either its current_price fetch already failed (see "
-        "current_price's own description), that fetch succeeded but the separate weekly-"
-        "history fetch the signal engine additionally needs (for Screen 1/Tide) failed, or "
-        "the latest daily bar has a valid close (so current_price is still available) but "
-        "NaN open/high/low and so doesn't survive the signal engine's stricter filtering -- "
-        "mirroring WatchlistItemOut's null-on-failure pattern rather than failing the whole "
-        "request or dropping the position. See the api-portfolio-position-signal task's "
-        "`decisions`.",
+        "not a separately-implemented buy check; reflects whichever `PortfolioResponse"
+        ".trading_mode` is currently active (docs/tasks/"
+        "backend-day-trader-timeframe-mode-api-followups.json), same as AnalysisResponse.signal. "
+        "Null if this position's signal couldn't be computed right now -- while 'swing', either "
+        "its current_price fetch already failed (see current_price's own description), that "
+        "fetch succeeded but the separate weekly-history fetch the signal engine additionally "
+        "needs (for Screen 1/Tide) failed, or the latest daily bar has a valid close (so "
+        "current_price is still available) but NaN open/high/low and so doesn't survive the "
+        "signal engine's stricter filtering; while 'day_trader', the IBKR gateway being "
+        "disabled/unreachable/unauthenticated, this ticker's IBKR contract id not resolving, or "
+        "the active day-trader timeframe triple not being fully intraday (see "
+        "AnalysisResponse.trading_mode) -- unlike the swing case, this is independent of "
+        "whether this same position's own current_price fetch succeeded, since the two use "
+        "entirely separate data sources in that mode. Mirroring WatchlistItemOut's "
+        "null-on-failure pattern rather than failing the whole request or dropping the "
+        "position. See the api-portfolio-position-signal task's `decisions`.",
     )
     confidence: int | None = Field(
         default=None,
@@ -475,6 +503,20 @@ class PositionOut(BaseModel):
 
 
 class PortfolioResponse(BaseModel):
+    trading_mode: TradingModeOut = Field(
+        description="The global trading mode active when this response was computed -- same "
+        "field/semantics as AnalysisResponse.trading_mode/WatchlistResponse.trading_mode "
+        "(docs/tasks/backend-day-trader-timeframe-mode-api-followups.json). Only "
+        "`PositionOut.signal`/`confidence`/`confidence_band` below are affected by this field: "
+        "while 'swing' (unchanged), each position's signal comes from its own daily/weekly "
+        "OHLCV; while 'day_trader', each position's signal instead comes from "
+        "`app.signals.engine.analyse_day_trader` over the active "
+        "`trading_mode.day_trader_timeframe_triple`'s three legs (fetched via IBKR). "
+        "`current_price`/`unrealized_pnl_pct`/`equity` are unaffected either way -- always "
+        "derived from the ordinary daily-chart close, matching AnalysisResponse's own "
+        "as_of/extended_data/profit_target staying swing-data-derived regardless of trading "
+        "mode."
+    )
     equity: Equity
     positions: list[PositionOut]
 
@@ -552,6 +594,24 @@ class RiskPosition(BaseModel):
 
 
 class RiskResponse(BaseModel):
+    trading_mode: TradingModeOut = Field(
+        description="The global trading mode active when this response was computed -- same "
+        "field/semantics as AnalysisResponse.trading_mode (docs/tasks/"
+        "backend-day-trader-timeframe-mode-api-followups.json). Each `RiskPosition`'s "
+        "`protective_stop`/`trailing_stop`/`exit_flags`/`profit_target` are affected by this "
+        "field: while 'swing' (unchanged), each is computed from that position's own "
+        "daily/weekly OHLCV; while 'day_trader', each instead reads whichever OHLCV plays the "
+        "intermediate/long-term role for the active `trading_mode.day_trader_timeframe_triple` "
+        "(fetched via IBKR) -- see `app.portfolio.risk.protective_stop`/`app.portfolio"
+        ".profit_target.suggest_profit_target`/`app.portfolio.exits.evaluate_exit_flags`'s own "
+        "docstrings (backend-day-trader-timeframe-mode-portfolio-risk) for how each already "
+        "generalizes to whichever timeframe it's handed. A position whose day-trader-mode data "
+        "isn't available right now is silently excluded from `positions` -- same convention as "
+        "every other can't-be-computed-right-now reason this schema already documents. "
+        "`total_open_risk_pct`/`realized_losses_this_month_pct`/`six_percent_rule_breached` are "
+        "unaffected either way -- these are portfolio-wide account-equity/closed-trade "
+        "computations with no per-position timeframe dependency."
+    )
     total_open_risk_pct: float = Field(
         description="The 6% rule total: sum of position_risk_pct across all open positions "
         "plus realized_losses_this_month_pct below (docs/Analyse.md §7's own two-part formula "

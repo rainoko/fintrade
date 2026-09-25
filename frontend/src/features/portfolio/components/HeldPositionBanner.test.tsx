@@ -19,6 +19,7 @@ function mockRisk(response: RiskResponse) {
 }
 
 const aaplPortfolio: PortfolioResponse = {
+  trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
   equity: { cash: 5000, positions_value: 22890, total: 27890 },
   positions: [
     {
@@ -40,6 +41,7 @@ describe('HeldPositionBanner', () => {
   it('shows entry price/quantity/date, protective stop, and profit target for a held position', async () => {
     mockPortfolio(aaplPortfolio)
     mockRisk({
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
       total_open_risk_pct: 1.8,
       realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,
@@ -76,6 +78,7 @@ describe('HeldPositionBanner', () => {
   it("renders nothing for a ticker that isn't a held position", async () => {
     mockPortfolio(aaplPortfolio)
     mockRisk({
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
       total_open_risk_pct: 1.8,
       realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,
@@ -98,7 +101,10 @@ describe('HeldPositionBanner', () => {
     mockPortfolio(aaplPortfolio)
     server.use(
       http.get('/api/portfolio/risk', () =>
-        HttpResponse.json({ detail: 'Market data provider unavailable' }, { status: 503 }),
+        HttpResponse.json(
+          { detail: 'Market data provider unavailable' },
+          { status: 503 },
+        ),
       ),
     )
 
@@ -111,7 +117,9 @@ describe('HeldPositionBanner', () => {
 
     // Field-specific aria-labels (not a shared "Risk data unavailable") so a
     // screen reader user can tell which field failed from the label alone.
-    expect(await within(banner).findByLabelText('Current Stop unavailable')).toBeInTheDocument()
+    expect(
+      await within(banner).findByLabelText('Current Stop unavailable'),
+    ).toBeInTheDocument()
     expect(within(banner).getByLabelText('Profit target unavailable')).toBeInTheDocument()
     // No misleading '—' ("no stop/target configured") anywhere in the banner
     // for this genuine fetch-failure case.
@@ -121,6 +129,7 @@ describe('HeldPositionBanner', () => {
   it('falls back to an em dash for stop/target when the ticker is held but absent from the risk response', async () => {
     mockPortfolio(aaplPortfolio)
     mockRisk({
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
       total_open_risk_pct: 0,
       realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,

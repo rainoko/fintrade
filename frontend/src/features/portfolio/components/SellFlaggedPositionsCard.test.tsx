@@ -29,6 +29,7 @@ function mockRisk(response: RiskResponse) {
 describe('SellFlaggedPositionsCard', () => {
   it('shows a loading state, then an empty-state message when no positions are flagged', async () => {
     mockRisk({
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
       total_open_risk_pct: 1.8,
       realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,
@@ -59,6 +60,7 @@ describe('SellFlaggedPositionsCard', () => {
 
   it('lists only the positions with a non-empty exit_flags, with human-readable flag labels', async () => {
     mockRisk({
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
       total_open_risk_pct: 4.5,
       realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,
@@ -103,6 +105,7 @@ describe('SellFlaggedPositionsCard', () => {
 
   it('falls back to a humanized label for an exit flag not in the known label map', async () => {
     mockRisk({
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
       total_open_risk_pct: 1.0,
       realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,
@@ -136,7 +139,9 @@ describe('SellFlaggedPositionsCard', () => {
       expect(queryClient.getQueryState(portfolioKeys.risk)?.status).toBe('error'),
     )
     expect(await screen.findByRole('alert')).toBeInTheDocument()
-    expect(screen.queryByText('Loading sell-flagged positions...')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Loading sell-flagged positions...'),
+    ).not.toBeInTheDocument()
     expect(screen.queryByText('Positions Flagged to Sell')).not.toBeInTheDocument()
   })
 
@@ -152,7 +157,9 @@ describe('SellFlaggedPositionsCard', () => {
       expect(queryClient.getQueryState(portfolioKeys.risk)?.status).toBe('error'),
     )
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-    expect(screen.queryByText('Loading sell-flagged positions...')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Loading sell-flagged positions...'),
+    ).not.toBeInTheDocument()
     expect(screen.queryByText('Positions Flagged to Sell')).not.toBeInTheDocument()
   })
 })

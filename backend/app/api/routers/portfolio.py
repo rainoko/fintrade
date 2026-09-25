@@ -9,7 +9,14 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_data_provider
+from app.api.day_trader_signal import (
+    DayTraderLegsOutcome,
+    DayTraderSignalOutcome,
+    compute_day_trader_signals_concurrently,
+    fetch_day_trader_legs_concurrently,
+    trading_mode_setting_to_schema,
+)
+from app.api.dependencies import get_data_provider, get_ibkr_provider
 from app.api.schemas import (
     ClosedTradeOut,
     ClosedTradesResponse,
@@ -34,6 +41,7 @@ from app.data.exceptions import (
     InsufficientHistoryError,
     TickerNotFoundError,
 )
+from app.data.ibkr_provider import IBKRProvider
 from app.db.models import AccountORM, ClosedTradeORM, PositionORM
 from app.db.session import get_db
 from app.indicators.autoenvelope import autoenvelope
@@ -60,7 +68,9 @@ from app.portfolio.trade_apgar import ImpulseColor, price_vs_value_zone, score_t
 from app.signals.engine import SignalResult, analyse, drop_malformed_daily_bars
 from app.signals.impulse import evaluate_impulse
 from app.signals.support_resistance import detect_support_resistance_zones
+from app.signals.timeframe import TradingMode
 from app.time_utils import today, utcnow
+from app.trading_mode import TradingModeSetting, get_trading_mode_setting
 
 logger = logging.getLogger(__name__)
 
@@ -121,19 +131,39 @@ def _realized_losses_this_month_pct(db: Session, account: Account, as_of: date) 
         return 0.0
 
 
-def _compute_position_signal(e: EnrichedPosition, provider: DataProvider) -> SignalResult | None:
+def _compute_position_signal(
+    e: EnrichedPosition,
+    provider: DataProvider,
+    *,
+    trading_mode_setting: TradingModeSetting,
+    day_trader_outcomes: dict[str, DayTraderSignalOutcome],
+) -> SignalResult | None:
     """Runs the same fetch-then-`analyse()` pipeline `GET /api/stocks/{ticker}/analysis` and
     `GET /api/watchlist` use, for a single already-price-enriched position, returning `None`
     instead of raising if the signal can't be computed right now -- see the
     api-portfolio-position-signal task's `decisions` entry.
 
-    Reuses `e.daily_ohlcv` (the same fetch `enrich_positions_with_price` already made to
-    derive `current_price`) rather than fetching daily data a second time; a `None`
-    `e.daily_ohlcv` means that fetch already failed, so the signal is unconditionally
-    unavailable too (mirrors `app.api.routers.portfolio.get_risk`'s identical
-    `e.position.current_price is None or e.daily_ohlcv is None` guard). Only the weekly
-    history (needed for Screen 1/Tide, not fetched by `enrich_positions_with_price` at all)
-    is fetched here, degrading to `None` on `DataProviderError` -- the same narrow
+    While `trading_mode_setting.mode` is `TradingMode.DAY_TRADER` with a configured triple
+    (`backend-day-trader-timeframe-mode-api-followups`): looks `e.position.ticker` up in
+    `day_trader_outcomes` (`get_portfolio`'s own concurrent prefetch, mirroring
+    `app.api.routers.watchlist._compute_signal`'s identical pattern) instead of touching
+    `e.daily_ohlcv`/`provider` at all -- deliberately **not** gated on `e.daily_ohlcv`/
+    `e.position.current_price` being available, unlike the swing branch below: this position's
+    day-trader-mode signal is computed from entirely independent IBKR data, so a swing-provider
+    price-fetch failure for this ticker (which only affects `current_price`/`unrealized_pnl_pct`
+    in this mode) shouldn't also suppress a signal IBKR can still compute -- see this task's
+    `decisions` entry (this is a deliberate improvement over `GET /api/stocks/{ticker}/analysis`'s
+    own day-trader branch, which still fetches daily/weekly before ever checking the active
+    mode, for reasons specific to that endpoint's `as_of` derivation).
+
+    While `TradingMode.SWING` (or `DAY_TRADER` with no triple configured, treated the same):
+    this app's original behavior, unchanged -- reuses `e.daily_ohlcv` (the same fetch
+    `enrich_positions_with_price` already made to derive `current_price`) rather than fetching
+    daily data a second time; a `None` `e.daily_ohlcv` means that fetch already failed, so the
+    signal is unconditionally unavailable too (mirrors `app.api.routers.portfolio.get_risk`'s
+    identical `e.position.current_price is None or e.daily_ohlcv is None` guard). Only the
+    weekly history (needed for Screen 1/Tide, not fetched by `enrich_positions_with_price` at
+    all) is fetched here, degrading to `None` on `DataProviderError` -- the same narrow
     (not bare `except Exception`) catch `app.api.routers.watchlist._compute_signal` uses, so a
     genuine bug in `analyse()` itself still surfaces as a loud 500 rather than a silently
     swallowed null field.
@@ -155,6 +185,13 @@ def _compute_position_signal(e: EnrichedPosition, provider: DataProvider) -> Sig
     exact condition (the latest bar didn't survive filtering) and returning `None` instead
     keeps the two families of fields consistent: either both come from today's bar, or the
     signal ones are null until today's bar has a full OHLC -- never a silent mix of the two."""
+    if (
+        trading_mode_setting.mode is TradingMode.DAY_TRADER
+        and trading_mode_setting.day_trader_timeframe_triple is not None
+    ):
+        outcome = day_trader_outcomes.get(e.position.ticker)
+        return outcome.signal_result if outcome is not None else None
+
     if e.daily_ohlcv is None:
         return None
     try:
@@ -309,6 +346,7 @@ def _to_closed_trade_out(row: ClosedTradeORM, grade: TradeGrade) -> ClosedTradeO
 def get_portfolio(
     db: Session = Depends(get_db),
     provider: DataProvider = Depends(get_data_provider),
+    ibkr_provider: IBKRProvider | None = Depends(get_ibkr_provider),
 ) -> PortfolioResponse:
     """All held positions plus account equity (cash + mark-to-market positions value).
     `current_price`/`unrealized_pnl_pct` on each position are enriched from the market
@@ -317,29 +355,51 @@ def get_portfolio(
     (it can't be marked to market) rather than falling back to cost basis — see this
     task's `decisions` entry. The fetch-and-degrade-gracefully loop itself lives in
     `app.portfolio.pricing` (shared with GET /api/portfolio/risk) — see the
-    api-portfolio-risk task's `decisions` entry.
+    api-portfolio-risk task's `decisions` entry. `current_price`/`unrealized_pnl_pct`/`equity`
+    are always derived this same way regardless of the active trading mode -- see
+    `PortfolioResponse.trading_mode`'s own field description.
 
     `signal`/`confidence`/`confidence_band` on each position come from the exact same
-    Triple Screen signal engine (`app.signals.engine.analyse`, docs/Analyse.md §5) GET
-    /api/stocks/{ticker}/analysis and GET /api/watchlist use -- no second, divergent signal
-    computation. Null together on a position whose signal couldn't be computed right now
-    (its price fetch already failed, the separate weekly-history fetch the signal engine
-    needs failed, or the latest daily bar has a valid close but NaN open/high/low -- the
-    signal fields go null rather than silently reflecting yesterday's bar while
-    `current_price` reflects today's), mirroring `current_price`'s own null-on-failure
-    convention and WatchlistItemOut's identical precedent -- the position itself is still
-    returned, never dropped or 500'd, just as a price-fetch failure never drops it -- see
+    Triple Screen signal engine (`app.signals.engine.analyse`/`analyse_day_trader`,
+    docs/Analyse.md §5) GET /api/stocks/{ticker}/analysis and GET /api/watchlist use -- no
+    second, divergent signal computation. Null together on a position whose signal couldn't be
+    computed right now -- see `PositionOut.signal`'s own field description for every reason
+    that can happen in either trading mode -- the position itself is still returned, never
+    dropped or 500'd, just as a price-fetch failure never drops it -- see
     `_compute_position_signal`'s docstring and the api-portfolio-position-signal task's
-    `decisions` entry."""
+    `decisions` entry.
+
+    While day-trader mode is active with a configured triple
+    (`backend-day-trader-timeframe-mode-api-followups`), every held position's own ticker is
+    resolved concurrently up front (`compute_day_trader_signals_concurrently`) rather than one
+    IBKR round trip at a time in the loop below -- see that function's own docstring and this
+    task's `decisions` entry for the latency rationale."""
     account = db.get(AccountORM, 1)
     cash = account.cash if account is not None else 0.0
 
     enriched = enrich_positions_with_price(_ordered_positions(db), provider)
     value = positions_value(enriched)
 
+    trading_mode_setting = get_trading_mode_setting(db)
+    day_trader_outcomes: dict[str, DayTraderSignalOutcome] = {}
+    if (
+        trading_mode_setting.mode is TradingMode.DAY_TRADER
+        and trading_mode_setting.day_trader_timeframe_triple is not None
+    ):
+        day_trader_outcomes = compute_day_trader_signals_concurrently(
+            [e.position.ticker for e in enriched],
+            trading_mode_setting.day_trader_timeframe_triple,
+            provider=ibkr_provider,
+        )
+
     positions_out: list[PositionOut] = []
     for e in enriched:
-        signal_result = _compute_position_signal(e, provider)
+        signal_result = _compute_position_signal(
+            e,
+            provider,
+            trading_mode_setting=trading_mode_setting,
+            day_trader_outcomes=day_trader_outcomes,
+        )
         positions_out.append(
             PositionOut(
                 id=e.position.id,
@@ -360,6 +420,7 @@ def get_portfolio(
         )
 
     return PortfolioResponse(
+        trading_mode=trading_mode_setting_to_schema(trading_mode_setting),
         equity=Equity(cash=cash, positions_value=value, total=cash + value),
         positions=positions_out,
     )
@@ -730,6 +791,7 @@ def _profit_target_to_schema(target: ProfitTarget) -> ProfitTargetOut:
 def get_risk(
     db: Session = Depends(get_db),
     provider: DataProvider = Depends(get_data_provider),
+    ibkr_provider: IBKRProvider | None = Depends(get_ibkr_provider),
 ) -> RiskResponse:
     """Per-position protective stop, 2%-rule risk, and exit flags, plus the portfolio-wide
     6%-rule total (docs/Analyse.md §7). `exit_flags` can be non-empty even when the
@@ -822,6 +884,22 @@ def get_risk(
     (same fail-fast contract as `protective_stop`/`position_risk_pct`/`exit_flags` above, unlike
     the independently-nullable `profit_target`).
 
+    While day-trader mode is active with a configured triple
+    (`backend-day-trader-timeframe-mode-api-followups`): `daily_by_id`/`weekly_by_id` below are
+    instead populated from that position's day-trader-mode `intermediate_ohlcv`/`long_term_ohlcv`
+    legs (fetched concurrently across every held position up front, via
+    `app.api.day_trader_signal.fetch_day_trader_legs_concurrently` -- see this task's
+    `decisions` entry for the latency rationale) rather than `e.daily_ohlcv`/
+    `provider.get_weekly_ohlcv` -- `protective_stop`/`suggest_profit_target`/
+    `evaluate_exit_flags` themselves need no branching of their own to handle this: all three
+    already generalize to whichever OHLCV plays the intermediate/long-term role
+    (`backend-day-trader-timeframe-mode-portfolio-risk`). A position whose day-trader-mode legs
+    aren't available right now (IBKR disabled/unreachable/unauthenticated, this ticker's IBKR
+    contract id not resolving, or the active triple not being fully intraday) is silently
+    excluded from `positions` the same way a swing-mode fetch failure already is.
+    `e.position.current_price`/`equity`/the account-level 6% Rule total are unaffected either
+    way -- see `RiskResponse.trading_mode`'s own field description.
+
     Known, accepted perf trade-off (not fixed here -- see the
     backend-profit-target-open-position-followups task's `decisions` entry): both
     `detect_support_resistance_zones` (a whole-history swing-point/clustering pass) and
@@ -851,16 +929,31 @@ def get_risk(
         positions=[e.position for e in enriched],
     )
 
+    trading_mode_setting = get_trading_mode_setting(db)
+    day_trader_active = (
+        trading_mode_setting.mode is TradingMode.DAY_TRADER
+        and trading_mode_setting.day_trader_timeframe_triple is not None
+    )
+    day_trader_legs: dict[str, DayTraderLegsOutcome] = {}
+    if day_trader_active:
+        assert trading_mode_setting.day_trader_timeframe_triple is not None
+        day_trader_legs = fetch_day_trader_legs_concurrently(
+            [e.position.ticker for e in enriched],
+            trading_mode_setting.day_trader_timeframe_triple,
+            provider=ibkr_provider,
+        )
+
     # First pass: figure out which positions have enough data to compute a protective stop
-    # at all, and fetch each one's weekly history (needed for the tide_flipped_bearish exit
-    # flag) up front so the second pass can call evaluate_exit_flags without any further
-    # fetches. protective_stop() is attempted before the weekly fetch -- it's a pure
-    # computation over the frame we already have in hand, so a position excluded on the
-    # daily side (missing column, too short) never pays for a weekly network/cache round
-    # trip that would just get thrown away.
+    # at all, and resolve each one's long-term-role data (needed for the tide_flipped_bearish
+    # exit flag) up front so the second pass can call evaluate_exit_flags without any further
+    # fetches. While in swing mode, protective_stop() is attempted before the weekly fetch --
+    # it's a pure computation over the frame we already have in hand, so a position excluded on
+    # the daily side (missing column, too short) never pays for a weekly network/cache round
+    # trip that would just get thrown away; while in day-trader mode, every position's legs were
+    # already fetched together (concurrently, above), so there's no equivalent fetch to avoid.
     #
-    # e.daily_ohlcv is filtered through drop_malformed_daily_bars up front, before the
-    # length check and every downstream use (protective_stop here, evaluate_exit_flags in
+    # The intermediate-role frame is filtered through drop_malformed_daily_bars up front, before
+    # the length check and every downstream use (protective_stop here, evaluate_exit_flags in
     # the second pass below) -- see this handler's own docstring and the
     # api-stocks-analysis-nullable-indicators-followups task's `decisions` entry. The
     # filtered frame is cached per position (daily_by_id) alongside stops/weekly_by_id so
@@ -869,21 +962,52 @@ def get_risk(
     weekly_by_id: dict[str, pd.DataFrame] = {}
     daily_by_id: dict[str, pd.DataFrame] = {}
     for e in enriched:
-        if e.position.current_price is None or e.daily_ohlcv is None:
+        if e.position.current_price is None:
             continue
-        daily_ohlcv = drop_malformed_daily_bars(
-            e.daily_ohlcv, require_full_ohlc_on_latest_bar=False
-        )
-        if len(daily_ohlcv) < 2:
-            continue
-        try:
-            stop = protective_stop(e.position, daily_ohlcv.iloc[:-1])
-        except ValueError:
-            continue
-        try:
-            weekly_ohlcv = provider.get_weekly_ohlcv(e.position.ticker)
-        except DataProviderError:
-            continue
+        weekly_ohlcv: pd.DataFrame
+        if day_trader_active:
+            legs = day_trader_legs.get(e.position.ticker)
+            if (
+                legs is None
+                or legs.unavailable_reason is not None
+                or legs.intermediate_ohlcv is None
+                or legs.long_term_ohlcv is None
+            ):
+                continue
+            daily_ohlcv = drop_malformed_daily_bars(
+                legs.intermediate_ohlcv, require_full_ohlc_on_latest_bar=False
+            )
+            if len(daily_ohlcv) < 2:
+                continue
+            try:
+                stop = protective_stop(e.position, daily_ohlcv.iloc[:-1])
+            except ValueError:
+                continue
+            weekly_ohlcv = legs.long_term_ohlcv
+        else:
+            # `e.daily_ohlcv` is guaranteed non-`None` here (not merely assumed): `e.position
+            # .current_price is None` already `continue`d above, and `app.portfolio.pricing
+            # .EnrichedPosition`'s own contract guarantees `daily_ohlcv` is `None` **iff**
+            # `current_price` is -- see that dataclass's own docstring. Narrowed explicitly for
+            # mypy via `assert` (matching `app.api.day_trader_signal`'s identical convention)
+            # rather than a second `if ... is None: continue`, which would be dead, untestable
+            # code given that guarantee -- unlike `_compute_position_signal` above, which has no
+            # preceding `current_price` check of its own and so genuinely can reach a `None`
+            # `e.daily_ohlcv` (see that function's own docstring).
+            assert e.daily_ohlcv is not None
+            daily_ohlcv = drop_malformed_daily_bars(
+                e.daily_ohlcv, require_full_ohlc_on_latest_bar=False
+            )
+            if len(daily_ohlcv) < 2:
+                continue
+            try:
+                stop = protective_stop(e.position, daily_ohlcv.iloc[:-1])
+            except ValueError:
+                continue
+            try:
+                weekly_ohlcv = provider.get_weekly_ohlcv(e.position.ticker)
+            except DataProviderError:
+                continue
         stops[e.position.id] = stop
         weekly_by_id[e.position.id] = weekly_ohlcv
         daily_by_id[e.position.id] = daily_ohlcv
@@ -985,6 +1109,7 @@ def get_risk(
         )
 
     return RiskResponse(
+        trading_mode=trading_mode_setting_to_schema(trading_mode_setting),
         total_open_risk_pct=total_risk,
         realized_losses_this_month_pct=realized_losses_this_month,
         six_percent_rule_breached=six_percent_rule_breached,

@@ -50,6 +50,7 @@ const positions: PositionOut[] = [
 describe('PositionsTable', () => {
   it('renders a row per position with formatted currency/percentage cells and a signal badge', async () => {
     mockRisk({
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
       total_open_risk_pct: 1.8,
       realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,
@@ -91,15 +92,14 @@ describe('PositionsTable', () => {
 
     // Protective Stop/Profit Target columns (frontend-position-risk-columns)
     // read from GET /api/portfolio/risk, cross-referenced by ticker.
-    await waitFor(() =>
-      expect(within(rows[0]).getByText('$210.15')).toBeInTheDocument(),
-    )
+    await waitFor(() => expect(within(rows[0]).getByText('$210.15')).toBeInTheDocument())
     expect(within(rows[0]).getByText('$245.00')).toBeInTheDocument()
     expect(within(rows[0]).getByText('2.0:1')).toBeInTheDocument()
   })
 
   it('renders an em dash for null current_price/unrealized_pnl_pct/signal, and for a ticker missing from the risk response', async () => {
     mockRisk({
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
       total_open_risk_pct: 0,
       realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,
@@ -119,7 +119,9 @@ describe('PositionsTable', () => {
     // ZZZZ is absent from the (mocked, empty) risk response above -- both
     // new columns fall back to '—' rather than crashing on a missing entry,
     // matching RiskPanel's own graceful-degrade convention for the same case.
-    await waitFor(() => expect(within(zzzzRow).getAllByText('—').length).toBeGreaterThan(0))
+    await waitFor(() =>
+      expect(within(zzzzRow).getAllByText('—').length).toBeGreaterThan(0),
+    )
   })
 
   it('sorts by current_price, with the null value sorting last', async () => {
@@ -253,7 +255,7 @@ describe('PositionsTable', () => {
     )
   })
 
-  it('keeps a second position\'s dialog Confirm button disabled while a different position\'s close is still pending (since both dialogs share one useDeletePosition() instance), and keeps that second dialog open once the first position\'s close resolves', async () => {
+  it("keeps a second position's dialog Confirm button disabled while a different position's close is still pending (since both dialogs share one useDeletePosition() instance), and keeps that second dialog open once the first position's close resolves", async () => {
     // Delays AAPL's DELETE response so its pending window is observable while
     // ZZZZ's dialog is opened in the meantime -- without this the mutation
     // would settle before the second dialog could even be opened.
@@ -313,12 +315,15 @@ describe('PositionsTable', () => {
     )
   })
 
-  it('degrades silently to \'—\' (no own ErrorState) when GET /api/portfolio/risk fails, since RiskPanel already surfaces this failure on the same PortfolioPage', async () => {
+  it("degrades silently to '—' (no own ErrorState) when GET /api/portfolio/risk fails, since RiskPanel already surfaces this failure on the same PortfolioPage", async () => {
     let riskRequestSettled = false
     server.use(
       http.get('/api/portfolio/risk', () => {
         riskRequestSettled = true
-        return HttpResponse.json({ detail: 'Market data provider unavailable' }, { status: 503 })
+        return HttpResponse.json(
+          { detail: 'Market data provider unavailable' },
+          { status: 503 },
+        )
       }),
     )
     renderPositionsTable(positions)
@@ -399,7 +404,9 @@ describe('PositionsTable', () => {
     // attributed to AAPL) stays up instead.
     await user.click(screen.getByRole('button', { name: 'Delete ZZZZ' }))
     expect(screen.getByRole('dialog')).toBeInTheDocument()
-    expect(within(screen.getByRole('dialog')).queryByRole('alert')).not.toBeInTheDocument()
+    expect(
+      within(screen.getByRole('dialog')).queryByRole('alert'),
+    ).not.toBeInTheDocument()
     expect(screen.getByText(/failed to close aapl/i)).toBeInTheDocument()
   })
 

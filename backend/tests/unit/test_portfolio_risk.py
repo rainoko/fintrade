@@ -665,6 +665,30 @@ class TestRatchetTrailingProfitStop:
 
         assert result == pytest.approx(106.666667, abs=1e-5)
 
+    def test_tz_aware_datetime_index_does_not_raise_and_matches_the_naive_equivalent(
+        self,
+    ) -> None:
+        """day-trader mode's IBKR-sourced OHLCV (`app.data.day_trader_intraday._bars_to_frame`)
+        carries real UTC-aware timestamps, unlike swing mode's naive yfinance/Stooq index --
+        found via `backend-day-trader-timeframe-mode-api-followups`'s own GET /api/portfolio/risk
+        integration test, which hit a bare `TypeError` here before this fix (pandas refuses to
+        compare a tz-aware `DatetimeIndex` against a naive `pd.Timestamp`, unlike the
+        already-handled non-`DatetimeIndex` case just above). Asserts the tz-aware result
+        matches the naive equivalent exactly -- proving the fix doesn't just avoid raising, it
+        computes the same thing `test_no_row_on_or_after_entry_date_falls_back_to_whole_frame`'s
+        sibling `test_persisted_high_water_mark_floors_a_lower_fresh_recompute`-style cases
+        already prove correct for the naive case."""
+        position = _position(avg_cost_basis=100.0)
+        naive_daily = _daily_frame_since(date(2026, 1, 1), [100.0, 108.0, 115.0])
+        tz_aware_daily = naive_daily.copy()
+        tz_aware_daily.index = tz_aware_daily.index.tz_localize("UTC")
+
+        naive_result = ratchet_trailing_profit_stop(position, naive_daily, safezone_stop=95.0)
+        tz_aware_result = ratchet_trailing_profit_stop(position, tz_aware_daily, safezone_stop=95.0)
+
+        assert tz_aware_result == pytest.approx(naive_result)
+        assert tz_aware_result == pytest.approx(101.666667, abs=1e-5)
+
     def test_nan_close_is_skipped(self) -> None:
         position = _position(avg_cost_basis=100.0)
         daily = _daily_frame_since(date(2026, 1, 1), [100.0, float("nan"), 130.0])

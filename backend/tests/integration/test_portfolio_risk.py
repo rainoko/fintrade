@@ -25,14 +25,17 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_data_provider
+from app.api.dependencies import get_data_provider, get_ibkr_provider
 from app.data.exceptions import TickerNotFoundError
+from app.data.ibkr_provider import GatewayStatus, IBKRBar
 from app.db.models import AccountORM, ClosedTradeORM, PositionORM
 from app.db.session import get_db
 from app.main import app
 from app.portfolio.models import ExitReason, Position
 from app.portfolio.risk import protective_stop, ratchet_trailing_profit_stop, stop_from_price_action
-from app.signals.engine import analyse
+from app.signals.engine import analyse, drop_malformed_daily_bars
+from app.signals.timeframe import TimeframeInterval, TimeframeTriple, TradingMode
+from app.trading_mode import set_trading_mode_setting
 
 
 def _today() -> date:
@@ -159,6 +162,7 @@ class TestGetRisk:
 
         assert response.status_code == 200
         assert response.json() == {
+            "trading_mode": {"mode": "swing", "day_trader_timeframe_triple": None},
             "total_open_risk_pct": 0.0,
             "realized_losses_this_month_pct": 0.0,
             "six_percent_rule_breached": False,
@@ -1080,3 +1084,256 @@ class TestRealizedLossesThisMonth:
 
         assert response.status_code == 200
         assert response.json()["realized_losses_this_month_pct"] == pytest.approx(0.0)
+
+
+def _bars_to_frame(bars: list[IBKRBar]) -> pd.DataFrame:
+    """Independent re-implementation of `app.data.day_trader_intraday._bars_to_frame` for
+    computing this test module's own expected values -- deliberately not importing that
+    private function directly, so a bug in the production conversion itself wouldn't silently
+    also corrupt the expected value these tests compare against."""
+    return pd.DataFrame(
+        {
+            "open": [b.open for b in bars],
+            "high": [b.high for b in bars],
+            "low": [b.low for b in bars],
+            "close": [b.close for b in bars],
+            "volume": [b.volume for b in bars],
+        },
+        index=pd.DatetimeIndex([b.timestamp for b in bars], name="date"),
+    )
+
+
+def _day_trader_ibkr_bars(
+    closes: list[float], *, start: datetime, step_minutes: int
+) -> list[IBKRBar]:
+    return [
+        IBKRBar(
+            timestamp=start + timedelta(minutes=step_minutes * i),
+            open=close, high=close + 1.0, low=close - 1.0, close=close, volume=1_000_000.0,
+        )
+        for i, close in enumerate(closes)
+    ]
+
+
+_FULLY_INTRADAY_TRIPLE = TimeframeTriple(
+    long_term=TimeframeInterval.parse("60m"),
+    intermediate=TimeframeInterval.parse("10m"),
+    short_term=TimeframeInterval.parse("2m"),
+)
+
+# 12 intermediate bars with a clear, identifiable swing low near the middle -- deliberately
+# very different from `_QUIET_CLOSES`/`_QUIET_LOWS` above (this module's own swing-mode
+# fixture), so a silent fallback to swing daily data would produce a numerically different
+# (and therefore detectable) protective_stop.
+_DAY_TRADER_INTERMEDIATE_CLOSES = [110.0, 109.0, 108.0, 80.0, 107.0, 111.0, 112.0, 113.0, 114.0, 115.0, 116.0, 117.0]
+
+
+class _StubIBKRProvider:
+    def __init__(
+        self,
+        *,
+        resolve_conid_result: int | None | Exception = 999,
+        get_hourly_bars_by_bar_size: dict[str, list[IBKRBar]] | None = None,
+    ) -> None:
+        self._resolve_conid_result = resolve_conid_result
+        self._get_hourly_bars_by_bar_size = get_hourly_bars_by_bar_size or {}
+
+    def resolve_conid(self, ticker: str) -> int | None:
+        if isinstance(self._resolve_conid_result, Exception):
+            raise self._resolve_conid_result
+        return self._resolve_conid_result
+
+    def get_hourly_bars(self, conid: int, *, lookback_days: int, bar_size: str) -> list[IBKRBar]:
+        return self._get_hourly_bars_by_bar_size[bar_size]
+
+    def get_gateway_status(self) -> GatewayStatus:
+        return GatewayStatus(state="available")
+
+
+def _all_legs_available_ibkr_provider() -> _StubIBKRProvider:
+    long_term = _day_trader_ibkr_bars([100 * (1.05**i) for i in range(40)], start=datetime(2026, 1, 5, tzinfo=UTC), step_minutes=60)
+    intermediate = _day_trader_ibkr_bars(_DAY_TRADER_INTERMEDIATE_CLOSES, start=datetime(2026, 1, 5, tzinfo=UTC), step_minutes=10)
+    short_term = _day_trader_ibkr_bars([95.5, 99.5], start=datetime(2026, 1, 5, tzinfo=UTC), step_minutes=2)
+    return _StubIBKRProvider(
+        get_hourly_bars_by_bar_size={"1h": long_term, "10min": intermediate, "2min": short_term}
+    )
+
+
+def _get_risk_with_ibkr(db_session: Session, provider: _StubProvider, ibkr_provider: object | None):
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_data_provider] = lambda: provider
+    app.dependency_overrides[get_ibkr_provider] = lambda: ibkr_provider
+    test_client = TestClient(app)
+    try:
+        return test_client.get("/api/portfolio/risk")
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_data_provider, None)
+        app.dependency_overrides.pop(get_ibkr_provider, None)
+
+
+class TestDayTraderMode:
+    """`GET /api/portfolio/risk` while the global trading mode is `day_trader`
+    (`backend-day-trader-timeframe-mode-api-followups`) -- `protective_stop`/`trailing_stop`/
+    `exit_flags`/`profit_target` are computed from the active triple's intermediate/long-term
+    legs (fetched via IBKR) instead of this ticker's ordinary daily/weekly OHLCV."""
+
+    def test_protective_stop_uses_the_day_trader_intermediate_leg_not_swing_daily_data(
+        self, db_session: Session
+    ) -> None:
+        db_session.add(AccountORM(id=1, cash=100_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=10, avg_cost_basis=90.0, entry_date=date(2020, 1, 1))
+        )
+        set_trading_mode_setting(
+            db_session, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        db_session.commit()
+        # Flat swing daily/weekly data -- protective_stop() from this would be far higher than
+        # the day-trader intermediate leg's own swing low (80.0, deliberately dipped mid-series).
+        provider = _StubProvider(
+            daily={"AAPL": _daily_frame(_QUIET_CLOSES, _QUIET_LOWS)}, weekly={"AAPL": _weekly_frame(_FLAT_WEEKLY_CLOSES)}
+        )
+
+        response = _get_risk_with_ibkr(db_session, provider, _all_legs_available_ibkr_provider())
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["trading_mode"]["mode"] == "day_trader"
+        [position] = body["positions"]
+
+        intermediate = drop_malformed_daily_bars(
+            _bars_to_frame(
+                _day_trader_ibkr_bars(
+                    _DAY_TRADER_INTERMEDIATE_CLOSES, start=datetime(2026, 1, 5, tzinfo=UTC), step_minutes=10
+                )
+            ),
+            require_full_ohlc_on_latest_bar=False,
+        )
+        expected_stop = protective_stop(
+            Position(id="pos_1", ticker="AAPL", quantity=10, avg_cost_basis=90.0, entry_date=date(2020, 1, 1)),
+            intermediate.iloc[:-1],
+        )
+        swing_stop = protective_stop(
+            Position(id="pos_1", ticker="AAPL", quantity=10, avg_cost_basis=90.0, entry_date=date(2020, 1, 1)),
+            _daily_frame(_QUIET_CLOSES, _QUIET_LOWS).iloc[:-1],
+        )
+        assert expected_stop != pytest.approx(swing_stop)
+        assert position["protective_stop"] == pytest.approx(expected_stop)
+
+    def test_ibkr_unavailable_excludes_the_position(self, db_session: Session) -> None:
+        db_session.add(AccountORM(id=1, cash=100_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=10, avg_cost_basis=90.0, entry_date=date(2020, 1, 1))
+        )
+        set_trading_mode_setting(
+            db_session, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        db_session.commit()
+        provider = _StubProvider(
+            daily={"AAPL": _daily_frame(_QUIET_CLOSES, _QUIET_LOWS)}, weekly={"AAPL": _weekly_frame(_FLAT_WEEKLY_CLOSES)}
+        )
+
+        response = _get_risk_with_ibkr(db_session, provider, ibkr_provider=None)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["trading_mode"]["mode"] == "day_trader"
+        assert body["positions"] == []
+
+    def test_swing_mode_default_is_unaffected_by_a_configured_day_trader_triple(
+        self, db_session: Session
+    ) -> None:
+        db_session.add(AccountORM(id=1, cash=100_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=10, avg_cost_basis=90.0, entry_date=date(2020, 1, 1))
+        )
+        set_trading_mode_setting(
+            db_session, mode=TradingMode.SWING, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        db_session.commit()
+        provider = _StubProvider(
+            daily={"AAPL": _daily_frame(_QUIET_CLOSES, _QUIET_LOWS)}, weekly={"AAPL": _weekly_frame(_FLAT_WEEKLY_CLOSES)}
+        )
+
+        response = _get_risk_with_ibkr(db_session, provider, ibkr_provider=None)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["trading_mode"]["mode"] == "swing"
+        [position] = body["positions"]
+        assert position["protective_stop"] == pytest.approx(_QUIET_STOP)
+
+    def test_position_with_insufficient_intermediate_history_is_excluded(
+        self, db_session: Session
+    ) -> None:
+        db_session.add(AccountORM(id=1, cash=100_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=10, avg_cost_basis=90.0, entry_date=date(2020, 1, 1))
+        )
+        set_trading_mode_setting(
+            db_session, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        db_session.commit()
+        provider = _StubProvider(
+            daily={"AAPL": _daily_frame(_QUIET_CLOSES, _QUIET_LOWS)}, weekly={"AAPL": _weekly_frame(_FLAT_WEEKLY_CLOSES)}
+        )
+        # A single intermediate-leg bar: enough for `resolve_conid`/the fetch itself to
+        # succeed, but too few for `protective_stop`'s own `.iloc[:-1]` + 2-row minimum.
+        ibkr_provider = _StubIBKRProvider(
+            get_hourly_bars_by_bar_size={
+                "1h": _day_trader_ibkr_bars([100.0], start=datetime(2026, 1, 5, tzinfo=UTC), step_minutes=60),
+                "10min": _day_trader_ibkr_bars([100.0], start=datetime(2026, 1, 5, tzinfo=UTC), step_minutes=10),
+                "2min": _day_trader_ibkr_bars([100.0], start=datetime(2026, 1, 5, tzinfo=UTC), step_minutes=2),
+            }
+        )
+
+        response = _get_risk_with_ibkr(db_session, provider, ibkr_provider)
+
+        assert response.status_code == 200
+        assert response.json()["positions"] == []
+
+    def test_position_with_intermediate_frame_missing_low_column_is_excluded(
+        self, db_session: Session, mocker
+    ) -> None:
+        """Mirrors `TestGetRisk.test_position_with_daily_frame_missing_low_column_is_excluded`'s
+        swing-mode case for the day-trader branch: `protective_stop`'s `ValueError` (a malformed
+        frame, here simulated by patching the concurrent leg-fetch directly rather than
+        constructing a real IBKR response missing a column `app.data.day_trader_intraday
+        ._bars_to_frame` always populates) must exclude the position, not propagate as a 500."""
+        from app.api.day_trader_signal import DayTraderLegsOutcome
+
+        db_session.add(AccountORM(id=1, cash=100_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=10, avg_cost_basis=90.0, entry_date=date(2020, 1, 1))
+        )
+        set_trading_mode_setting(
+            db_session, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        db_session.commit()
+        provider = _StubProvider(
+            daily={"AAPL": _daily_frame(_QUIET_CLOSES, _QUIET_LOWS)}, weekly={"AAPL": _weekly_frame(_FLAT_WEEKLY_CLOSES)}
+        )
+        malformed_intermediate = pd.DataFrame(
+            {"close": [100.0, 101.0]},
+            index=pd.date_range("2026-01-05", periods=2, freq="10min", tz="UTC", name="date"),
+        )
+        mocker.patch(
+            "app.api.routers.portfolio.fetch_day_trader_legs_concurrently",
+            return_value={
+                "AAPL": DayTraderLegsOutcome(
+                    long_term_ohlcv=_daily_frame(_QUIET_CLOSES, _QUIET_LOWS),
+                    intermediate_ohlcv=malformed_intermediate,
+                    short_term_ohlcv=_daily_frame(_QUIET_CLOSES, _QUIET_LOWS),
+                    unavailable_reason=None,
+                )
+            },
+        )
+
+        response = _get_risk_with_ibkr(db_session, provider, _all_legs_available_ibkr_provider())
+
+        assert response.status_code == 200
+        assert response.json()["positions"] == []
