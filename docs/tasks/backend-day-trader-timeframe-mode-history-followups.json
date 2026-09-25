@@ -38,5 +38,11 @@
       "rationale": "Confirmed directly by reading code, not just the merged task's own claims: `backend/app/api/routers/stocks.py`'s `GET /api/stocks/{ticker}/indicators` day-trader-mode branch calls `app.api.day_trader_signal.fetch_day_trader_history_legs`, which itself calls `app.data.day_trader_intraday.get_intraday_history_bars_for_triple` (the exact real production chain this checklist item names), and feeds the result straight into `app.signals.engine.analyse_history_day_trader` (stocks.py line 668). `backend/tests/integration/test_stocks_indicator_history.py::TestDayTraderMode::test_fully_intraday_triple_replays_a_real_walk_forward_history` exercises this real chain end to end through a `TestClient` request against the router, with a `_StubIBKRProvider` standing in for `IBKRProvider` (mocked, no live network call) supplying three distinct fixture legs. It is genuinely discriminating, not a happy-path-only check: it asserts `points[0]['signal'] != 'BUY' or points[0]['confidence'] != last_point['confidence']`, which a bug that silently reused `analyse_day_trader`'s single latest-bar snapshot for every point (rather than genuinely walking forward bar-by-bar) would fail -- proving the fetched frames' shape is genuinely compatible with what `analyse_history_day_trader` expects (a 200 response with 27 correctly-shaped points, not a shape-mismatch exception). Adding a second, near-duplicate end-to-end test at the `app.signals.engine`/`app.data.day_trader_intraday` module boundary (bypassing the router) was considered and rejected: it would repeat the exact same chain the existing router-level test already drives for real, with no additional discriminating power -- this codebase's own review history (e.g. `backend-day-trader-timeframe-mode-history`'s own decisions entry) already favors one well-targeted test over duplicated near-identical coverage."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-day-trader-timeframe-mode-history-followups",
+    "pr_number": 323,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/323",
+    "pushed_at": "2026-09-25T02:11:19Z"
+  }
 }
