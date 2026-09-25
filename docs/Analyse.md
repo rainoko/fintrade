@@ -224,7 +224,7 @@ Confidence is a **weighted agreement score** across the indicators, not a statis
 | Impulse gate | 20% | 100% if Impulse color matches signal direction (Green for Buy / Red for Sell); 40% if Blue; 0% if opposite color (should have blocked signal already) |
 | Oscillator extremity (Screen 2) | 25% | Scaled by how deep into oversold/overbought territory Stochastic + Force Index are (e.g., Stochastic < 20 scores higher than < 30) |
 | Elder-Ray confirmation | 15% | 100% if Bull/Bear Power confirms the exhaustion-then-reversal pattern |
-| Volume confirmation | 10% | 100% if Force Index spike / trigger bar volume is above 20-day average |
+| Volume confirmation | 10% | 100% if Force Index spike / trigger bar volume is above 20-day average. **Day-trader mode** (`backend-day-trader-timeframe-mode-signal-engine`): unlike Screen 3 above, this component deliberately keeps reading the *intermediate*-leg's latest bar and 20-period rolling average for both halves of the OR — it is *not* switched to the short-term leg Trigger itself now evaluates against once a day-trader-mode timeframe triple is active. Swapping only the numerator to a short-term bar while the rolling-average denominator stayed intermediate-leg-scaled would compare two structurally incompatible magnitudes (a single finer-grained bar's volume is mechanically smaller than a coarser leg's rolling average), biasing this arm toward always reading "below average" rather than genuinely confirming anything — see `backend-day-trader-timeframe-mode-signal-engine-followups`'s `decisions` entry for the full rationale. |
 
 `confidence = Σ(component_score × weight)`
 
