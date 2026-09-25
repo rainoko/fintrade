@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #319's review (backend-day-trader-timeframe-mode-api-followups)",
   "area": "backend/api",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-day-trader-timeframe-mode-api-followups"],
   "references": [
     "docs/tasks/backend-day-trader-timeframe-mode-api-followups.json",
@@ -55,5 +55,11 @@
       "rationale": "A same-outcome-for-both fixture (e.g. both BUY, or both unavailable) wouldn't actually discriminate a ticker-swap bug -- the test would pass even if compute_day_trader_signals_concurrently's results got matched to the wrong position, since both positions would show the same thing either way. Two genuinely different outcomes (a resolved signal vs. an unresolvable one) makes a swap visible. Verified this test itself actually discriminates (not just happy-path) via mutation testing: temporarily changed `_fan_out_per_ticker` (app/api/day_trader_signal.py) to return the last-completed future's result for every ticker key (the same mutation PR #319's own review already used to validate the underlying unit test) and confirmed this new integration test fails (AAPL's signal came back null instead of BUY) while the file's existing single-position tests kept passing -- meaning only this new multi-position test actually catches that class of bug at the router-integration level; the mutation was then reverted (git diff on app/api/day_trader_signal.py is clean, confirming no production code needed to change for this item)."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-day-trader-timeframe-mode-api-followups-followups",
+    "pr_number": 320,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/320",
+    "pushed_at": "2026-09-25T01:25:17Z"
+  }
 }
