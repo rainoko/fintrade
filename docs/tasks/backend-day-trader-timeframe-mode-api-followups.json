@@ -72,5 +72,11 @@
       "rationale": "The finding's own text already frames `_client_with_provider`'s gap as a distinct, pre-existing, repo-wide pattern predating this feature area entirely, not something introduced by (or in scope for) this task's own day-trader-mode work -- fixing it properly would mean auditing/updating every one of that helper's many call sites across this file, a larger, separable cleanup this task's checklist item doesn't itself call for. The narrower fix directly closes the concrete, immediate risk the finding flagged (TestDayTraderMode being the file's LAST class, so its leaked overrides could affect any later-collected test in the suite) without taking on unrelated scope creep."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-day-trader-timeframe-mode-api-followups",
+    "pr_number": 319,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/319",
+    "pushed_at": "2026-09-25T00:42:32Z"
+  }
 }
