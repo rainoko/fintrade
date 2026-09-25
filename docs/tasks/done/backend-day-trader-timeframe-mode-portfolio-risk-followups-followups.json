@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #318's review (backend-day-trader-timeframe-mode-portfolio-risk-followups)",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-day-trader-timeframe-mode-portfolio-risk-followups"],
   "references": [
     "docs/tasks/backend-day-trader-timeframe-mode-portfolio-risk-followups.json",
@@ -31,5 +31,12 @@
     "pr_number": 321,
     "pr_url": "https://github.com/rainoko/fintrade/pull/321",
     "pushed_at": "2026-09-25T01:43:12Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-25T01:46:22Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/321",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Docs+task-board-only PR (confirmed via `git diff main...HEAD --stat`: docs/Analyse.md, this task's own JSON, docs/tasks/index.json — no code touched). Read docs/Analyse.md §7's reworded 'Profit target' paragraph directly: the cross-reference sentence now ends with a period ('...for the full reasoning behind that gap.') followed by a new lead-in sentence ('The two implemented techniques:') whose colon antecedent correctly matches the Swing-style/Position-style bullets that follow — no dangling reference remains, matching the checklist item's ask exactly. `scripts/check_profit_target_wording.py` and `scripts/validate_tasks.py` both pass. Backend test suite: 1400 passed (sanity check, no regressions, no code changed). Also ran full static-verify (backend ruff+mypy, frontend eslint+tsc) — all clean. Spot-checked `app.portfolio.profit_target`'s own module docstring against the new wording's claim that it (plus this task's `decisions` entry) explains 'the full reasoning behind that gap' — confirmed the docstring does contain that exact reasoning (day-trader mode still uses the same two techniques, third technique out of scope), so the cross-reference is accurate, not just grammatically fixed. area is backend/portfolio so also ran verify-elder-signal's checklist; no code changed and the reworded doc text doesn't touch Screen 1/2/3, confidence weights, or the 2%/6% risk rules, so no methodology mismatch. No UI surface (no frontend/API changes) — browser walkthrough and e2e-test skill both explicitly skipped as inapplicable. No API/schema touched, so no OpenAPI snapshot check needed. No new module/dependency/layer, so architecture-review not applicable. No 'decide X' checklist item was left undecided — the one checklist item's decision is recorded with rationale. No non-blocking findings to track as a follow-up task."
   }
 }
