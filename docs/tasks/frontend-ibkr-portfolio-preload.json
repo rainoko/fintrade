@@ -70,5 +70,11 @@
       "rationale": "This matches what the backend's own `POST /api/ibkr/portfolio-preload` actually does, per `backend-ibkr-portfolio-preload`'s own decisions: it takes no per-ticker selection parameter and imports every ticker that is non-conflicting *at the moment it runs* (after the caller's chosen deletions have already committed) -- so a ticker the user just freed up by deleting its conflicting local position becomes non-conflicting and IS imported, exactly like one that was never conflicting in the first place. Showing only the previewed non-conflicting count (ignoring what a selected deletion would additionally free up) would understate what confirming actually does and could make a user believe they need to separately re-run the flow after deleting a conflict, when one single confirm already handles both steps in the required order."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-ibkr-portfolio-preload",
+    "pr_number": 337,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/337",
+    "pushed_at": "2026-09-25T21:46:50Z"
+  }
 }
