@@ -1937,8 +1937,8 @@
       "id": "backend-day-trader-timeframe-mode-portfolio-risk-followups-followups",
       "area": "backend/portfolio",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-day-trader-timeframe-mode-portfolio-risk-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-day-trader-timeframe-mode-portfolio-risk-followups-followups.json"
     },
     {
       "id": "backend-day-trader-timeframe-mode-history",
