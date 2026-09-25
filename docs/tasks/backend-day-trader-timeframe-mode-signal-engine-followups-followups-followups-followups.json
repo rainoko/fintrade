@@ -17,6 +17,12 @@
       "done": true
     }
   ],
+  "git": {
+    "branch": "task/backend-day-trader-timeframe-mode-signal-engine-followups-followups-followups-followups",
+    "pr_number": 329,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/329",
+    "pushed_at": "2026-09-25T04:56:25Z"
+  },
   "decisions": [
     {
       "timestamp": "2026-09-25T04:55:31Z",
