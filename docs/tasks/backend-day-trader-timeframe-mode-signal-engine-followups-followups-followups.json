@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #322's review (backend-day-trader-timeframe-mode-signal-engine-followups-followups)",
   "area": "backend/signals",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-day-trader-timeframe-mode-signal-engine-followups-followups"],
   "references": [
     "docs/tasks/done/backend-day-trader-timeframe-mode-signal-engine-followups-followups.json",
@@ -13,9 +13,16 @@
   "checklist": [
     {
       "step": "This PR's own newly-added `decisions` entry (and its PR description's 'Test plan' line) cites the Screen 3 'partially resolved' precedent note as living in '§9' (Data Sources (free)) when it actually lives in §10 (Open Questions / Next Steps) of `docs/Analyse.md` -- confirmed directly: `docs/Analyse.md` line 381 is `## 10. Open Questions / Next Steps` and the 'partially resolved by `backend-day-trader-timeframe-mode-signal-engine`' bullet is at line ~384, inside that section, not inside `## 9. Data Sources (free)` (lines 346-380). This mislabeling isn't new to this PR -- it was already present verbatim in the checklist item text this PR's own task file inherited from PR #315's review (`docs/tasks/backend-day-trader-timeframe-mode-signal-engine-followups-followups.json`'s original checklist entry, itself copied into this PR's dispatch instructions) -- but this PR's `decisions` entry repeats it as a freshly-asserted citation ('Matched the existing style §2's Screen 3 bullet (line 77) and §9's Screen 3 note (line 384)') rather than catching and correcting it. Not blocking: the actual `docs/Analyse.md` §6 footnote content this PR added is accurate and doesn't itself reference §9/§10 at all -- only the task JSON's own `decisions`-entry citation is mislabeled, so no reader of Analyse.md is misled, only a future task-worker/reviewer who tries to jump to '§9' to verify the precedent and lands in the wrong section. Fix: correct the section reference from §9 to §10 wherever it's repeated (this task's `decisions` entry, and consider a fresh corrective `decisions` entry on the now-done `backend-day-trader-timeframe-mode-signal-engine-followups-followups` task per CLAUDE.md's append-only-correction convention, given its own `decisions` entry contains the same mislabeling).",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-25T02:44:32Z",
+      "recorded_by": "task-worker",
+      "decision": "Corrected the mislabeled section citation ('§9's Screen 3 note (line 384)' -> '§10's Screen 3 note (line 384)') by appending a fresh corrective `decisions` entry to the now-done `backend-day-trader-timeframe-mode-signal-engine-followups-followups` task's own JSON file, rather than amending that task's existing `decisions` entry text in place.",
+      "rationale": "Confirmed against `docs/Analyse.md` directly: `## 10. Open Questions / Next Steps` is the heading at line 381, and the 'partially resolved by `backend-day-trader-timeframe-mode-signal-engine`' Screen 3 precedent bullet sits at line ~384, inside §10 -- not inside `## 9. Data Sources (free)` (lines 346-380). This task's own checklist item asks to correct the reference 'wherever it's repeated' but explicitly frames the done task's own fix as 'consider a fresh corrective decisions entry ... per CLAUDE.md's append-only-correction convention' -- it does not call out the existing entry's own text as the thing to fix, so CLAUDE.md's 'Decision memory' default (append a brand-new entry, don't amend the existing one in place) applies rather than the narrower in-place-edit carve-out (which requires the checklist to explicitly name the existing entry's text as the target, as `backend-cftc-cot-data-followups` did for PR #274). The original mislabeled text in that task's existing entry remains untouched and recoverable via git history; the correction lives in the new entry appended there."
+    }
+  ],
   "questions": []
 }
