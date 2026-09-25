@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #318's review (backend-day-trader-timeframe-mode-portfolio-risk-followups)",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-day-trader-timeframe-mode-portfolio-risk-followups"],
   "references": [
     "docs/tasks/backend-day-trader-timeframe-mode-portfolio-risk-followups.json",
@@ -14,9 +14,16 @@
   "checklist": [
     {
       "step": "docs/Analyse.md §7's 'Profit target' paragraph (line ~262) now ends '...See `app.portfolio.profit_target`'s own docstring and the `backend-day-trader-timeframe-mode-portfolio-risk-followups` task's `decisions` entry for the full reasoning:' immediately followed by the Swing-style/Position-style bullet list. That colon's antecedent no longer matches what follows it: the bullets describe the two *implemented* target techniques, not 'the full reasoning' for why the third (day-trade divergence-exit) technique doesn't apply -- a reader following the colon expects the cross-referenced reasoning to continue there and instead finds an unrelated list. The pre-PR-318 wording didn't have this problem because its own list-introducing colon's antecedent ('the two [techniques] relevant to...') matched the list that followed it exactly. Reword so the cross-reference to the docstring/decisions entry no longer sits directly against the bullet-list colon -- e.g. move the 'See ... for the full reasoning' sentence to stand on its own (period, not colon) before a fresh sentence that introduces the two-techniques list, or restructure so the colon's antecedent is again the list itself.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-25T01:42:12Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the dangling colon by splitting the cross-reference sentence from the list lead-in: '...for the full reasoning:' became '...for the full reasoning behind that gap. The two implemented techniques:' — leaving the docstring/decisions cross-reference as its own complete sentence (period) and adding a fresh short sentence whose antecedent ('the two implemented techniques') exactly matches the Swing-style/Position-style bullets that follow.",
+      "rationale": "Considered moving the cross-reference sentence to after the bullet list instead (reordering), but that would separate it from the sentence introducing the day-trade-divergence-exit gap it explains, weakening the connection for a reader. Keeping it in place and just re-terminating it (period instead of colon) plus adding a short list-introducing sentence is the minimal edit that restores a matching colon antecedent without reflowing the paragraph or losing any existing content."
+    }
+  ],
   "questions": []
 }
