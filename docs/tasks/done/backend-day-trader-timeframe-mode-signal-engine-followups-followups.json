@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #315's review (backend-day-trader-timeframe-mode-signal-engine-followups)",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-day-trader-timeframe-mode-signal-engine-followups"],
   "references": [
     "docs/tasks/done/backend-day-trader-timeframe-mode-signal-engine-followups.json",
@@ -30,5 +30,38 @@
     "pr_number": 322,
     "pr_url": "https://github.com/rainoko/fintrade/pull/322",
     "pushed_at": "2026-09-25T01:54:36Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-25T01:59:11Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/322",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Confirmed this is genuinely a docs+task-board-only diff via `git diff main...HEAD --stat` (docs/Analyse.md, this task's own JSON, docs/tasks/index.json -- no backend/frontend code, no OpenAPI snapshot).",
+        "file": "docs/Analyse.md",
+        "line": 227
+      },
+      {
+        "summary": "Read the new §6 footnote against `backend/app/signals/engine.py`'s `analyse()` docstring paragraph (lines 405-415) and inline comment at the `volume = daily_ohlcv[\"volume\"]` call site (lines 645-649), plus `backend-day-trader-timeframe-mode-signal-engine-followups`'s `decisions` entry -- the footnote accurately restates that both halves of the volume-confirmation OR deliberately keep reading the intermediate leg's latest bar/20-period rolling average, not the short-term leg, and correctly attributes the rolling-average-scale-mismatch rationale (a single finer-grained bar's volume being mechanically smaller than a coarser leg's rolling average). No misstatement or oversimplification found.",
+        "file": "backend/app/signals/engine.py",
+        "line": 649
+      },
+      {
+        "summary": "Style genuinely matches §2's Screen 3 bullet (line 77) and §10's 'partially resolved' note (line ~384, not §9 as this PR's own decisions entry and PR description mislabel it -- see non-blocking finding below): a bolded '**Day-trader mode** (`task-id`): ...' clause appended in-line to the existing prose, not a separate footnote-marker apparatus. Consistent with precedent.",
+        "file": "docs/Analyse.md",
+        "line": 77
+      },
+      {
+        "summary": "Re-ran scripts/check_profit_target_wording.py (clean, 264 files scanned), scripts/validate_tasks.py (clean, 315 task files), the full backend suite (1400 passed, 100% line/branch coverage via --cov-fail-under=90), ruff check (clean), mypy (clean), frontend eslint (clean), and frontend tsc -b --noEmit (clean). No regression. No API/schema surface touched, so no OpenAPI regen needed. No UI surface (docs/task-board only) -- browser walkthrough and the persisted e2e suite (steps 9/9a) don't apply, noted explicitly rather than silently skipped. Ran the code-review skill against the diff: one non-blocking finding (see below), no correctness bugs.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Non-blocking: this PR's own new `decisions` entry (and its PR description's 'Test plan' line) cites the Screen 3 'partially resolved' precedent as living in '§9' (Data Sources (free)) when it actually lives in §10 (Open Questions / Next Steps) -- confirmed directly against docs/Analyse.md's own section headers (line 381 is `## 10. Open Questions / Next Steps`; the cited line 384 falls inside it, not inside §9 at lines 346-380). This mislabeling was already present in the checklist item text inherited from PR #315's review rather than introduced fresh, but this PR's decisions entry repeats it as a freshly-asserted citation without catching it. Doesn't affect the actual docs/Analyse.md §6 footnote content added (which is accurate and doesn't itself cite §9/§10), only a task-JSON metadata citation -- tracked as a follow-up rather than blocking.",
+        "file": "docs/tasks/done/backend-day-trader-timeframe-mode-signal-engine-followups-followups.json",
+        "line": 24
+      }
+    ],
+    "notes": "Docs+task-board-only PR, confirmed via git diff --stat. The new docs/Analyse.md §6 footnote was independently verified accurate against backend/app/signals/engine.py's docstring/inline comment and the referenced decisions entry -- no misstatement or oversimplification. Style matches §2/§10's existing day-trader-mode footnote format (the task's own dispatch instructions and this PR's decisions entry call the §10 precedent '§9', which is a pre-existing mislabeling this PR repeats but didn't introduce -- filed as a non-blocking follow-up, not blocking since it doesn't affect the actual Analyse.md content). Full backend suite (1400 tests, 100% coverage), backend ruff/mypy, frontend eslint/tsc, profit-target wording guard, and task-board validation all independently re-run and clean. No API surface touched (no OpenAPI regen needed); no UI surface (browser walkthrough/e2e steps explicitly noted as not applicable). code-review skill run against the diff surfaced the same §9/§10 finding and nothing else. One non-blocking finding filed on docs/tasks/backend-day-trader-timeframe-mode-signal-engine-followups-followups-followups.json rather than left only in this PR's comments."
   }
 }

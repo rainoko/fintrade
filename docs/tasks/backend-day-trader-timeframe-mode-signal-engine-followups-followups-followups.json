@@ -1,0 +1,21 @@
+{
+  "id": "backend-day-trader-timeframe-mode-signal-engine-followups-followups-followups",
+  "title": "Non-blocking finding from PR #322's review (backend-day-trader-timeframe-mode-signal-engine-followups-followups)",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-day-trader-timeframe-mode-signal-engine-followups-followups"],
+  "references": [
+    "docs/tasks/done/backend-day-trader-timeframe-mode-signal-engine-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/322"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's full review of PR #322 (backend-day-trader-timeframe-mode-signal-engine-followups-followups), which accepted the PR -- backend suite (1400 passed, 100% line/branch coverage), ruff/mypy/eslint/tsc/profit-target-wording-guard/validate_tasks.py all clean, docs+task-board-only diff confirmed via `git diff main...HEAD --stat`, no API surface touched (no OpenAPI regen needed), no UI surface (no browser walkthrough/e2e needed). The new `docs/Analyse.md` §6 footnote itself was independently checked against `backend/app/signals/engine.py`'s `analyse()` docstring/inline comment near `volume = daily_ohlcv[\"volume\"]` (lines 405-415, 645-651) and against `backend-day-trader-timeframe-mode-signal-engine-followups`'s `decisions` entry, and is accurate -- it correctly describes that both halves of the volume-confirmation OR keep reading the intermediate leg (`daily_ohlcv`), not the short-term leg, in day-trader mode, and correctly attributes the rolling-average-scale-mismatch rationale.",
+  "checklist": [
+    {
+      "step": "This PR's own newly-added `decisions` entry (and its PR description's 'Test plan' line) cites the Screen 3 'partially resolved' precedent note as living in '§9' (Data Sources (free)) when it actually lives in §10 (Open Questions / Next Steps) of `docs/Analyse.md` -- confirmed directly: `docs/Analyse.md` line 381 is `## 10. Open Questions / Next Steps` and the 'partially resolved by `backend-day-trader-timeframe-mode-signal-engine`' bullet is at line ~384, inside that section, not inside `## 9. Data Sources (free)` (lines 346-380). This mislabeling isn't new to this PR -- it was already present verbatim in the checklist item text this PR's own task file inherited from PR #315's review (`docs/tasks/backend-day-trader-timeframe-mode-signal-engine-followups-followups.json`'s original checklist entry, itself copied into this PR's dispatch instructions) -- but this PR's `decisions` entry repeats it as a freshly-asserted citation ('Matched the existing style §2's Screen 3 bullet (line 77) and §9's Screen 3 note (line 384)') rather than catching and correcting it. Not blocking: the actual `docs/Analyse.md` §6 footnote content this PR added is accurate and doesn't itself reference §9/§10 at all -- only the task JSON's own `decisions`-entry citation is mislabeled, so no reader of Analyse.md is misled, only a future task-worker/reviewer who tries to jump to '§9' to verify the precedent and lands in the wrong section. Fix: correct the section reference from §9 to §10 wherever it's repeated (this task's `decisions` entry, and consider a fresh corrective `decisions` entry on the now-done `backend-day-trader-timeframe-mode-signal-engine-followups-followups` task per CLAUDE.md's append-only-correction convention, given its own `decisions` entry contains the same mislabeling).",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
