@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #325's review (backend-day-trader-timeframe-mode-signal-engine-followups-followups-followups)",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-day-trader-timeframe-mode-signal-engine-followups-followups-followups"],
   "references": [
     "docs/tasks/done/backend-day-trader-timeframe-mode-signal-engine-followups-followups-followups.json",
@@ -31,5 +31,12 @@
       "rationale": "CLAUDE.md's 'Autonomous pipeline' section defaults to an additive PR comment for correcting a stale claim in an already-merged PR's description, and reserves in-place editing for when all of its narrow carve-out conditions hold *and* the checklist item or task explicitly calls out the description's own text as the thing to fix. This task's checklist item explicitly instructs 'post an additive comment on PR #322 ... not an in-place edit of the merged description, since no checklist item explicitly calls out the description's own text as the thing to fix' -- so the additive-comment default applies unambiguously here, with no carve-out condition invoked. Verified the correction is accurate first: docs/Analyse.md line 381 is '## 10. Open Questions / Next Steps' and the cited 'partially resolved' Screen 3 bullet sits at line 384, confirming the original '§9' citation should have read '§10'."
     }
   ],
-  "questions": []
+  "questions": [],
+  "review": {
+    "reviewed_at": "2026-09-25T05:01:44Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/329",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Task-board-JSON-only PR confirmed via `git diff main...HEAD --stat` (only this task's own file and index.json changed). Independently fetched and read the posted comment on PR #322 (https://github.com/rainoko/fintrade/pull/322#issuecomment-5826982450) -- it exists, is accurate, and correctly explains the citation should read §10 not §9. Independently re-verified against docs/Analyse.md: line 381 is `## 10. Open Questions / Next Steps`, line 384 is the 'partially resolved' Screen 3 bullet cited. Re-read CLAUDE.md's carve-out conditions for in-place editing of a merged PR description and confirmed the task-worker's judgment: this task's own checklist item explicitly states the additive-comment default applies (no checklist item calls out the description's own text as the thing to fix in place), so no carve-out was triggered and the additive-comment path was correct. Ran backend suite (1406 passed, 100% line/branch coverage on app/), frontend suite (906 passed, 99.78%/99.1%/99.8%/99.83% statements/branches/functions/lines), ruff, mypy, eslint, tsc, scripts/check_profit_target_wording.py, and scripts/validate_tasks.py -- all clean, no regressions. Ran the code-review skill (medium effort) against the diff -- zero findings; it independently confirmed the same facts (comment exists/accurate, decisions entry has both decision+rationale, index.json mirrored in the same commit) and noted the state:\"testing\" without a `test` block is expected pipeline sequencing per CLAUDE.md, not a defect. area is backend/signals but no signal/portfolio code is touched by this diff, so verify-elder-signal's checklist doesn't substantively apply beyond the citation-accuracy check already performed above. No frontend/API surface touched -- no OpenAPI regen needed, no browser walkthrough or e2e suite applicable (no UI-facing change). No checklist item phrased as 'decide X' lacks a decisions entry -- the one checklist item's implicit decision point (comment vs. in-place edit) is recorded with decision+rationale. No non-blocking findings to file as a follow-up task. No pr_decision field was present to clear. Checked docs/tasks/index.json after this task: no other planned/testing/implementing/waiting_input tasks remain on the board -- this is confirmed the last task of this feature-cleanup sweep."
+  }
 }
