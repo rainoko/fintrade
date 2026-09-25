@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #325's review (backend-day-trader-timeframe-mode-signal-engine-followups-followups-followups)",
   "area": "backend/signals",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-day-trader-timeframe-mode-signal-engine-followups-followups-followups"],
   "references": [
     "docs/tasks/done/backend-day-trader-timeframe-mode-signal-engine-followups-followups-followups.json",
@@ -14,9 +14,16 @@
   "checklist": [
     {
       "step": "PR #325's own predecessor task's checklist item (docs/tasks/done/backend-day-trader-timeframe-mode-signal-engine-followups-followups-followups.json) named two places the §9/§10 mislabeling appeared: \"this PR's own newly-added decisions entry (and its PR description's 'Test plan' line)\", referring to PR #322. PR #325 corrected the decisions-entry copies (the entry it appended to its own task file, and the corrective entry it appended to docs/tasks/done/backend-day-trader-timeframe-mode-signal-engine-followups-followups.json) but left PR #322's own merged PR description on GitHub uncorrected -- confirmed via `gh pr view 322 --json body`, it still reads \"§2's Screen 3 bullet (line 77) and §9's 'partially resolved' note\" in its bullet list and \"§9's Screen 3 note (line 384)\" in its 'Test plan' checklist as of this finding. CLAUDE.md's 'Autonomous pipeline' section specifies an additive PR comment (not necessarily editing the merged description in place) as the default way to correct a stale claim in an already-merged PR's description -- neither that comment nor a decisions entry explaining a deliberate decision to leave it out of scope was made by PR #325. Not blocking: PR #322 is already merged, the mislabel is confined to that PR's own body text (not docs/Analyse.md, not any task JSON still being actively read/mirrored), and the actual §6 footnote content PR #322 added is accurate. Fix: post an additive comment on PR #322 (per CLAUDE.md's default -- not an in-place edit of the merged description, since no checklist item explicitly calls out the description's own text as the thing to fix) correcting the §9->§10 citation, and record the action taken (or a decision to skip it, with rationale) as a decisions entry on this task.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-25T04:55:31Z",
+      "recorded_by": "task-worker",
+      "decision": "Posted an additive PR comment on #322 (https://github.com/rainoko/fintrade/pull/322#issuecomment-5826982450) correcting the stale §9 citation in its merged description's 'Test plan' line to §10, rather than editing the merged PR body in place.",
+      "rationale": "CLAUDE.md's 'Autonomous pipeline' section defaults to an additive PR comment for correcting a stale claim in an already-merged PR's description, and reserves in-place editing for when all of its narrow carve-out conditions hold *and* the checklist item or task explicitly calls out the description's own text as the thing to fix. This task's checklist item explicitly instructs 'post an additive comment on PR #322 ... not an in-place edit of the merged description, since no checklist item explicitly calls out the description's own text as the thing to fix' -- so the additive-comment default applies unambiguously here, with no carve-out condition invoked. Verified the correction is accurate first: docs/Analyse.md line 381 is '## 10. Open Questions / Next Steps' and the cited 'partially resolved' Screen 3 bullet sits at line 384, confirming the original '§9' citation should have read '§10'."
+    }
+  ],
   "questions": []
 }
