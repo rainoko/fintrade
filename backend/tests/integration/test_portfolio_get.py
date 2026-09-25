@@ -594,6 +594,44 @@ def _all_legs_available_ibkr_provider() -> _StubIBKRProvider:
     )
 
 
+class _PerTickerStubIBKRProvider:
+    """Unlike `_StubIBKRProvider` above (one fixed conid/bar-set shared by every ticker in a
+    request), this maps each distinct ticker to its own resolvability and bars -- so a
+    multi-position `GET /api/portfolio` test can assert two genuinely different, ticker-keyed
+    outcomes came back correctly matched, not just 'some day-trader outcome or other' for both
+    positions (see docs/tasks/backend-day-trader-timeframe-mode-api-followups-followups.json's
+    `decisions` entry, and `test_day_trader_signal.py`'s own identically-motivated
+    `test_maps_each_distinct_ticker_to_its_own_outcome_not_a_shared_or_swapped_one`, whose unit
+    -level coverage this integration test complements rather than duplicates -- that test mocks
+    `compute_day_trader_signal` directly; this one exercises the real IBKR-provider-fetch ->
+    `analyse_day_trader` pipeline for each ticker through the actual router)."""
+
+    def __init__(self, bars_by_ticker: dict[str, dict[str, list[IBKRBar]] | None]) -> None:
+        # `None` for a ticker means "this ticker can't be resolved to a conid at all" (mirrors
+        # a real IBKR gateway that doesn't recognize the symbol) -> unavailable_reason set,
+        # not a raised exception.
+        self._bars_by_ticker = bars_by_ticker
+        self._ticker_by_conid: dict[int, str] = {}
+        self._next_conid = 1000
+
+    def resolve_conid(self, ticker: str) -> int | None:
+        if self._bars_by_ticker.get(ticker) is None:
+            return None
+        conid = self._next_conid
+        self._next_conid += 1
+        self._ticker_by_conid[conid] = ticker
+        return conid
+
+    def get_hourly_bars(self, conid: int, *, lookback_days: int, bar_size: str) -> list[IBKRBar]:
+        ticker = self._ticker_by_conid[conid]
+        bars = self._bars_by_ticker[ticker]
+        assert bars is not None
+        return bars[bar_size]
+
+    def get_gateway_status(self) -> GatewayStatus:
+        return GatewayStatus(state="available")
+
+
 class TestDayTraderMode:
     """`GET /api/portfolio` while the global trading mode is `day_trader`
     (`backend-day-trader-timeframe-mode-api-followups`) -- `current_price`/`unrealized_pnl_pct`
@@ -695,6 +733,62 @@ class TestDayTraderMode:
         assert position["current_price"] is None
         assert position["signal"] == "BUY"
         assert 0 <= position["confidence"] <= 100
+
+    def test_two_distinct_tickers_each_get_their_own_signal_not_a_shared_or_swapped_one(
+        self, db_session: Session
+    ) -> None:
+        """The discriminating multi-position case: `compute_day_trader_signals_concurrently`'s
+        per-ticker fan-out (`app.api.day_trader_signal`) must map each position's own ticker
+        to its own outcome, not the other's -- AAPL is deliberately given the full, resolvable
+        bar set (`_all_legs_available_ibkr_provider`'s own fixture, already asserted elsewhere
+        in this class to produce BUY) while MSFT is deliberately unresolvable (no conid), so a
+        bug that mixed up which future's result lands under which ticker key (e.g. always
+        returning the last-completed future's outcome for every ticker, the exact mutation
+        `test_day_trader_signal.py`'s own unit-level equivalent guards against) would make
+        this test fail -- either both positions would show the same signal, or they'd show
+        each other's."""
+        db_session.add(AccountORM(id=1, cash=1000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=10, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.add(
+            PositionORM(id="pos_2", ticker="MSFT", quantity=5, avg_cost_basis=200.0, entry_date=date(2026, 1, 1))
+        )
+        set_trading_mode_setting(
+            db_session, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        db_session.commit()
+        provider = _StubProvider(prices={"AAPL": [110.0], "MSFT": [220.0]})
+        ibkr_provider = _PerTickerStubIBKRProvider(
+            {
+                "AAPL": {
+                    "1h": _day_trader_long_term_bars(),
+                    "10min": _day_trader_intermediate_bars(),
+                    "2min": _day_trader_short_term_bars(),
+                },
+                "MSFT": None,
+            }
+        )
+
+        response = self._get(db_session, provider, ibkr_provider)
+
+        assert response.status_code == 200
+        positions_by_ticker = {p["ticker"]: p for p in response.json()["positions"]}
+        assert positions_by_ticker.keys() == {"AAPL", "MSFT"}
+        aapl = positions_by_ticker["AAPL"]
+        msft = positions_by_ticker["MSFT"]
+        # Both positions' swing-derived current_price fields are unaffected either way.
+        assert aapl["current_price"] == pytest.approx(110.0)
+        assert msft["current_price"] == pytest.approx(220.0)
+        # AAPL's own resolvable IBKR bars produce a real BUY signal (same fixture already
+        # asserted to do so elsewhere in this class).
+        assert aapl["signal"] == "BUY"
+        assert 0 <= aapl["confidence"] <= 100
+        # MSFT's own unresolvable-conid outcome must stay MSFT's -- not swapped onto AAPL,
+        # and not silently defaulted to AAPL's BUY.
+        assert msft["signal"] is None
+        assert msft["confidence"] is None
+        assert msft["confidence_band"] is None
 
     def test_swing_mode_default_is_unaffected_by_a_configured_day_trader_triple(
         self, db_session: Session

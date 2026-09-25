@@ -2277,7 +2277,7 @@
             "type": "string"
           },
           "position_risk_pct": {
-            "description": "Fraction of current account equity lost if this position hits its protective_stop (the 2% rule).",
+            "description": "Fraction of current account equity lost if this position hits its protective_stop (the 2% rule). Always computed from this position's ordinary EOD daily-chart current_price (see PortfolioResponse.trading_mode's own field description) against protective_stop above -- in day-trader mode, protective_stop is itself derived from the active timeframe triple's intraday intermediate leg, so this field's distance-to-stop spans two different data sources/timeframes for the same position rather than one live intraday price against a live intraday stop. A known, accepted tradeoff, not a bug -- see app.portfolio.risk.position_risk_pct's own docstring and docs/tasks/backend-day-trader-timeframe-mode-api-followups-followups.json's `decisions` entry.",
             "title": "Position Risk Pct",
             "type": "number"
           },

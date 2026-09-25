@@ -782,6 +782,33 @@ def _profit_target_to_schema(target: ProfitTarget) -> ProfitTargetOut:
     )
 
 
+def _stop_and_filtered_daily(
+    position: Position, daily_ohlcv_raw: pd.DataFrame
+) -> tuple[float, pd.DataFrame] | None:
+    """Shared 'daily-ohlcv -> (protective_stop, filtered daily_ohlcv)' sequence for
+    `get_risk`'s first-pass loop below -- factored out since the day-trader and swing
+    branches there previously duplicated this same drop_malformed_daily_bars/length-check
+    /protective_stop-try-except sequence verbatim, differing only in where `daily_ohlcv_raw`
+    itself comes from (this ticker's already-fetched intermediate-role day-trader leg vs. a
+    per-position swing `daily_ohlcv`) -- see docs/tasks/
+    backend-day-trader-timeframe-mode-api-followups-followups.json's `decisions` entry.
+
+    Returns `None` if `position` should be excluded from `stops` entirely (fewer than 2 usable
+    bars after filtering, or `protective_stop` itself rejects the frame) -- the caller
+    `continue`s past this position in that case, exactly as it did with the duplicated inline
+    logic before this refactor."""
+    daily_ohlcv = drop_malformed_daily_bars(
+        daily_ohlcv_raw, require_full_ohlc_on_latest_bar=False
+    )
+    if len(daily_ohlcv) < 2:
+        return None
+    try:
+        stop = protective_stop(position, daily_ohlcv.iloc[:-1])
+    except ValueError:
+        return None
+    return stop, daily_ohlcv
+
+
 @router.get(
     "/risk",
     response_model=RiskResponse,
@@ -974,15 +1001,10 @@ def get_risk(
                 or legs.long_term_ohlcv is None
             ):
                 continue
-            daily_ohlcv = drop_malformed_daily_bars(
-                legs.intermediate_ohlcv, require_full_ohlc_on_latest_bar=False
-            )
-            if len(daily_ohlcv) < 2:
+            result = _stop_and_filtered_daily(e.position, legs.intermediate_ohlcv)
+            if result is None:
                 continue
-            try:
-                stop = protective_stop(e.position, daily_ohlcv.iloc[:-1])
-            except ValueError:
-                continue
+            stop, daily_ohlcv = result
             weekly_ohlcv = legs.long_term_ohlcv
         else:
             # `e.daily_ohlcv` is guaranteed non-`None` here (not merely assumed): `e.position
@@ -995,15 +1017,10 @@ def get_risk(
             # preceding `current_price` check of its own and so genuinely can reach a `None`
             # `e.daily_ohlcv` (see that function's own docstring).
             assert e.daily_ohlcv is not None
-            daily_ohlcv = drop_malformed_daily_bars(
-                e.daily_ohlcv, require_full_ohlc_on_latest_bar=False
-            )
-            if len(daily_ohlcv) < 2:
+            result = _stop_and_filtered_daily(e.position, e.daily_ohlcv)
+            if result is None:
                 continue
-            try:
-                stop = protective_stop(e.position, daily_ohlcv.iloc[:-1])
-            except ValueError:
-                continue
+            stop, daily_ohlcv = result
             try:
                 weekly_ohlcv = provider.get_weekly_ohlcv(e.position.ticker)
             except DataProviderError:

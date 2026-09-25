@@ -559,6 +559,21 @@ def position_risk_pct(position: Position, stop: float, account: Account) -> floa
     Returns the risk as a percentage (e.g. ``1.8`` for 1.8% of equity), matching
     the `GET /api/portfolio/risk` contract in docs/architecture/API.md.
 
+    **Known, accepted timeframe mismatch in day-trader mode** (docs/tasks/
+    backend-day-trader-timeframe-mode-api-followups-followups.json's `decisions` entry):
+    ``position.current_price`` is *always* this ticker's ordinary EOD daily-chart close,
+    regardless of the active global trading mode (see ``PortfolioResponse.trading_mode``'s own
+    field description) -- but the caller-supplied ``stop`` can be a day-trader-mode
+    ``protective_stop()`` computed from the active timeframe triple's IBKR-fetched
+    intermediate leg (`GET /api/portfolio/risk`, `app.api.routers.portfolio.get_risk`). This
+    function's own ``distance_to_stop = current_price - stop`` therefore spans two different
+    data sources/timeframes for the same position in that case, rather than one live intraday
+    price against a live intraday stop. This is a deliberate, reviewed tradeoff (not a bug
+    this function should independently fix by fetching its own live intraday price) --
+    matching ``current_price``/``equity``'s own already-documented "always swing-derived
+    regardless of mode" precedent, and avoiding a second, bespoke live-price fetch pipeline
+    for this one calculation alone.
+
     Raises:
         ValueError: if ``position.current_price`` is unset (unknown current
             price makes "current risk" uncomputable) or ``account.equity.total``

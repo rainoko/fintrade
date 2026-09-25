@@ -1972,7 +1972,7 @@
       "id": "backend-day-trader-timeframe-mode-api-followups-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/backend-day-trader-timeframe-mode-api-followups-followups.json"
     },
     {
