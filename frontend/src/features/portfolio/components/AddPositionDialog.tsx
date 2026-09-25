@@ -10,6 +10,7 @@ import { useState, type FormEvent } from 'react'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import { isPositiveFinite } from '../../../utils/validation'
 import { useAddPosition } from '../hooks/useAddPosition'
+import { useGuardedDialogClose } from '../hooks/useGuardedDialogClose'
 
 export interface AddPositionDialogProps {
   open: boolean
@@ -149,8 +150,17 @@ export default function AddPositionDialog({
     onClose()
   }
 
+  // Guards against MUI's `Dialog` firing its own `onClose` on
+  // Escape/backdrop-click mid-submit, regardless of the Cancel button's own
+  // `disabled` state -- see `useGuardedDialogClose`'s own doc comment. This
+  // gap was identical to (and predates) `IbkrPreloadDialog`'s own, fixed
+  // there first in frontend-ibkr-portfolio-preload-followups #3; this task
+  // (frontend-ibkr-portfolio-preload-followups-followups) closes it here too
+  // via the shared hook extracted from that fix.
+  const handleDialogClose = useGuardedDialogClose(onClose, addPosition.isPending)
+
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+    <Dialog open={open} onClose={handleDialogClose} fullWidth maxWidth="sm">
       <DialogTitle>Add Position</DialogTitle>
       {successTicker ? (
         <>
