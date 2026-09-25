@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #314's review (backend-day-trader-timeframe-mode-ibkr-intraday-followups)",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-day-trader-timeframe-mode-ibkr-intraday-followups"],
   "references": [
     "docs/tasks/backend-day-trader-timeframe-mode-ibkr-intraday-followups.json",
@@ -44,5 +44,12 @@
     "pr_number": 326,
     "pr_url": "https://github.com/rainoko/fintrade/pull/326",
     "pushed_at": "2026-09-25T03:07:48Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-25T03:13:04Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/326",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review of all three items from PR #314's non-blocking findings, all resolved correctly with no blocking issues found. (1) Verified the CPython 3.12 unittest.mock atomicity claim directly against /usr/local/python/3.12.14/lib/python3.12/unittest/mock.py's CallableMixin._increment_mock_call: `self.call_count += 1` is a load/add/store sequence on a plain attribute (interruptible by the GIL across threads, can lose updates), while `self.call_args_list.append(_call)` appends to a `_CallList(list)` subclass that doesn't override `append`, so it's a single atomic C-level list append -- the claim is correct, and the two swapped assertions in test_day_trader_intraday.py are the only remaining `call_count` uses on that concurrently-fetched mock in that file. (2) Hand-verified all four new tests in tests/unit/data/test_base.py against resample_ohlcv's actual implementation (app/data/base.py): manually computed the 10-minute-bin aggregation (open=first/high=max/low=min/close=last/volume=sum) for both bins in the main test, confirmed the single-source-bar-is-kept and empty-frame cases, and confirmed the fully-empty-bin-in-the-middle-is-dropped case against pandas resample's default start_day origin (15:00/15:10/etc. all land on exact 10-minute boundaries from midnight) -- all hand-computed values check out. (3) Read all three ThreadPoolExecutor call sites myself (app/api/routers/stocks.py's daily/weekly fetch, app/data/day_trader_intraday.py's _fetch_legs_concurrently, app/api/day_trader_signal.py's _fan_out_per_ticker) and confirmed both claims underlying the not-worth-extracting decision: stocks.py's fixed daily-then-weekly .result() ordering is a real, commented, load-bearing error-priority contract with no equivalent in the other two sites, and app/data/day_trader_intraday.py (an app.data module) importing anything from app.api.day_trader_signal would indeed invert this codebase's documented dependency direction (docs/architecture/Backend.md's module layout: data/ -> signals/ -> portfolio/ -> api/) -- a shared helper would need a new neutral module for a few lines of genuinely non-identical-enough logic. This is a well-reasoned, non-rationalizing judgment call, properly recorded as a decisions entry. Independently re-ran: backend pytest+coverage (1406 passed, 100% line/branch coverage, no regression), backend ruff/mypy (clean), frontend eslint/tsc (clean, frontend untouched by this PR), scripts/check_profit_target_wording.py (clean), scripts/validate_tasks.py (318 files, no violations). Also ran the code-review skill (medium effort) against the diff independently, which likewise found zero findings. No API route/schema touched (openapi.json check N/A), no new module/dependency/layer added (architecture-review N/A), area is backend/data with skill=null so verify-elder-signal doesn't apply, and this PR has no user-facing UI surface at all (test files + task-board bookkeeping only) so the browser walkthrough (step 9) and persisted e2e suite (step 9a) are both skipped, explicitly, as genuinely inapplicable. No non-blocking findings to track as a follow-up task."
   }
 }
