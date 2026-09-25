@@ -1,0 +1,23 @@
+{
+  "id": "frontend-ux-block-layout-audit-followups-followups",
+  "title": "Non-blocking finding from PR #332's review (frontend-ux-block-layout-audit-followups)",
+  "area": "frontend/ux",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-ux-block-layout-audit-followups"],
+  "references": [
+    "docs/tasks/done/frontend-ux-block-layout-audit.json",
+    "docs/tasks/done/frontend-ux-block-layout-audit-followups.json",
+    "docs/tasks/done/frontend-dashboard-sell-flags.json",
+    "https://github.com/rainoko/fintrade/pull/332"
+  ],
+  "description": "Tracked follow-up for a single non-blocking finding raised in pr-reviewer's review of PR #332 (frontend-ux-block-layout-audit-followups). While verifying the accuracy (not just the existence) of the already-merged 'Narrowing note' decisions entry on docs/tasks/done/frontend-ux-block-layout-audit.json (appended by pr-reviewer during PR #331's review, timestamped 2026-09-25T16:19:38Z), pr-reviewer found that the Narrowing note -- itself a correction of an earlier attribution-grouping looseness -- contains its own minor citation inaccuracy.",
+  "checklist": [
+    {
+      "step": "docs/tasks/done/frontend-ux-block-layout-audit.json's 'Narrowing note' decisions entry (timestamped 2026-09-25T16:19:38Z) states that frontend-dashboard-sell-flags 'backs the unrelated Dashboard SellFlaggedPositionsCard judgment ... correctly cited in their own per-view entries above'. This is inaccurate: grep-confirmed the task id 'frontend-dashboard-sell-flags' is never actually cited by name anywhere in the audit's per-view decisions entries (lines ~42-90 of the file). The Dashboard per-view entry describes the 'Positions Flagged to Sell' alert table (the component frontend-dashboard-sell-flags actually introduced, per docs/tasks/done/frontend-dashboard-sell-flags.json) but only names frontend-dashboard-page in its rationale, for an unrelated point about RiskSummaryCard. So the Narrowing note's claim that frontend-dashboard-sell-flags is 'correctly cited in their own per-view entries above' does not hold literally -- the component is described, but the task id backing it is never named there. By contrast, frontend-indicator-seasons-badge genuinely is cited by name in the Stock Detail per-view entry, so only half of the Narrowing note's 'both correctly cited' claim is accurate. Fix: append a new decisions entry (per CLAUDE.md's append-only-by-default rule) on docs/tasks/done/frontend-ux-block-layout-audit.json further correcting the Narrowing note -- clarifying that frontend-dashboard-sell-flags is not itself named in the Dashboard per-view entry (even though the component it introduced is described there), while frontend-indicator-seasons-badge's citation claim does hold.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
