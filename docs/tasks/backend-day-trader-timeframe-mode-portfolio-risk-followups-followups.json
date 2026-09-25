@@ -25,5 +25,11 @@
       "rationale": "Considered moving the cross-reference sentence to after the bullet list instead (reordering), but that would separate it from the sentence introducing the day-trade-divergence-exit gap it explains, weakening the connection for a reader. Keeping it in place and just re-terminating it (period instead of colon) plus adding a short list-introducing sentence is the minimal edit that restores a matching colon antecedent without reflowing the paragraph or losing any existing content."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-day-trader-timeframe-mode-portfolio-risk-followups-followups",
+    "pr_number": 321,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/321",
+    "pushed_at": "2026-09-25T01:43:12Z"
+  }
 }
