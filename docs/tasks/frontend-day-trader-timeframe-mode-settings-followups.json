@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #327's review (frontend-day-trader-timeframe-mode-settings)",
   "area": "frontend/settings",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["frontend-day-trader-timeframe-mode-settings"],
   "references": [
     "docs/tasks/done/frontend-day-trader-timeframe-mode-settings.json",
@@ -34,5 +34,11 @@
       "rationale": "Re-weighed the parent decision's own stated objection (cross-feature import coupling, and silent under-invalidation if a future mode-aware endpoint isn't added to the list) against the actual current codebase state: every other feature's mutation hook (useAddPosition, useAddWatchlistItem, useDeletePosition, useRecordFollowUpReview) already imports its own feature's `queryKeys.ts` and invalidates via its `xKeys.all` prefix constant -- importing three such constants into one settings-feature hook is the same established mechanism used three times, not a new one, and each `xKeys.all` is deliberately documented as a public, shared prefix (each file's own header comment already calls itself 'Shared TanStack Query key conventions'). The 'silently under-invalidate a future mode-aware endpoint' risk is also more contained than the parent decision characterized it: docs/architecture/API.md's own definition of which endpoints depend on trading mode already enumerates only `stocks`/`watchlist`/`portfolio` routes, and any *new* endpoint added under one of those three existing feature namespaces is automatically covered for free by TanStack Query's prefix-matching invalidation (the same 'impossible by construction' argument `portfolioKeys.ts`'s own `risk`/`closedTrades` nesting already relies on) -- the residual risk is narrowed to a hypothetical brand-new *fourth* top-level feature area becoming mode-dependent, which would already require updating API.md's own documented list at the same time, a natural point to also update this invalidation call. Weighed against that narrowed risk: the previous blanket invalidation refetches every mounted query on every mode save, including features API.md never documents as mode-dependent (scanner params, IBKR connection status, daily-homework/trade-journal data) -- a real, avoidable cost on a page whose own settings save is otherwise cheap. Verified via a new unit test (`invalidates only the stocks/watchlist/portfolio query-key prefixes...`, TradingModeSettingsForm.test.tsx) spying on `queryClient.invalidateQueries` directly, asserting exactly the three scoped calls and never an unfiltered one. Rejected alternative: keep the blanket call and only add a decision confirming it (the checklist's other allowed outcome) -- rejected because, on reflection, the coupling cost this task's checklist raised for reconsideration is already paid elsewhere in this codebase for single-feature invalidations, so paying it once more for three already-existing, already-public constants was judged worth the reduced unrelated-refetch cost; also rejected keeping the exact same behavior via three inline literal arrays (`['stocks']`/['watchlist']`/['portfolio']`) instead of importing the constants, since that would silently drift from each feature's own key definition if a feature ever renamed its top-level segment, whereas importing the shared constant can't drift by construction."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-day-trader-timeframe-mode-settings-followups",
+    "pr_number": 328,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/328",
+    "pushed_at": "2026-09-25T04:11:20Z"
+  }
 }
