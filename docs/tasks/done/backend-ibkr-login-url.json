@@ -3,7 +3,7 @@
   "title": "Expose the IBKR gateway's own login page URL via GET /api/ibkr/status",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "docs/architecture/API.md",
@@ -51,5 +51,12 @@
     "pr_number": 342,
     "pr_url": "https://github.com/rainoko/fintrade/pull/342",
     "pushed_at": "2026-09-26T07:09:42Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-26T07:23:10Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/342",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review of PR #342. Independently re-derived the `/v1/api`-suffix convention rather than trusting the task-worker's report: curled this dev container's own reachable IBKR gateway myself -- `GET https://ibkr.home.arpa/` -> 302 redirect to `.../sso/Login?forwardTo=22&RL=1&ip2loc=US`, `GET https://ibkr.home.arpa/v1/api/` -> 404 -- both match the task-worker's claimed results exactly. Read `_ibkr_login_page_url` directly and exercised it with my own arbitrary inputs beyond the test file's own cases (custom host/port/path-prefix combos, a query-string URL, a URL not ending in `/v1/api`) -- matches documented/tested behavior in every case. Read `get_ibkr_status` in full: `login_url` populated only for `not_authenticated`/`available`, `None` for `disabled`/`gateway_unreachable`; reasoning is sound, and the new `settings: Settings = Depends(get_settings)` parameter changes no other route behavior. Confirmed the rewritten `test_ibkr_status.py` no longer depends on this container's real `.env`: ran the full file both with `.env` present and with it renamed away -- identical 11/11 pass either way; also drove the endpoint directly with my own arbitrary `FINTRADE_IBKR_BASE_URL` override not present in the test file and got the correctly-derived `login_url` back. API documentation standard: `login_url` has a full `description`, route docstring updated; regenerated `backend/openapi.json` myself via `python scripts/export_openapi.py` -- byte-identical to what's committed; diffed `frontend/src/api/types.ts` against the pre-PR commit and confirmed the new field/description match `schemas.py` verbatim. Static analysis: backend `ruff check .` and `mypy` clean; frontend `yarn lint` and `yarn tsc -b --noEmit` clean; `scripts/check_profit_target_wording.py` clean; `scripts/validate_tasks.py` clean (330 files). Full backend suite: 1450 passed, 1 pre-existing failure (`tests/unit/test_config.py::test_ibkr_base_url_defaults_to_localhost_gateway`) -- confirmed this is the same long-documented, unrelated `.env`-override issue tracked across multiple prior PRs (e.g. `backend-ibkr-portfolio-preload-followups*`), not introduced by this PR (its diff touches zero lines of `test_config.py`); 100% coverage on the changed files, well above the 90% gate. Both checklist items phrased as 'decide X' have corresponding `decisions` entries with real rationale -- no undocumented judgment call. Area is `backend/api`, not `backend/signals`/`backend/portfolio`, so verify-elder-signal doesn't apply; no new module/dependency/layer, so architecture-review doesn't apply; no frontend component touched (no current frontend consumer of the new field -- that's the dependent `frontend-ibkr-login-button` task), so no component-placement review applies. No UI-facing surface in this PR (backend-only, additive optional field with no frontend consumer yet) -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) explicitly skipped rather than silently omitted. Ran the code-review skill (effort: high) independently against the diff -- zero findings, corroborating the above. No blocking or non-blocking findings; no follow-up task filed."
   }
 }
