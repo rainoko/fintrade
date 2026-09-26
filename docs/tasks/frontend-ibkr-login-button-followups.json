@@ -3,8 +3,10 @@
   "title": "IBKR login button -- non-blocking review follow-ups from PR #343",
   "area": "frontend/ibkr",
   "skill": null,
-  "state": "planned",
-  "depends_on": ["frontend-ibkr-login-button"],
+  "state": "testing",
+  "depends_on": [
+    "frontend-ibkr-login-button"
+  ],
   "references": [
     "docs/tasks/done/frontend-ibkr-login-button.json#review",
     "https://github.com/rainoko/fintrade/pull/343"
@@ -13,17 +15,36 @@
   "checklist": [
     {
       "step": "The 'Log in to IBKR' button has no guard against rapid repeated clicks: each click unconditionally calls `window.open(login_url, '_blank', 'noopener,noreferrer')`, so a user who double/triple-clicks (or clicks again before switching away) opens that many separate duplicate login tabs. Harmless (each is an independent, correctly-`noopener`'d tab) but untested and mildly confusing UX -- consider disabling the button briefly after the first click, or simply note this is accepted behavior with a comment.",
-      "done": false
+      "done": true
     },
     {
       "step": "code-review skill's PR #343 pass flagged a low-severity edge case in the focus-refetch mechanism: if the browser's own popup blocker prevents `window.open` from actually opening a tab (it can return `null` for that reason too, indistinguishable from the `noopener`-return-null case this component already expects), `awaitingLoginReturnRef.current` stays `true` with no login ever attempted, so the *next unrelated* window-focus event (e.g. an ordinary alt-tab back to this app for any other reason) will fire one incorrect extra `GET /api/ibkr/status` refetch. Low impact (one harmless extra request, not a crash or wrong-state render) and not currently covered by any test -- consider detecting a popup-blocked `window.open` (e.g. by feature-testing right after the call) and not setting the ref in that case, or accept this as a documented, low-cost false positive.",
-      "done": false
+      "done": true
     },
     {
       "step": "backend/tests/unit/test_config.py::test_ibkr_base_url_defaults_to_localhost_gateway asserts `Settings().ibkr_base_url` equals the hardcoded default with no `.env` override -- but `Settings.model_config`'s `env_file=\".env\"` (relative to CWD) means this test spuriously fails whenever pytest is run from `backend/` with a local `backend/.env` that itself sets `FINTRADE_IBKR_BASE_URL` (as this dev container's own `.env` currently does, apparently left over from IBKR-gateway research for this feature arc). Reproduced during PR #343's review (`pytest --cov=app ...` from `backend/`: 1449 passed, 1 failed -- this test); confirmed via a direct `Settings()` construction with `env_file` overridden to a nonexistent path that the code itself is correct (returns the right default). Zero backend files were touched by PR #343, so this is entirely pre-existing and environment-specific, not a regression -- but unlike its sibling tests in the same file (which correctly use `monkeypatch.setenv`/`monkeypatch.delenv` to control the exact env state they assert against), this one test implicitly assumes no ambient `.env` override exists, which isn't actually guaranteed for anyone running the suite from a customized local checkout. Consider isolating it (e.g. `monkeypatch.delenv(\"FINTRADE_IBKR_BASE_URL\", raising=False)` or constructing `Settings` with `_env_file=None`) so it can't be broken by ambient dev-environment state that has nothing to do with the code under test.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-26T08:26:17Z",
+      "recorded_by": "task-worker",
+      "decision": "Addressed items 1 and 2 with a single, partially-unified mechanism in `IbkrStatusIndicator.tsx` rather than two independent fixes. On click, the 'Log in to IBKR' button (a) sets a new `isOpeningLogin` React state to `true`, disabling the button itself, and (b) schedules a `LOGIN_CLICK_COOLDOWN_MS` (300ms) `setTimeout` that re-enables the button AND, only if `document.hasFocus()` is still `true` at that point, clears `awaitingLoginReturnRef.current` back to `false`. The disabled-button state alone fully resolves item 1 (a disabled native `<button>` doesn't dispatch click events at all, so rapid repeated clicks before the cooldown elapses cannot call `window.open` more than once). Item 2 is resolved by the `document.hasFocus()` check: since `window.open(..., 'noopener,noreferrer')` always returns `null` per spec regardless of success (ruling out using its return value to detect a block, as the checklist item itself notes), the heuristic instead relies on a real successful new-tab open almost always moving focus away from this window almost immediately -- if this window still reports having focus ~300ms after the click, no tab could have opened, so the click was almost certainly popup-blocked, and the ref is cleared so the next unrelated focus event doesn't fire a spurious refetch.",
+      "rationale": "This is 'partially' unified, not fully: the disabled-button state (item 1's fix) and the ref-clearing check (item 2's fix) are set on the same click and cleared by the same timeout, but they are logically independent effects of that one timeout callback, not one mechanism that trivially implies the other -- disabling the button alone would not have cleared the stuck ref (a disabled-then-re-enabled button says nothing about whether a tab actually opened), and clearing the ref alone would not have prevented rapid duplicate opens (nothing stops a second click before the ref-clearing timeout fires). Considered doing item 2 via `.closed`-polling on the `window.open` return value instead, but rejected it for the same reason `frontend-ibkr-login-button`'s own decision already gives: `noopener` makes the return value `null` unconditionally, so there is no window reference to poll `.closed` on, and giving up `noopener` to get one would reintroduce the reverse-tabnabbing exposure that decision deliberately avoided. Considered leaving item 2 as 'accepted, documented, low-cost false positive' (the checklist's other offered option) instead of implementing detection, but the `document.hasFocus()` heuristic was cheap to add, has a bounded failure mode explicitly documented in the code (worst case: one login attempt's instant refetch is skipped and the existing up-to-30s background poll picks it up instead -- never a permanently-stuck gate), and directly removes the spurious-refetch case rather than merely tolerating it, so implementing it was judged worth the small added complexity over leaving it undone."
+    },
+    {
+      "timestamp": "2026-09-26T08:26:17Z",
+      "recorded_by": "task-worker",
+      "decision": "Chose 300ms for `LOGIN_CLICK_COOLDOWN_MS` (the button's post-click disabled duration, and the delay before the popup-blocked `document.hasFocus()` check runs) -- no existing precedent in this codebase for a debounce/detection delay of this kind to follow, so this was picked directly rather than derived from a documented convention.",
+      "rationale": "Long enough that a real browser opening a new tab in the foreground (the default behavior in every mainstream browser) reliably finishes moving focus away before the check runs, avoiding a false 'popup blocked' read on a login that actually succeeded. Short enough that a genuinely popup-blocked click doesn't leave the button visibly disabled for a duration a user would consciously notice or find sluggish before they can retry (e.g. after allowing the popup via the browser's own blocked-popup notification). Not validated against real browser timing measurements (would require a browser-driven test harness this fix didn't otherwise need) -- if this value ever proves too short/long in practice, it's a single named constant to retune, not a scattered magic number."
+    },
+    {
+      "timestamp": "2026-09-26T08:26:17Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed item 3 (backend/tests/unit/test_config.py's ambient-`.env`-fragile test) directly in this task rather than filing it as a separate scoped task.",
+      "rationale": "The fix is a single, narrowly-scoped test-isolation change (construct `Settings(_env_file=None)` instead of `Settings()`, bypassing `Settings.model_config`'s `env_file=\".env\"` for this one assertion, plus a `# type: ignore[call-arg]` since pydantic-settings' per-instance `_env_file` override isn't in mypy's view of `Settings.__init__`'s signature) with no product/architecture judgment call left to make -- the checklist item had already fully diagnosed the root cause and named the exact fix. Splitting it into its own task would have added board overhead (a new task file, its own PR, its own review cycle) for a one-line, already-fully-specified change, with no benefit: it doesn't touch frontend/ibkr code so there's no risk of scope creep muddying this task's own diff, and this session's standing constraints already anticipated it ('If item 3 leads you to touch backend files, also run the backend suite, ruff, mypy'), which was done. Verified: `pytest --cov=app --cov-fail-under=90` now reports 1451 passed (previously 1449 passed / 1 failed) with the same failing test now passing, 100% coverage maintained; `ruff check .` and `mypy` (using `backend/pyproject.toml`'s `[tool.mypy]` `files =` scoping, not an unscoped `mypy app tests` invocation which surfaces ~440 pre-existing, unrelated test-file `no-untyped-def`/`union-attr` findings that predate this task and are out of scope here) both clean."
+    }
+  ],
   "questions": []
 }

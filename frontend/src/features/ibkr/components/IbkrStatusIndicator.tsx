@@ -4,9 +4,16 @@ import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
 import Tooltip from '@mui/material/Tooltip'
-import { useEffect, useRef, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type ReactElement } from 'react'
 import IbkrStatusBadge from '../../../components/common/IbkrStatusBadge/IbkrStatusBadge'
 import { useIbkrStatus } from '../hooks/useIbkrStatus'
+
+// How long the "Log in to IBKR" button stays disabled after a click, and how long this
+// component waits before checking whether `window.open` actually moved focus away (see
+// `awaitingLoginReturnRef` below). Long enough for a real new-tab open to steal focus in
+// practice, short enough that a genuinely popup-blocked click doesn't leave the button
+// disabled for a user-noticeable stretch before they can retry.
+const LOGIN_CLICK_COOLDOWN_MS = 300
 
 /**
  * Header-level connectivity indicator for the optional IBKR Client Portal
@@ -25,7 +32,12 @@ import { useIbkrStatus } from '../hooks/useIbkrStatus'
  * this task's `decisions` entry for why IBKR's own login page cannot be
  * embedded). `login_url` absent for any other reason (an older cached
  * response, a genuine backend edge case) simply renders no button — the
- * badge alone still explains the situation via its tooltip.
+ * badge alone still explains the situation via its tooltip. The button
+ * disables itself for `LOGIN_CLICK_COOLDOWN_MS` after each click (guards
+ * against rapid repeated clicks opening duplicate tabs) and uses that same
+ * window to heuristically detect a popup-blocked open, so it doesn't leave
+ * the return-refetch gate stuck armed — see `frontend-ibkr-login-button-
+ * followups`'s `decisions` entry.
  *
  * Feature component (not `common/`): it owns the `useIbkrStatus` data fetch
  * and its own loading/transport-error presentation, so `AppShell` itself
@@ -54,6 +66,14 @@ export default function IbkrStatusIndicator() {
   // task's `decisions` entry.
   const awaitingLoginReturnRef = useRef(false)
 
+  // Disables the "Log in to IBKR" button for `LOGIN_CLICK_COOLDOWN_MS` after
+  // a click — both to stop rapid repeated clicks from opening that many
+  // duplicate login tabs, and to give the popup-blocked check below a short
+  // window to run before the button becomes clickable again (see
+  // `frontend-ibkr-login-button-followups`'s `decisions` entry).
+  const [isOpeningLogin, setIsOpeningLogin] = useState(false)
+  const cooldownTimeoutRef = useRef<number | undefined>(undefined)
+
   useEffect(() => {
     function handleWindowFocus() {
       if (!awaitingLoginReturnRef.current) {
@@ -66,6 +86,16 @@ export default function IbkrStatusIndicator() {
     window.addEventListener('focus', handleWindowFocus)
     return () => window.removeEventListener('focus', handleWindowFocus)
   }, [refetch])
+
+  // Clear any pending cooldown timeout on unmount so it can't fire (and call
+  // `setIsOpeningLogin`) after this component is gone.
+  useEffect(() => {
+    return () => {
+      if (cooldownTimeoutRef.current !== undefined) {
+        window.clearTimeout(cooldownTimeoutRef.current)
+      }
+    }
+  }, [])
 
   // `isError` is checked *before* `!data`, not after: TanStack Query keeps
   // the last successful `data` populated across a failed background
@@ -119,9 +149,35 @@ export default function IbkrStatusIndicator() {
             size="small"
             variant="outlined"
             color="warning"
+            disabled={isOpeningLogin}
             onClick={() => {
+              setIsOpeningLogin(true)
               awaitingLoginReturnRef.current = true
               window.open(login_url, '_blank', 'noopener,noreferrer')
+
+              cooldownTimeoutRef.current = window.setTimeout(() => {
+                setIsOpeningLogin(false)
+                // `noopener` means the call above always returns `null`
+                // regardless of whether a tab actually opened (see the
+                // comment on `awaitingLoginReturnRef`), so that return value
+                // can't distinguish a real open from a popup-blocked one.
+                // But a real open moves focus to the new tab almost
+                // immediately, so if *this* window still reports having
+                // focus after giving that a moment to happen, no new tab
+                // could have opened — the click was almost certainly
+                // popup-blocked. Clear the gate in that case so the next
+                // unrelated window focus doesn't fire one incorrect extra
+                // status refetch. This is a heuristic, not a guarantee (e.g.
+                // a browser configured to open new tabs in the background
+                // wouldn't move focus even on a real, successful open) — its
+                // failure mode is limited to occasionally missing the
+                // instant refetch for one login attempt and falling back to
+                // the existing up-to-30s background poll, never a stuck
+                // permanently-armed gate. See this task's `decisions` entry.
+                if (document.hasFocus()) {
+                  awaitingLoginReturnRef.current = false
+                }
+              }, LOGIN_CLICK_COOLDOWN_MS)
             }}
           >
             Log in to IBKR

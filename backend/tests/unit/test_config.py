@@ -31,7 +31,16 @@ def test_ibkr_enabled_defaults_to_false() -> None:
 
 
 def test_ibkr_base_url_defaults_to_localhost_gateway() -> None:
-    assert Settings().ibkr_base_url == "https://localhost:5000/v1/api"
+    """Unlike its sibling tests in this file, this one asserts the *default* rather than
+    an explicit env override, so it must isolate itself from any ambient `.env` -- a local
+    `backend/.env` that sets `FINTRADE_IBKR_BASE_URL` (e.g. left over from IBKR-gateway
+    research, as this dev container's own `.env` does) would otherwise make `Settings()`
+    silently pick that up via `Settings.model_config`'s `env_file=".env"` (relative to
+    CWD) and fail this assertion despite the code itself being correct. `_env_file=None`
+    bypasses that `.env` lookup entirely for this one construction (pydantic-settings
+    supports overriding `model_config` fields per-instance via a leading-underscore kwarg;
+    mypy doesn't know about that dynamic signature, hence the narrow ignore)."""
+    assert Settings(_env_file=None).ibkr_base_url == "https://localhost:5000/v1/api"  # type: ignore[call-arg]
 
 
 def test_ibkr_enabled_reads_from_env(monkeypatch) -> None:
