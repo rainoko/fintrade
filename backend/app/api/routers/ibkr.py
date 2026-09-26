@@ -43,6 +43,7 @@ still-conflicting ticker is always skipped entirely, never merged/updated.
 import logging
 import math
 import uuid
+from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -65,6 +66,7 @@ from app.api.schemas import (
     IBKRScannerRunResponse,
     IBKRStatusResponse,
 )
+from app.config import Settings, get_settings
 from app.data.ibkr_provider import (
     GatewayStatus,
     IBKRAccountPosition,
@@ -106,13 +108,55 @@ _RETRY_AFTER_429_RESPONSE: dict[str, object] = {
 }
 
 
+# `state` values `get_ibkr_status` populates `login_url` for -- see this task's
+# (backend-ibkr-login-url) `decisions` entry for why exactly these two and not
+# 'disabled'/'gateway_unreachable': there's something worth logging into for both
+# 'not_authenticated' (the obvious case) and 'available' (so a session about to expire
+# can still be manually re-authenticated ahead of time), whereas 'disabled' has no
+# gateway configured at all and 'gateway_unreachable' means no gateway process answered
+# -- the derived URL wouldn't be reachable either.
+_LOGIN_URL_STATES: frozenset[IBKRGatewayState] = frozenset({"not_authenticated", "available"})
+
+# The REST-API-root path suffix `Settings.ibkr_base_url` always ends with -- stripping it
+# yields the gateway's own base origin, which serves the interactive browser login page
+# (see `_ibkr_login_page_url` and this task's `decisions` entry for the research this is
+# based on, mirroring how `resolve_conid`'s own decisions entry documents the IBKR Web API
+# shape it was implemented against).
+_REST_API_ROOT_SUFFIX = "/v1/api"
+
+
+def _ibkr_login_page_url(base_url: str) -> str:
+    """Derives the IBKR gateway's own interactive login page URL from `base_url`
+    (`Settings.ibkr_base_url`, the REST API root this app's own HTTP calls use, e.g.
+    'https://localhost:5000/v1/api') by stripping the trailing `/v1/api` REST-API-root
+    path suffix, leaving just the gateway's base origin (e.g. 'https://localhost:5000') --
+    the same origin that serves the interactive HTML login form (browsing to it directly
+    redirects to that form), per this task's `decisions` entry. Preserves any path
+    segment(s) that remain before that suffix (e.g. a reverse-proxy path prefix), and
+    tolerates a trailing slash on `base_url` (`Settings.ibkr_base_url`/`DEFAULT_BASE_URL`
+    never have one, but this is defensive against a manually-configured value that does).
+
+    Not applied to `provider`'s own private `_base_url` -- this derives directly from
+    `Settings.ibkr_base_url` instead, per this task's own `description`, so this function
+    has no dependency on `IBKRProvider` at all.
+    """
+    parts = urlsplit(base_url)
+    path = parts.path.rstrip("/")
+    if path.endswith(_REST_API_ROOT_SUFFIX):
+        path = path[: -len(_REST_API_ROOT_SUFFIX)]
+    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+
+
 @router.get(
     "/status",
     response_model=IBKRStatusResponse,
     operation_id="get_ibkr_status",
     summary="Whether the optional IBKR Client Portal Gateway integration is usable right now",
 )
-def get_ibkr_status(provider: IBKRProvider | None = Depends(get_ibkr_provider)) -> IBKRStatusResponse:
+def get_ibkr_status(
+    provider: IBKRProvider | None = Depends(get_ibkr_provider),
+    settings: Settings = Depends(get_settings),
+) -> IBKRStatusResponse:
     """Reports the IBKR gateway's connection state -- 'disabled' when
     `Settings.ibkr_enabled` is `False` (this app's default; `get_ibkr_provider` yields
     `None` in exactly that case, so no attempt to reach a gateway is made at all), otherwise
@@ -123,12 +167,19 @@ def get_ibkr_status(provider: IBKRProvider | None = Depends(get_ibkr_provider)) 
     docstring's contract -- every failure mode it can observe is represented as a
     `GatewayStatus` value instead of an exception), and this handler adds no failure mode of
     its own on top of that.
+
+    `login_url` (docs/tasks/backend-ibkr-login-url.json) is populated only for the states in
+    `_LOGIN_URL_STATES`, derived from `Settings.ibkr_base_url` via `_ibkr_login_page_url` --
+    this app cannot automate IBKR's interactive browser login step itself (see
+    app.data.ibkr_provider's module docstring), so the frontend opens this URL in a real
+    browser window/tab for the user to complete that login manually.
     """
     if provider is None:
-        return IBKRStatusResponse(state="disabled", detail=_DISABLED_DETAIL)
+        return IBKRStatusResponse(state="disabled", detail=_DISABLED_DETAIL, login_url=None)
 
     status = provider.get_gateway_status()
-    return IBKRStatusResponse(state=status.state, detail=status.detail)
+    login_url = _ibkr_login_page_url(settings.ibkr_base_url) if status.state in _LOGIN_URL_STATES else None
+    return IBKRStatusResponse(state=status.state, detail=status.detail, login_url=login_url)
 
 
 def _resolve_ibkr_call_unavailable(provider: IBKRProvider, exc: IBKRUnavailableError) -> GatewayStatus:

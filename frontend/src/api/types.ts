@@ -349,6 +349,12 @@ export interface paths {
          *     docstring's contract -- every failure mode it can observe is represented as a
          *     `GatewayStatus` value instead of an exception), and this handler adds no failure mode of
          *     its own on top of that.
+         *
+         *     `login_url` (docs/tasks/backend-ibkr-login-url.json) is populated only for the states in
+         *     `_LOGIN_URL_STATES`, derived from `Settings.ibkr_base_url` via `_ibkr_login_page_url` --
+         *     this app cannot automate IBKR's interactive browser login step itself (see
+         *     app.data.ibkr_provider's module docstring), so the frontend opens this URL in a real
+         *     browser window/tab for the user to complete that login manually.
          */
         get: operations["get_ibkr_status"];
         put?: never;
@@ -1976,6 +1982,11 @@ export interface components {
              * @description Human-readable context for `state` (the underlying transport error, or the gateway's own message) -- informational only, never required for a caller to branch on. Always populated (a fixed explanatory string) for 'disabled', and usually null for 'available'.
              */
             detail?: string | null;
+            /**
+             * Login Url
+             * @description The gateway's own interactive login page (its base origin, e.g. 'https://localhost:5000' -- NOT `Settings.ibkr_base_url`'s REST-API-root path, e.g. '.../v1/api', which is a JSON API endpoint, not a page a browser can log in against). Only a real HTML login form; this app cannot automate IBKR's interactive 2FA/browser login step itself (see app.data.ibkr_provider's module docstring), so a frontend caller is expected to open this URL in a real browser window/tab for the user to complete that login manually. Populated for 'not_authenticated' (there is something to log into) and 'available' (so a session about to expire can still be manually re-authenticated ahead of time); null for 'disabled' (no gateway is even configured) and 'gateway_unreachable' (no gateway process answered at all, so this URL wouldn't be reachable either) -- see this task's `decisions` entry.
+             */
+            login_url?: string | null;
             /**
              * State
              * @description Whether the optional IBKR Client Portal Gateway integration is usable right now. 'disabled' -- Settings.ibkr_enabled is False (this app's default; no attempt to reach a gateway is made at all). 'available' -- the gateway is running and its session is authenticated; IBKR-backed features (hourly bars, the market scanner) can be used. 'gateway_unreachable' -- ibkr_enabled is True but no gateway process answered at the configured base URL (most likely it isn't running). 'not_authenticated' -- the gateway process is up and answering but its interactive browser login step hasn't been completed, or the session has since expired. Mirrors app.data.ibkr_provider.GatewayState exactly, plus this endpoint's own 'disabled' state for when that check is never even attempted.

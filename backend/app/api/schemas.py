@@ -963,6 +963,21 @@ class IBKRStatusResponse(BaseModel):
         "to branch on. Always populated (a fixed explanatory string) for 'disabled', and "
         "usually null for 'available'.",
     )
+    login_url: str | None = Field(
+        default=None,
+        description="The gateway's own interactive login page (its base origin, e.g. "
+        "'https://localhost:5000' -- NOT `Settings.ibkr_base_url`'s REST-API-root path, "
+        "e.g. '.../v1/api', which is a JSON API endpoint, not a page a browser can log "
+        "in against). Only a real HTML login form; this app cannot automate IBKR's "
+        "interactive 2FA/browser login step itself (see app.data.ibkr_provider's module "
+        "docstring), so a frontend caller is expected to open this URL in a real browser "
+        "window/tab for the user to complete that login manually. Populated for "
+        "'not_authenticated' (there is something to log into) and 'available' (so a "
+        "session about to expire can still be manually re-authenticated ahead of time); "
+        "null for 'disabled' (no gateway is even configured) and 'gateway_unreachable' "
+        "(no gateway process answered at all, so this URL wouldn't be reachable either) "
+        "-- see this task's `decisions` entry.",
+    )
 
 
 # --- /api/ibkr/scanner/params, /api/ibkr/scanner/run -----------------------
