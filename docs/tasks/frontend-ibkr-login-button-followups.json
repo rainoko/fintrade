@@ -1,0 +1,29 @@
+{
+  "id": "frontend-ibkr-login-button-followups",
+  "title": "IBKR login button -- non-blocking review follow-ups from PR #343",
+  "area": "frontend/ibkr",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-ibkr-login-button"],
+  "references": [
+    "docs/tasks/done/frontend-ibkr-login-button.json#review",
+    "https://github.com/rainoko/fintrade/pull/343"
+  ],
+  "description": "Tracked follow-ups for non-blocking findings raised in pr-reviewer's review of PR #343 (frontend-ibkr-login-button) -- none of these block the accept (no correctness bug, no test/coverage regression, no architecture/methodology violation), but each is worth fixing/considering so it isn't lost once PR #343 merges and the review comment disappears from view.",
+  "checklist": [
+    {
+      "step": "The 'Log in to IBKR' button has no guard against rapid repeated clicks: each click unconditionally calls `window.open(login_url, '_blank', 'noopener,noreferrer')`, so a user who double/triple-clicks (or clicks again before switching away) opens that many separate duplicate login tabs. Harmless (each is an independent, correctly-`noopener`'d tab) but untested and mildly confusing UX -- consider disabling the button briefly after the first click, or simply note this is accepted behavior with a comment.",
+      "done": false
+    },
+    {
+      "step": "code-review skill's PR #343 pass flagged a low-severity edge case in the focus-refetch mechanism: if the browser's own popup blocker prevents `window.open` from actually opening a tab (it can return `null` for that reason too, indistinguishable from the `noopener`-return-null case this component already expects), `awaitingLoginReturnRef.current` stays `true` with no login ever attempted, so the *next unrelated* window-focus event (e.g. an ordinary alt-tab back to this app for any other reason) will fire one incorrect extra `GET /api/ibkr/status` refetch. Low impact (one harmless extra request, not a crash or wrong-state render) and not currently covered by any test -- consider detecting a popup-blocked `window.open` (e.g. by feature-testing right after the call) and not setting the ref in that case, or accept this as a documented, low-cost false positive.",
+      "done": false
+    },
+    {
+      "step": "backend/tests/unit/test_config.py::test_ibkr_base_url_defaults_to_localhost_gateway asserts `Settings().ibkr_base_url` equals the hardcoded default with no `.env` override -- but `Settings.model_config`'s `env_file=\".env\"` (relative to CWD) means this test spuriously fails whenever pytest is run from `backend/` with a local `backend/.env` that itself sets `FINTRADE_IBKR_BASE_URL` (as this dev container's own `.env` currently does, apparently left over from IBKR-gateway research for this feature arc). Reproduced during PR #343's review (`pytest --cov=app ...` from `backend/`: 1449 passed, 1 failed -- this test); confirmed via a direct `Settings()` construction with `env_file` overridden to a nonexistent path that the code itself is correct (returns the right default). Zero backend files were touched by PR #343, so this is entirely pre-existing and environment-specific, not a regression -- but unlike its sibling tests in the same file (which correctly use `monkeypatch.setenv`/`monkeypatch.delenv` to control the exact env state they assert against), this one test implicitly assumes no ambient `.env` override exists, which isn't actually guaranteed for anyone running the suite from a customized local checkout. Consider isolating it (e.g. `monkeypatch.delenv(\"FINTRADE_IBKR_BASE_URL\", raising=False)` or constructing `Settings` with `_env_file=None`) so it can't be broken by ambient dev-environment state that has nothing to do with the code under test.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
