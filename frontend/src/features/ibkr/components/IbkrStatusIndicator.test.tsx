@@ -1,6 +1,7 @@
 import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IBKRStatusResponse } from '../../../api/ibkr'
 import { server } from '../../../../tests/mocks/server'
 import { renderWithProviders } from '../../../../tests/renderWithProviders'
@@ -11,8 +12,13 @@ function mockIbkrStatus(response: IBKRStatusResponse) {
 }
 
 describe('IbkrStatusIndicator', () => {
+  beforeEach(() => {
+    vi.spyOn(window, 'open').mockImplementation(() => null)
+  })
+
   afterEach(() => {
     vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
   it('shows a loading spinner, then the disabled badge (the default MSW handler)', async () => {
@@ -54,6 +60,90 @@ describe('IbkrStatusIndicator', () => {
     renderWithProviders(<IbkrStatusIndicator />)
 
     await waitFor(() => expect(screen.getByText('IBKR: Sign-in needed')).toBeInTheDocument())
+  })
+
+  it('shows a "Log in to IBKR" button when not_authenticated and login_url is present, and opens it in a new tab via window.open', async () => {
+    const user = userEvent.setup()
+    mockIbkrStatus({
+      state: 'not_authenticated',
+      detail: 'please log in',
+      login_url: 'https://ibkr.home.arpa/',
+    })
+
+    renderWithProviders(<IbkrStatusIndicator />)
+
+    const button = await screen.findByRole('button', { name: 'Log in to IBKR' })
+    await user.click(button)
+
+    expect(window.open).toHaveBeenCalledWith(
+      'https://ibkr.home.arpa/',
+      '_blank',
+      'noopener,noreferrer',
+    )
+  })
+
+  it('does not render the login button for not_authenticated when login_url is unexpectedly absent', async () => {
+    mockIbkrStatus({ state: 'not_authenticated', detail: 'please log in', login_url: null })
+
+    renderWithProviders(<IbkrStatusIndicator />)
+
+    await waitFor(() => expect(screen.getByText('IBKR: Sign-in needed')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: 'Log in to IBKR' })).not.toBeInTheDocument()
+  })
+
+  it('does not render the login button for the available state even when login_url is present', async () => {
+    mockIbkrStatus({ state: 'available', detail: null, login_url: 'https://ibkr.home.arpa/' })
+
+    renderWithProviders(<IbkrStatusIndicator />)
+
+    await waitFor(() => expect(screen.getByText('IBKR: Connected')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: 'Log in to IBKR' })).not.toBeInTheDocument()
+  })
+
+  it('refetches the status immediately when the window regains focus after a login attempt was initiated', async () => {
+    const user = userEvent.setup()
+    mockIbkrStatus({
+      state: 'not_authenticated',
+      detail: 'please log in',
+      login_url: 'https://ibkr.home.arpa/',
+    })
+
+    renderWithProviders(<IbkrStatusIndicator />)
+
+    const button = await screen.findByRole('button', { name: 'Log in to IBKR' })
+    await user.click(button)
+
+    // Login "completed" server-side; the next refetch should pick it up.
+    mockIbkrStatus({ state: 'available', detail: null, login_url: 'https://ibkr.home.arpa/' })
+
+    window.dispatchEvent(new Event('focus'))
+
+    await waitFor(() => expect(screen.getByText('IBKR: Connected')).toBeInTheDocument())
+  })
+
+  it('does not refetch on an unrelated window focus event before any login attempt was initiated', async () => {
+    let fetchCount = 0
+    server.use(
+      http.get('/api/ibkr/status', () => {
+        fetchCount += 1
+        return HttpResponse.json({
+          state: 'not_authenticated',
+          detail: 'please log in',
+          login_url: 'https://ibkr.home.arpa/',
+        } satisfies IBKRStatusResponse)
+      }),
+    )
+
+    renderWithProviders(<IbkrStatusIndicator />)
+
+    await waitFor(() => expect(screen.getByText('IBKR: Sign-in needed')).toBeInTheDocument())
+    const countAfterInitialFetch = fetchCount
+
+    window.dispatchEvent(new Event('focus'))
+
+    // Give any (undesired) refetch a chance to fire before asserting it didn't.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(fetchCount).toBe(countAfterInitialFetch)
   })
 
   it("renders a distinct 'Unknown' chip on a transport-level failure, never claiming to know the gateway is down", async () => {

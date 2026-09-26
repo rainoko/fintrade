@@ -3,7 +3,7 @@
   "title": "Login button on the IBKR status indicator: opens the gateway's login page when sign-in is needed",
   "area": "frontend/ibkr",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-ibkr-login-url"],
   "references": [
     "docs/architecture/Frontend.md",
@@ -15,25 +15,44 @@
   "checklist": [
     {
       "step": "Determine, and record as a `decisions` entry, whether IBKR's login page can actually be embedded in an iframe/modal in this dev container's reachable gateway (`https://ibkr.home.arpa/`) — check its response headers (`X-Frame-Options`/`Content-Security-Policy: frame-ancestors`) directly, don't just assume. Default to `window.open` (a new browser tab/window) if embedding is genuinely blocked, since a broken/blank modal would be worse than a plain new-tab flow.",
-      "done": false
+      "done": true
     },
     {
       "step": "In `IbkrStatusIndicator.tsx`, add a 'Log in to IBKR' button/action shown only when `useIbkrStatus()`'s `state` is `not_authenticated` and `login_url` is present. Clicking it initiates the login flow chosen above (opens the modal, or calls `window.open(login_url, ...)`).",
-      "done": false
+      "done": true
     },
     {
       "step": "After the login flow is initiated, close the window between clicking the button and the app noticing a completed login promptly rather than only on the next up-to-30s background poll — e.g. trigger an immediate `useIbkrStatus` refetch when the opened window/tab regains focus is lost then the main window regains focus again, or when a `window.open`-returned window reference reports `.closed`. Record the exact mechanism chosen as a `decisions` entry.",
-      "done": false
+      "done": true
     },
     {
       "step": "Handle the case where `login_url` is unexpectedly absent even though `state` is `not_authenticated` (e.g. an older cached response, or a genuine backend edge case) gracefully — no button rendered, or a disabled button with an explanatory tooltip, rather than a broken click handler.",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests (vitest/Testing Library/MSW, no live network calls): the button's visibility gating on state, the click-to-open-window/modal behavior (mock `window.open` if that's the chosen approach), and the refetch-on-return behavior. Storybook coverage if any new piece lands in `components/common/` (unlikely here, given this is a feature-specific app-bar widget, but check per Frontend.md §3's placement rule).",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-26T07:39:06Z",
+      "recorded_by": "task-worker",
+      "decision": "IBKR's login page cannot be embedded in an in-app `<iframe>`/modal -- confirmed empirically against this dev container's real reachable gateway (`FINTRADE_IBKR_ENABLED` stayed `false` throughout; this was a one-time manual curl, not something the automated suite depends on), not just assumed from the task description's own prediction. `curl -sk -D - https://ibkr.home.arpa/` (and the `-L`-followed redirect target `https://ibkr.home.arpa/sso/Login?forwardTo=22&RL=1&ip2loc=US`) returned NEITHER an `X-Frame-Options` header NOR a `Content-Security-Policy: frame-ancestors` directive on either response -- so a header-only check would have wrongly concluded embedding was safe. Reading the actual login-page HTML found the real blocker instead: an inline `<script>` frame-busting guard, `if (window != top) { top.location.href = location.href; }`, which actively navigates the ENTIRE top-level window (not just the iframe) to the login URL the instant it detects it's been framed -- i.e. embedding it in a modal `<iframe>` wouldn't render a blank/broken frame, it would silently hijack the whole app tab away from itself the moment the iframe loaded, which is arguably worse than a blocked-and-blank frame. Implemented `window.open(login_url, '_blank', 'noopener,noreferrer')` (a new tab/window) instead, per the checklist's own default.",
+      "rationale": "Checking only the two headers the checklist named would have missed the actual embedding blocker on this real gateway (neither was present) and produced a false 'safe to embed' conclusion -- reading the login page's own body for a JS frame-buster was necessary to get a correct answer, not just a technically-checked one. No alternative to `window.open` was seriously considered once the frame-busting script was found, since an iframe would actively misbehave (hijack the outer tab) rather than just fail cleanly."
+    },
+    {
+      "timestamp": "2026-09-26T07:39:06Z",
+      "recorded_by": "task-worker",
+      "decision": "Refetch-on-return uses a `window` `'focus'` event listener (set up once via `useEffect`, cleaned up on unmount), gated by a `useRef` flag set to `true` only inside the login button's own click handler and cleared the next time focus fires -- not the checklist's other suggested mechanism (polling a `window.open`-returned window reference's `.closed` property). `window.open` is called with the `noopener` feature specifically so this app never holds a live reference into IBKR's own cross-origin window (closing off the standard 'reverse tabnabbing' attack where an opened page uses `window.opener` to navigate the opening tab away) -- and per the HTML spec, `window.open` returns `null` whenever `noopener` is requested, so a `.closed`-polling approach would have had nothing to poll even if it had been chosen. The ref-gated `'focus'` listener also naturally avoids refetching on an unrelated tab-switch that has nothing to do with a login attempt (verified by a dedicated test).",
+      "rationale": "Rejected `.closed` polling because it's structurally incompatible with the `noopener` choice made for the security reason above -- adopting it would have meant giving up `noopener` (and accepting the tabnabbing exposure) just to have something to poll, which is a worse trade than a plain focus listener. Rejected an un-gated 'always refetch on any window focus' listener (simpler, but the checklist frames the requirement as reacting to the login flow specifically, not merely any recovered focus) as needlessly wasteful -- an unrelated alt-tab back to this app for an unrelated reason (before a login was ever attempted) would trigger a pointless extra request/poll pair against `GET /api/ibkr/status` on every single such tab switch for the whole session, not just after this button was actually used."
+    },
+    {
+      "timestamp": "2026-09-26T07:39:06Z",
+      "recorded_by": "task-worker",
+      "decision": "Chose 'render no button at all' (not a disabled button with an explanatory tooltip) for `state === 'not_authenticated'` with `login_url` absent/null -- the checklist explicitly offered both as acceptable.",
+      "rationale": "`IbkrStatusBadge`'s own tooltip already carries a per-state explanatory sentence for `not_authenticated` (its `fallbackTooltip`, or the response's own `detail`), so a disabled button next to it would either duplicate that explanation in a second tooltip or need one of its own with nothing new to say -- an absent button reads as 'nothing actionable right now' without adding a dead, always-disabled control the user has to notice is not just slow to enable."
+    }
+  ],
   "questions": []
 }
