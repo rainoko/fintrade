@@ -91,20 +91,40 @@ class TestGetIbkrProvider:
     resolution would, without spinning up a full app/route for this unit test.
     """
 
-    def test_disabled_by_default_yields_none_without_constructing_a_client(self) -> None:
+    def test_disabled_by_default_yields_none_without_constructing_a_client(
+        self, monkeypatch
+    ) -> None:
         """The default (`ibkr_enabled=False`, matching every environment without a
         locally-running gateway) must not even construct an `IBKRProvider` -- confirms
         this optional feature is truly inert, not just returning `None` from an
-        otherwise-instantiated provider."""
-        generator = get_ibkr_provider()
+        otherwise-instantiated provider. Unlike this class's other tests, this one
+        asserts the *default* rather than an explicit env override, so it must isolate
+        itself from any ambient `.env` (e.g. a local `backend/.env` with
+        `FINTRADE_IBKR_ENABLED=true`, plausible leftover dev-machine state per
+        app/config.py's own `ibkr_enabled` docstring) -- unlike test_config.py's own
+        analogous fix, `get_ibkr_provider` reads `Settings` via the process-wide cached
+        `get_settings()`, not a `Settings` this test constructs directly, so there's no
+        call site here to pass `_env_file=None` into. `monkeypatch.setenv` instead
+        (env vars take priority over `.env` file values in pydantic-settings' precedence
+        order, same mechanism this class's other tests already rely on to *enable* IBKR
+        despite that same ambient `.env` never setting it) forces the default explicitly,
+        with `get_settings.cache_clear()` on both sides so neither the monkeypatched env
+        nor a stale cached `Settings` leaks into another test."""
+        monkeypatch.setenv("FINTRADE_IBKR_ENABLED", "false")
+        get_settings.cache_clear()
 
-        provider = next(generator)
+        try:
+            generator = get_ibkr_provider()
 
-        assert provider is None
-        # The generator must also be exhausted (no cleanup step pending) after the one
-        # yield on the disabled path.
-        with pytest.raises(StopIteration):
-            next(generator)
+            provider = next(generator)
+
+            assert provider is None
+            # The generator must also be exhausted (no cleanup step pending) after the
+            # one yield on the disabled path.
+            with pytest.raises(StopIteration):
+                next(generator)
+        finally:
+            get_settings.cache_clear()
 
     def test_enabled_yields_a_configured_provider_and_leaves_it_open_on_cleanup(self, monkeypatch) -> None:
         """Unlike `get_data_provider`, the yielded `IBKRProvider` is a process-wide

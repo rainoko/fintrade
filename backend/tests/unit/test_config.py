@@ -26,8 +26,13 @@ def test_data_provider_mode_reads_from_env(monkeypatch) -> None:
 def test_ibkr_enabled_defaults_to_false() -> None:
     """Every existing environment (dev, CI, this task's own sandboxed implementation
     session) has no locally-running gateway -- the optional IBKR provider must stay off
-    unless explicitly opted into (app.data.ibkr_provider.IBKRProvider)."""
-    assert Settings().ibkr_enabled is False
+    unless explicitly opted into (app.data.ibkr_provider.IBKRProvider). Like its sibling
+    `test_ibkr_base_url_defaults_to_localhost_gateway` below, this asserts a *default*
+    rather than an explicit env override, so it must isolate itself from any ambient
+    `.env` (e.g. a local `backend/.env` with `FINTRADE_IBKR_ENABLED=true`, plausible
+    leftover dev-machine state per this file's IBKR settings' own docstrings) via
+    `_env_file=None` -- see that sibling test's docstring for why."""
+    assert Settings(_env_file=None).ibkr_enabled is False  # type: ignore[call-arg]
 
 
 def test_ibkr_base_url_defaults_to_localhost_gateway() -> None:
