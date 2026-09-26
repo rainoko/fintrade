@@ -1,0 +1,77 @@
+{
+  "id": "frontend-ibkr-login-button-followups-followups-followups",
+  "title": "Non-blocking finding from PR #345's review (frontend-ibkr-login-button-followups-followups)",
+  "area": "frontend/ibkr",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-ibkr-login-button-followups-followups"],
+  "references": [
+    "docs/tasks/done/frontend-ibkr-login-button-followups-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/345"
+  ],
+  "description": "Tracked follow-up for a non-blocking finding raised in pr-reviewer's review of PR #345 (frontend-ibkr-login-button-followups-followups) -- does not block the accept (a narrow-probability timing gap in an already-documented, bounded-severity heuristic, not a correctness regression, test/coverage drop, or methodology/architecture violation), but worth fixing so it isn't lost once PR #345 merges and the review comment disappears from view.",
+  "checklist": [
+    {
+      "step": "In `IbkrStatusIndicator.tsx`'s login button `onClick` handler, the `window.addEventListener('blur', handleBlurAfterClick)` call is registered AFTER `window.open(login_url, '_blank', 'noopener,noreferrer')` returns, not before. If a browser/environment ever moves focus to the newly opened tab synchronously as part of processing `window.open()` (rather than deferring it to a later task/microtask) -- plausible in fast or automation-driven browser contexts, the same general class of timing sensitivity that caused the prior `document.hasFocus()`-after-300ms heuristic to misfire per this task's own dependency's checklist item 1 -- the `blur` event could fire and be gone before the listener is registered one line later. `focusLeftSinceClickRef.current` would never get set, so the 300ms cooldown timeout would incorrectly conclude the open was popup-blocked and clear `awaitingLoginReturnRef` even though a real login tab is open -- the next window-focus event (the user genuinely returning from a successful login) would then fail to trigger the intended immediate status refetch, silently falling back to the existing up-to-30s background poll (never a stuck-forever gate -- same bounded failure mode already accepted elsewhere in this component). Fix: move the `window.addEventListener('blur', handleBlurAfterClick)` call (and the `pendingBlurListenerRef.current = handleBlurAfterClick` assignment) to immediately before the `window.open(...)` call, closing this narrow window at no cost (per the code-review pass that raised this during PR #345's review).",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-26T09:42:46Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed exactly as the checklist item specified: moved the `window.addEventListener('blur', handleBlurAfterClick)` call and the `pendingBlurListenerRef.current = handleBlurAfterClick` assignment to immediately before `window.open(login_url, '_blank', 'noopener,noreferrer')` in `IbkrStatusIndicator.tsx` (the `handleBlurAfterClick` function declaration itself was left in place -- function declarations are hoisted within their enclosing scope, so referencing it in `addEventListener` before its textual declaration point was already safe and required no reordering). Also added a new unit test, 'registers the blur listener before calling window.open, so a synchronous focus change during window.open itself cannot be missed', which spies on `window.addEventListener` (letting it call through to the real implementation) and compares its 'blur' registration's `invocationCallOrder` against the existing `window.open` mock's `invocationCallOrder` after a click.",
+      "rationale": "No alternative approach was considered: the checklist item fully specified both the bug and the fix, leaving only mechanical execution and verifying it with a real test. Verified the new test is not a false-positive-proof tautology by temporarily reverting just the ordering (moving `window.open` back before the `addEventListener` call, leaving everything else -- including the new test -- untouched) and re-running the suite: the new test failed with `AssertionError: expected 6 to be less than 5` (the open call's invocation order came before the blur listener's), while the other 16 tests in the file still passed, confirming this test -- and only this test -- would have caught the exact regression this task fixes. Re-applied the fix afterward and re-ran the full file (17/17 passing). Chose comparing `invocationCallOrder` (a Vitest/Jest mock-function property recording each call's arrival order across all spies in a test, undocumented in most guides but standard Vitest/Jest behavior) over an alternative like asserting call counts before/after a `vi.advanceTimersByTime(0)` boundary, because it directly and unambiguously encodes 'which happened first' without relying on any timer/microtask semantics that the actual synchronous code path being tested (both calls happen in the same synchronous event-handler tick) doesn't itself depend on -- a timer-based approach would test something adjacent to, rather than exactly, the ordering bug described."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-ibkr-login-button-followups-followups-followups",
+    "pr_number": 346,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/346",
+    "pushed_at": "2026-09-26T09:44:07Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-26T09:53:46Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/346",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Confirmed the fix is genuinely a pure reordering: the diff shows only the `window.addEventListener('blur', handleBlurAfterClick)` + `pendingBlurListenerRef.current = handleBlurAfterClick` lines moving above `window.open(...)`, plus an updated inline comment; no other logic in the click handler changed.",
+        "file": "frontend/src/features/ibkr/components/IbkrStatusIndicator.tsx",
+        "line": 202
+      },
+      {
+        "summary": "Independently re-ran the mutation test: reverted just the ordering (window.open before addEventListener), re-ran the file's test suite -- the new test failed with 'expected 7 to be less than 6' while the other 16 tests still passed, confirming the new test is not a tautology and genuinely catches this exact regression. Restored the fix afterward (working tree diff was clean again).",
+        "file": "frontend/src/features/ibkr/components/IbkrStatusIndicator.test.tsx",
+        "line": 85
+      },
+      {
+        "summary": "Backend + frontend test suites pass with no regressions: backend 1451 passed, 100% coverage; frontend 956 passed across 95 files, 99.79%/99.14%/99.81%/99.84% stmt/branch/fn/line coverage -- both well above the 90% gate. ruff, mypy, eslint, tsc all clean. scripts/validate_tasks.py and scripts/check_profit_target_wording.py both clean.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Ran the persisted Playwright e2e suite (`make e2e`): all 26 specs across 8 files passed. Also did a live browser walkthrough (backend+frontend dev servers, IBKR status route intercepted to force `not_authenticated`+`login_url` since FINTRADE_IBKR_ENABLED=false in this environment and no real gateway is reachable): clicking 'LOG IN TO IBKR' called `window.open` with the expected URL and put the button into its loading state, with no console errors or failed network requests; a rapid double-click still only opened one tab; and a simulated blur-then-focus-return still triggered exactly one extra status refetch. No UI-visible behavior change from this PR, as its own description claims -- the fix is purely about listener-registration ordering inside one synchronous tick.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "code-review pass raised one minor/speculative non-blocking finding: moving the `addEventListener('blur', ...)` call before `window.open(...)` means that if `window.open` ever throws synchronously (most browsers just no-op/return null for a popup-blocked or disallowed-scheme URL instead of throwing, but some environments do throw), the just-registered blur listener would now be left dangling (never removed) until the component unmounts, whereas before this PR's reorder that failure path never reached the `addEventListener` call at all. Low likelihood, not reproduced in the test suite or the browser walkthrough. Filed as a tracked follow-up (frontend-ibkr-login-button-followups-followups-followups-followups) rather than left only as this comment.",
+        "file": "frontend/src/features/ibkr/components/IbkrStatusIndicator.tsx",
+        "line": 202
+      },
+      {
+        "summary": "Checked docs/tasks/index.json for any further followup in this chain: frontend-ibkr-login-button-followups-followups-followups-followups did not exist before this review (now created per the finding above). No other IBKR-login-button-chain task is planned/implementing/waiting_input. Once this PR merges, the only remaining open item for the IBKR-login-button feature specifically is that new minor follow-up task -- the board is not fully clean after this merges, but everything else in the chain (backend-ibkr-login-url with no followups, and all three prior frontend-ibkr-login-button* followup tasks) is done.",
+        "file": null,
+        "line": null
+      }
+    ],
+    "notes": "Accepted. Verified independently rather than trusting the PR description's claims: re-ran the mutation test myself (reverted the ordering, confirmed the new test fails with the exact assertion message expected, restored), read the diff directly and confirmed it is a pure two-statement reordering plus a comment update with no other logic slipped in, re-ran the full backend+frontend test/coverage/lint/tsc/validate_tasks suites with no regressions, ran the persisted e2e suite (26/26), and did a live browser walkthrough of the golden path plus two edge cases (double-click, blur/focus-return). One minor/speculative code-review finding filed as a follow-up task rather than blocking on it. No API route/schema touched, so no OpenAPI snapshot to check. No new/changed component to assess for common/-vs-feature placement (this PR only modifies logic inside an existing component). area is frontend/ibkr, not backend/signals or backend/portfolio, so verify-elder-signal doesn't apply; no new module/dependency/layer, so architecture-review doesn't apply."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-26T10:00:33Z",
+    "verdict": "merge",
+    "notes": "Re-ran the mutation test myself on the checked-out branch (swapped addEventListener/window.open back to pre-fix order, ran the file's suite: 16 passed / 1 failed with 'expected 7 to be less than 6' on the new test, matching pr-reviewer's report exactly; restored and confirmed `git diff --stat` clean). Read `git diff origin/main...HEAD` directly: confirms a pure two-statement reorder plus a rewritten comment in IbkrStatusIndicator.tsx, nothing else. Re-ran full suites myself: backend 1451 passed/100% coverage (exact match), frontend 956 passed across 95 files with 99.79/99.14/99.81/99.84% stmt/branch/fn/line coverage (exact match), eslint and tsc both clean, scripts/validate_tasks.py clean. Assessed the new speculative follow-up (frontend-ibkr-login-button-followups-followups-followups-followups, window.open throwing synchronously leaving a dangling blur listener): the reasoning holds -- reordering does mean a synchronous throw from window.open would now leave pendingBlurListenerRef.current registered where before the reorder it never got that far. It's real but even more narrowly bounded than the task's own text states: handleBlurAfterClick self-removes itself the very next time any blur event fires (not just a login-related one), and there's also an existing unmount cleanup effect that removes it regardless -- so the practical exposure window is much shorter than 'stays registered until unmount' suggests, not indefinite. Still a legitimate, cheap-to-fix, correctly non-blocking finding worth tracking, not overreach to have filed it as a task."
+  }
+}

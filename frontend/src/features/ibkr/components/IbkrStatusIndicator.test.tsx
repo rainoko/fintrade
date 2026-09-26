@@ -82,6 +82,36 @@ describe('IbkrStatusIndicator', () => {
     )
   })
 
+  it('registers the blur listener before calling window.open, so a synchronous focus change during window.open itself cannot be missed', async () => {
+    const user = userEvent.setup()
+    const addEventListenerSpy = vi.spyOn(window, 'addEventListener')
+    mockIbkrStatus({
+      state: 'not_authenticated',
+      detail: 'please log in',
+      login_url: 'https://ibkr.home.arpa/',
+    })
+
+    renderWithProviders(<IbkrStatusIndicator />)
+
+    const button = await screen.findByRole('button', { name: 'Log in to IBKR' })
+    await user.click(button)
+
+    // `window.open` is mocked in `beforeEach`, so its own `invocationCallOrder`
+    // reflects exactly when the click handler called it. Compare that against the
+    // `blur` listener's registration order (not the `focus` listener registered once
+    // on mount, which is unrelated) -- catches a regression back to registering the
+    // listener one line *after* `window.open`, which this same assertion would still
+    // pass under (both calls happen, just in the wrong order) if it only checked that
+    // each was called at all.
+    const blurCallIndex = addEventListenerSpy.mock.calls.findIndex(
+      ([eventType]) => eventType === 'blur',
+    )
+    expect(blurCallIndex).toBeGreaterThanOrEqual(0)
+    const blurInvocationOrder = addEventListenerSpy.mock.invocationCallOrder[blurCallIndex]
+    const openInvocationOrder = vi.mocked(window.open).mock.invocationCallOrder[0]
+    expect(blurInvocationOrder).toBeLessThan(openInvocationOrder)
+  })
+
   it('disables the login button right after a click, so rapid repeated clicks cannot open more than one duplicate login tab', async () => {
     mockIbkrStatus({
       state: 'not_authenticated',

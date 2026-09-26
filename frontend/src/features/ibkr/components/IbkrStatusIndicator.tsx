@@ -169,30 +169,31 @@ export default function IbkrStatusIndicator() {
               setIsOpeningLogin(true)
               awaitingLoginReturnRef.current = true
               focusLeftSinceClickRef.current = false
-              window.open(login_url, '_blank', 'noopener,noreferrer')
 
-              // `noopener` means the call above always returns `null`
-              // regardless of whether a tab actually opened (see the comment
-              // on `awaitingLoginReturnRef`), so that return value can't
-              // distinguish a real open from a popup-blocked one. But a real
-              // open moves focus to the new tab almost immediately, so a
-              // `blur` event on this window shortly after the click is a
-              // direct, synchronous signal that it happened — a more
-              // standard and precise idiom for this than the previous
-              // `document.hasFocus()` poll at one arbitrary fixed instant
-              // (see this task's `decisions` entry). If no `blur` fires
-              // before the cooldown timeout below, no new tab could have
-              // moved focus away — the click was almost certainly
-              // popup-blocked, so the gate is cleared so the next unrelated
-              // window focus doesn't fire one incorrect extra status
-              // refetch. Still a heuristic, not a guarantee (e.g. a browser
-              // configured to open new tabs in the background wouldn't move
-              // focus even on a real, successful open — see this task's
-              // `decisions` entry for that residual, already-bounded risk):
-              // its failure mode is limited to occasionally missing the
-              // instant refetch for one login attempt and falling back to
-              // the existing up-to-30s background poll, never a stuck
-              // permanently-armed gate.
+              // Registered *before* `window.open` below (not after) so there is no
+              // instant, however narrow, during which a synchronous focus change
+              // triggered by `window.open` itself could fire a `blur` event with no
+              // listener yet present to observe it — see
+              // `frontend-ibkr-login-button-followups-followups-followups`'s
+              // `decisions` entry. `noopener` means the call below always returns
+              // `null` regardless of whether a tab actually opened (see the comment
+              // on `awaitingLoginReturnRef`), so that return value can't distinguish
+              // a real open from a popup-blocked one. But a real open moves focus to
+              // the new tab almost immediately, so a `blur` event on this window
+              // shortly after the click is a direct, synchronous signal that it
+              // happened — a more standard and precise idiom for this than the
+              // previous `document.hasFocus()` poll at one arbitrary fixed instant
+              // (see this task's `decisions` entry). If no `blur` fires before the
+              // cooldown timeout below, no new tab could have moved focus away — the
+              // click was almost certainly popup-blocked, so the gate is cleared so
+              // the next unrelated window focus doesn't fire one incorrect extra
+              // status refetch. Still a heuristic, not a guarantee (e.g. a browser
+              // configured to open new tabs in the background wouldn't move focus
+              // even on a real, successful open — see this task's `decisions` entry
+              // for that residual, already-bounded risk): its failure mode is
+              // limited to occasionally missing the instant refetch for one login
+              // attempt and falling back to the existing up-to-30s background poll,
+              // never a stuck permanently-armed gate.
               function handleBlurAfterClick() {
                 focusLeftSinceClickRef.current = true
                 window.removeEventListener('blur', handleBlurAfterClick)
@@ -200,6 +201,8 @@ export default function IbkrStatusIndicator() {
               }
               window.addEventListener('blur', handleBlurAfterClick)
               pendingBlurListenerRef.current = handleBlurAfterClick
+
+              window.open(login_url, '_blank', 'noopener,noreferrer')
 
               cooldownTimeoutRef.current = window.setTimeout(() => {
                 setIsOpeningLogin(false)
