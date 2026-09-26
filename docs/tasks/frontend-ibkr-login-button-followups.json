@@ -46,5 +46,11 @@
       "rationale": "The fix is a single, narrowly-scoped test-isolation change (construct `Settings(_env_file=None)` instead of `Settings()`, bypassing `Settings.model_config`'s `env_file=\".env\"` for this one assertion, plus a `# type: ignore[call-arg]` since pydantic-settings' per-instance `_env_file` override isn't in mypy's view of `Settings.__init__`'s signature) with no product/architecture judgment call left to make -- the checklist item had already fully diagnosed the root cause and named the exact fix. Splitting it into its own task would have added board overhead (a new task file, its own PR, its own review cycle) for a one-line, already-fully-specified change, with no benefit: it doesn't touch frontend/ibkr code so there's no risk of scope creep muddying this task's own diff, and this session's standing constraints already anticipated it ('If item 3 leads you to touch backend files, also run the backend suite, ruff, mypy'), which was done. Verified: `pytest --cov=app --cov-fail-under=90` now reports 1451 passed (previously 1449 passed / 1 failed) with the same failing test now passing, 100% coverage maintained; `ruff check .` and `mypy` (using `backend/pyproject.toml`'s `[tool.mypy]` `files =` scoping, not an unscoped `mypy app tests` invocation which surfaces ~440 pre-existing, unrelated test-file `no-untyped-def`/`union-attr` findings that predate this task and are out of scope here) both clean."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-ibkr-login-button-followups",
+    "pr_number": 344,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/344",
+    "pushed_at": "2026-09-26T08:27:48Z"
+  }
 }
