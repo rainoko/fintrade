@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #345's review (frontend-ibkr-login-button-followups-followups)",
   "area": "frontend/ibkr",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-ibkr-login-button-followups-followups"],
   "references": [
     "docs/tasks/done/frontend-ibkr-login-button-followups-followups.json#review",
@@ -30,5 +30,43 @@
     "pr_number": 346,
     "pr_url": "https://github.com/rainoko/fintrade/pull/346",
     "pushed_at": "2026-09-26T09:44:07Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-26T09:53:46Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/346",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Confirmed the fix is genuinely a pure reordering: the diff shows only the `window.addEventListener('blur', handleBlurAfterClick)` + `pendingBlurListenerRef.current = handleBlurAfterClick` lines moving above `window.open(...)`, plus an updated inline comment; no other logic in the click handler changed.",
+        "file": "frontend/src/features/ibkr/components/IbkrStatusIndicator.tsx",
+        "line": 202
+      },
+      {
+        "summary": "Independently re-ran the mutation test: reverted just the ordering (window.open before addEventListener), re-ran the file's test suite -- the new test failed with 'expected 7 to be less than 6' while the other 16 tests still passed, confirming the new test is not a tautology and genuinely catches this exact regression. Restored the fix afterward (working tree diff was clean again).",
+        "file": "frontend/src/features/ibkr/components/IbkrStatusIndicator.test.tsx",
+        "line": 85
+      },
+      {
+        "summary": "Backend + frontend test suites pass with no regressions: backend 1451 passed, 100% coverage; frontend 956 passed across 95 files, 99.79%/99.14%/99.81%/99.84% stmt/branch/fn/line coverage -- both well above the 90% gate. ruff, mypy, eslint, tsc all clean. scripts/validate_tasks.py and scripts/check_profit_target_wording.py both clean.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Ran the persisted Playwright e2e suite (`make e2e`): all 26 specs across 8 files passed. Also did a live browser walkthrough (backend+frontend dev servers, IBKR status route intercepted to force `not_authenticated`+`login_url` since FINTRADE_IBKR_ENABLED=false in this environment and no real gateway is reachable): clicking 'LOG IN TO IBKR' called `window.open` with the expected URL and put the button into its loading state, with no console errors or failed network requests; a rapid double-click still only opened one tab; and a simulated blur-then-focus-return still triggered exactly one extra status refetch. No UI-visible behavior change from this PR, as its own description claims -- the fix is purely about listener-registration ordering inside one synchronous tick.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "code-review pass raised one minor/speculative non-blocking finding: moving the `addEventListener('blur', ...)` call before `window.open(...)` means that if `window.open` ever throws synchronously (most browsers just no-op/return null for a popup-blocked or disallowed-scheme URL instead of throwing, but some environments do throw), the just-registered blur listener would now be left dangling (never removed) until the component unmounts, whereas before this PR's reorder that failure path never reached the `addEventListener` call at all. Low likelihood, not reproduced in the test suite or the browser walkthrough. Filed as a tracked follow-up (frontend-ibkr-login-button-followups-followups-followups-followups) rather than left only as this comment.",
+        "file": "frontend/src/features/ibkr/components/IbkrStatusIndicator.tsx",
+        "line": 202
+      },
+      {
+        "summary": "Checked docs/tasks/index.json for any further followup in this chain: frontend-ibkr-login-button-followups-followups-followups-followups did not exist before this review (now created per the finding above). No other IBKR-login-button-chain task is planned/implementing/waiting_input. Once this PR merges, the only remaining open item for the IBKR-login-button feature specifically is that new minor follow-up task -- the board is not fully clean after this merges, but everything else in the chain (backend-ibkr-login-url with no followups, and all three prior frontend-ibkr-login-button* followup tasks) is done.",
+        "file": null,
+        "line": null
+      }
+    ],
+    "notes": "Accepted. Verified independently rather than trusting the PR description's claims: re-ran the mutation test myself (reverted the ordering, confirmed the new test fails with the exact assertion message expected, restored), read the diff directly and confirmed it is a pure two-statement reordering plus a comment update with no other logic slipped in, re-ran the full backend+frontend test/coverage/lint/tsc/validate_tasks suites with no regressions, ran the persisted e2e suite (26/26), and did a live browser walkthrough of the golden path plus two edge cases (double-click, blur/focus-return). One minor/speculative code-review finding filed as a follow-up task rather than blocking on it. No API route/schema touched, so no OpenAPI snapshot to check. No new/changed component to assess for common/-vs-feature placement (this PR only modifies logic inside an existing component). area is frontend/ibkr, not backend/signals or backend/portfolio, so verify-elder-signal doesn't apply; no new module/dependency/layer, so architecture-review doesn't apply."
   }
 }
