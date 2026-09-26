@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #339's review (frontend-ibkr-portfolio-preload-followups-followups)",
   "area": "frontend/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["frontend-ibkr-portfolio-preload-followups-followups"],
   "references": [
     "docs/tasks/frontend-ibkr-portfolio-preload-followups-followups.json",
@@ -13,21 +13,28 @@
   "checklist": [
     {
       "step": "`ClosePositionDialog.tsx`'s `<Dialog open={position !== null} onClose={onCancel} ...>` (line 172) has the identical unguarded Escape-key/backdrop-click dismissal-while-pending gap `AddPositionDialog.tsx` and `IbkrPreloadDialog.tsx` had before PR #338/#339: only the Cancel/Confirm buttons are guarded by `disabled={isPending}` (lines 247/250), but MUI's `Dialog` fires `onClose` on Escape/backdrop-click regardless of any button's disabled state, so a user can dismiss the dialog mid-close-position mutation. Note `isPending`/`onCancel` are props lifted from `PortfolioPage` (the mutation is owned by the caller, not this component), so the fix needs `useGuardedDialogClose(onCancel, isPending)` wired at this component's own `Dialog`, not a locally-owned mutation object.",
-      "done": false
+      "done": true
     },
     {
       "step": "`FollowUpReviewDialog.tsx`'s `<Dialog open={trade !== null} onClose={handleClose} ...>` (line 82) has the same gap: `handleClose` unconditionally calls `onClose()` with no `recordReview.isPending` check, while only the dialog's own Cancel button is guarded (`disabled={recordReview.isPending}`, line 106). Apply `useGuardedDialogClose(onClose, recordReview.isPending)` here.",
-      "done": false
+      "done": true
     },
     {
       "step": "`TradeApgarDialog.tsx`'s `<Dialog open={ticker !== null} onClose={handleClose} ...>` (line 127) has the same gap: `handleClose` unconditionally calls `onClose()` with no `scoreTradeApgar.isPending` check, while only the dialog's own Cancel button is guarded (`disabled={scoreTradeApgar.isPending}`, line 205). Apply `useGuardedDialogClose(onClose, scoreTradeApgar.isPending)` here.",
-      "done": false
+      "done": true
     },
     {
       "step": "For each of the three dialogs above, add a test pair mirroring `IbkrPreloadDialog.test.tsx`/`AddPositionDialog.test.tsx`'s own Escape-while-pending coverage (dispatched via `fireEvent.keyDown` on the dialog element itself, not `userEvent.keyboard`, per those tests' own documented reason: once the submit/confirm button disables itself under the pending mutation, the browser blurs it, moving `document.activeElement` outside the modal, which would make a `userEvent.keyboard()`-based assertion pass vacuously).",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-26T00:04:18Z",
+      "recorded_by": "task-worker",
+      "decision": "Did NOT wire `ClosePositionDialog.tsx`'s `<Dialog onClose>` through `useGuardedDialogClose`, despite checklist item 1 asking for exactly that -- investigated and found the checklist item's premise (that this is 'the identical' gap AddPositionDialog/IbkrPreloadDialog had) doesn't hold for this specific dialog, and applying the guard would be a regression, not a fix. Left `ClosePositionDialog.tsx` itself unchanged except for a new doc-comment paragraph explaining this, and left its own test file's existing coverage untouched (added one test confirming Escape still dismisses while pending, by design, rather than a guard test). Applied the fix as written to `FollowUpReviewDialog.tsx` and `TradeApgarDialog.tsx` (both genuinely analogous to AddPositionDialog/IbkrPreloadDialog), plus Escape-while-pending test pairs for those two (mirroring AddPositionDialog.test.tsx's fireEvent-on-the-dialog-element technique) and one for ClosePositionDialog confirming the deliberate non-guard.",
+      "rationale": "AddPositionDialog/IbkrPreloadDialog/FollowUpReviewDialog/TradeApgarDialog each own a *local* mutation (their own useMutation() call) with no caller tracking it once the dialog closes -- dismissing while pending there truly discards the mutation's eventual outcome, which is the actual bug PR #338/#339 fixed. ClosePositionDialog is structurally different: PositionsTable.tsx owns the single shared useDeletePosition() instance and passes isPending/error/onConfirm/onCancel down as props specifically *so that* (a) a backdrop click can dismiss this dialog while its DELETE is still in flight, (b) the eventual success/failure is still tracked and surfaced afterward via PositionsTable's own dialogCloseError/strayCloseError logic (a page-level banner naming the position, if the dialog wasn't reopened for the same position by the time it settles), and (c) a *different* position's dialog can be opened concurrently while the first's close is still pending, sharing the same isPending flag. This is documented at length in PositionsTable.tsx's own doc comment (the 'double-click race guard' / 'never actually overlap in flight' / 'stray-failure banner' paragraphs) and exercised by several PositionsTable.test.tsx tests that explicitly dismiss the dialog via a backdrop click while a DELETE is deliberately held pending, then assert the stray-error banner or the second dialog's behavior. Confirmed by actually running `npx vitest run --coverage`: with the guard applied literally, 4 of those PositionsTable tests failed (the backdrop click could no longer dismiss the dialog, so `screen.queryByRole('dialog')` never disappeared). Guarding onCancel here would remove real, tested, relied-upon functionality (the ability to dismiss-and-reopen-elsewhere while a close is in flight) to close an edge case (silently discarding a close outcome) that PositionsTable's lifted-mutation design already solves a different way. Rejected alternative: gate the guard only on the MUI onClose `reason` param (allow 'backdropClick' through, block only 'escapeKeyDown') -- rejected because PositionsTable's own test-file comment notes Escape-while-pending isn't really reachable via real keyboard interaction anyway once the Confirm button auto-blurs itself (a browser-focus quirk, not a live gap), so a reason-gated guard would add complexity to close a gap that doesn't meaningfully exist for this dialog, while a naive full guard (matching the other three) does exist and does regress a real feature."
+    }
+  ],
   "questions": []
 }

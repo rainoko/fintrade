@@ -1,6 +1,8 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { delay, http, HttpResponse } from 'msw'
 import { describe, expect, it, vi } from 'vitest'
+import { server } from '../../../../tests/mocks/server'
 import { renderWithProviders } from '../../../../tests/renderWithProviders'
 import TradeApgarDialog from './TradeApgarDialog'
 
@@ -126,5 +128,45 @@ describe('TradeApgarDialog', () => {
     rerender(<TradeApgarDialog ticker={null} onClose={vi.fn()} />)
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  // frontend-ibkr-portfolio-preload-followups-followups-followups: MUI's
+  // Dialog fires its own onClose on Escape regardless of any button's own
+  // disabled state -- only guarding the Close button isn't enough (same gap
+  // AddPositionDialog/IbkrPreloadDialog had, fixed there first).
+  it('does not let Escape dismiss the dialog while the trade-apgar mutation is pending', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    server.use(
+      http.post('/api/portfolio/trade-apgar', async () => {
+        await delay('infinite')
+        return HttpResponse.json({})
+      }),
+    )
+    renderWithProviders(<TradeApgarDialog ticker="AAPL" onClose={onClose} />)
+
+    await user.click(screen.getByRole('button', { name: 'Score' }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled())
+    // Dispatched directly on the dialog itself (fireEvent, not
+    // userEvent.keyboard): once the submit button is disabled by the
+    // pending mutation's loading state, the browser blurs it, moving
+    // `document.activeElement` outside the modal -- userEvent.keyboard()
+    // dispatches to `document.activeElement`, which would then never reach
+    // MUI's Modal keydown handler at all, making this assertion pass
+    // vacuously regardless of whether the guard actually works.
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape', code: 'Escape' })
+
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('lets Escape dismiss the dialog normally once no mutation is pending', () => {
+    const onClose = vi.fn()
+    renderWithProviders(<TradeApgarDialog ticker="AAPL" onClose={onClose} />)
+
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape', code: 'Escape' })
+
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })

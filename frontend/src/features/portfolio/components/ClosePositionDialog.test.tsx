@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ComponentProps } from 'react'
 import { describe, expect, it, vi } from 'vitest'
@@ -216,5 +216,21 @@ describe('ClosePositionDialog', () => {
 
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Close Position' })).toBeDisabled()
+  })
+
+  // frontend-ibkr-portfolio-preload-followups-followups-followups: unlike
+  // AddPositionDialog/FollowUpReviewDialog/TradeApgarDialog, this dialog does
+  // NOT guard its onClose against dismissal while isPending -- that's an
+  // intentional, pre-existing part of PositionsTable's own design (see this
+  // component's own doc comment and PositionsTable.test.tsx's backdrop-click
+  // tests), not a gap to close. Escape behaves the same as onCancel would --
+  // exercised here directly, since PositionsTable's own tests already cover
+  // the backdrop-click path end to end.
+  it('still lets Escape dismiss the dialog while isPending is true (unguarded, by design)', () => {
+    const { onCancel } = renderDialog({ isPending: true })
+
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape', code: 'Escape' })
+
+    expect(onCancel).toHaveBeenCalledTimes(1)
   })
 })
