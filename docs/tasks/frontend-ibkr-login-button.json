@@ -1,0 +1,39 @@
+{
+  "id": "frontend-ibkr-login-button",
+  "title": "Login button on the IBKR status indicator: opens the gateway's login page when sign-in is needed",
+  "area": "frontend/ibkr",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": ["backend-ibkr-login-url"],
+  "references": [
+    "docs/architecture/Frontend.md",
+    "docs/tasks/backend-ibkr-login-url.json",
+    "frontend/src/features/ibkr/components/IbkrStatusIndicator.tsx",
+    "frontend/src/components/common/IbkrStatusBadge/IbkrStatusBadge.tsx"
+  ],
+  "description": "Frontend half of the user-requested IBKR login feature (see `backend-ibkr-login-url`'s description for the full context and the resolved split: the 'check if authenticated' half already exists via `GET /api/ibkr/status`'s `not_authenticated` state, already polled every 30s by `useIbkrStatus` and shown as a passive 'IBKR: Sign-in needed' badge; the backend task adds a `login_url` field to that same response).\n\nThis task turns that passive badge actionable: when the gateway's state is `not_authenticated` (IBKR is enabled and the gateway process is up, but the interactive browser login hasn't been completed or has expired), show a 'Log in to IBKR' button alongside/instead of the badge in `IbkrStatusIndicator` (the app-bar-level component, `frontend/src/features/ibkr/components/IbkrStatusIndicator.tsx`). Pressing it must open IBKR's own login page (the `login_url` the backend now provides) — the user's own framing allows either a modal or a new browser window/tab; IBKR's login page very likely sets frame-ancestors/X-Frame-Options headers that block iframe embedding (it's an interactive credential + 2FA form, and blocking framing is a standard anti-clickjacking measure for exactly that kind of page) — research this against the actually-reachable dev gateway before committing to an approach, and record whichever you land on (in-app modal `<iframe>`, or `window.open` to a new tab/window) as a `decisions` entry with the reasoning, including what you observed if you tested the iframe approach and it was blocked.",
+  "checklist": [
+    {
+      "step": "Determine, and record as a `decisions` entry, whether IBKR's login page can actually be embedded in an iframe/modal in this dev container's reachable gateway (`https://ibkr.home.arpa/`) — check its response headers (`X-Frame-Options`/`Content-Security-Policy: frame-ancestors`) directly, don't just assume. Default to `window.open` (a new browser tab/window) if embedding is genuinely blocked, since a broken/blank modal would be worse than a plain new-tab flow.",
+      "done": false
+    },
+    {
+      "step": "In `IbkrStatusIndicator.tsx`, add a 'Log in to IBKR' button/action shown only when `useIbkrStatus()`'s `state` is `not_authenticated` and `login_url` is present. Clicking it initiates the login flow chosen above (opens the modal, or calls `window.open(login_url, ...)`).",
+      "done": false
+    },
+    {
+      "step": "After the login flow is initiated, close the window between clicking the button and the app noticing a completed login promptly rather than only on the next up-to-30s background poll — e.g. trigger an immediate `useIbkrStatus` refetch when the opened window/tab regains focus is lost then the main window regains focus again, or when a `window.open`-returned window reference reports `.closed`. Record the exact mechanism chosen as a `decisions` entry.",
+      "done": false
+    },
+    {
+      "step": "Handle the case where `login_url` is unexpectedly absent even though `state` is `not_authenticated` (e.g. an older cached response, or a genuine backend edge case) gracefully — no button rendered, or a disabled button with an explanatory tooltip, rather than a broken click handler.",
+      "done": false
+    },
+    {
+      "step": "Tests (vitest/Testing Library/MSW, no live network calls): the button's visibility gating on state, the click-to-open-window/modal behavior (mock `window.open` if that's the chosen approach), and the refetch-on-return behavior. Storybook coverage if any new piece lands in `components/common/` (unlikely here, given this is a feature-specific app-bar widget, but check per Frontend.md §3's placement rule).",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
