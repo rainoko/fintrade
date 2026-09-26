@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -80,6 +80,99 @@ describe('IbkrStatusIndicator', () => {
       '_blank',
       'noopener,noreferrer',
     )
+  })
+
+  it('disables the login button right after a click, so rapid repeated clicks cannot open more than one duplicate login tab', async () => {
+    mockIbkrStatus({
+      state: 'not_authenticated',
+      detail: 'please log in',
+      login_url: 'https://ibkr.home.arpa/',
+    })
+
+    renderWithProviders(<IbkrStatusIndicator />)
+
+    const button = await screen.findByRole('button', { name: 'Log in to IBKR' })
+    // Native disabled buttons don't dispatch click events at all (matching real
+    // browsers), so firing several clicks back-to-back in immediate succession --
+    // rather than awaiting each one via userEvent -- is what actually exercises the
+    // "rapid repeated clicks" scenario this guards against.
+    fireEvent.click(button)
+    expect(button).toBeDisabled()
+    fireEvent.click(button)
+    fireEvent.click(button)
+
+    expect(window.open).toHaveBeenCalledTimes(1)
+  })
+
+  it('re-enables the login button again once its post-click cooldown elapses', async () => {
+    mockIbkrStatus({
+      state: 'not_authenticated',
+      detail: 'please log in',
+      login_url: 'https://ibkr.home.arpa/',
+    })
+
+    renderWithProviders(<IbkrStatusIndicator />)
+
+    const button = await screen.findByRole('button', { name: 'Log in to IBKR' })
+    fireEvent.click(button)
+    expect(button).toBeDisabled()
+
+    await waitFor(() => expect(button).toBeEnabled())
+  })
+
+  it('clears the login-return gate when the window never actually loses focus after the click (a likely popup-blocked window.open), so the next unrelated focus does not trigger a spurious extra status refetch', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+    let fetchCount = 0
+    server.use(
+      http.get('/api/ibkr/status', () => {
+        fetchCount += 1
+        return HttpResponse.json({
+          state: 'not_authenticated',
+          detail: 'please log in',
+          login_url: 'https://ibkr.home.arpa/',
+        } satisfies IBKRStatusResponse)
+      }),
+    )
+
+    renderWithProviders(<IbkrStatusIndicator />)
+
+    const button = await screen.findByRole('button', { name: 'Log in to IBKR' })
+    await user.click(button)
+    await waitFor(() => expect(fetchCount).toBeGreaterThan(0))
+    const countBeforeUnrelatedFocus = fetchCount
+
+    // Wait past the popup-blocked detection window before the unrelated focus event.
+    await waitFor(() => expect(button).toBeEnabled())
+
+    window.dispatchEvent(new Event('focus'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(fetchCount).toBe(countBeforeUnrelatedFocus)
+  })
+
+  it('keeps the login-return gate armed when the window did lose focus after the click (a likely successful window.open), still refetching once it regains focus later', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(document, 'hasFocus').mockReturnValue(false)
+    mockIbkrStatus({
+      state: 'not_authenticated',
+      detail: 'please log in',
+      login_url: 'https://ibkr.home.arpa/',
+    })
+
+    renderWithProviders(<IbkrStatusIndicator />)
+
+    const button = await screen.findByRole('button', { name: 'Log in to IBKR' })
+    await user.click(button)
+
+    // Wait past the popup-blocked detection window -- the gate should still be armed
+    // since `document.hasFocus()` reports this window never regained focus.
+    await waitFor(() => expect(button).toBeEnabled())
+
+    mockIbkrStatus({ state: 'available', detail: null, login_url: 'https://ibkr.home.arpa/' })
+    window.dispatchEvent(new Event('focus'))
+
+    await waitFor(() => expect(screen.getByText('IBKR: Connected')).toBeInTheDocument())
   })
 
   it('does not render the login button for not_authenticated when login_url is unexpectedly absent', async () => {
