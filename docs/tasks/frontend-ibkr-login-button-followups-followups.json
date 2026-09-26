@@ -56,5 +56,11 @@
       "rationale": "Directly matches the checklist item's own suggestion and this codebase's established pending-action-button convention (`AddTickerForm.tsx`, `TradeApgarDialog.tsx`, `FollowUpReviewDialog.tsx` all use `loading={mutation.isPending}`) with no alternative seriously considered -- this was a fully-specified, one-line fix."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-ibkr-login-button-followups-followups",
+    "pr_number": 345,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/345",
+    "pushed_at": "2026-09-26T09:13:27Z"
+  }
 }
