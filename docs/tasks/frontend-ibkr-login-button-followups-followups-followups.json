@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #345's review (frontend-ibkr-login-button-followups-followups)",
   "area": "frontend/ibkr",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-ibkr-login-button-followups-followups"],
   "references": [
     "docs/tasks/done/frontend-ibkr-login-button-followups-followups.json#review",
@@ -13,9 +13,16 @@
   "checklist": [
     {
       "step": "In `IbkrStatusIndicator.tsx`'s login button `onClick` handler, the `window.addEventListener('blur', handleBlurAfterClick)` call is registered AFTER `window.open(login_url, '_blank', 'noopener,noreferrer')` returns, not before. If a browser/environment ever moves focus to the newly opened tab synchronously as part of processing `window.open()` (rather than deferring it to a later task/microtask) -- plausible in fast or automation-driven browser contexts, the same general class of timing sensitivity that caused the prior `document.hasFocus()`-after-300ms heuristic to misfire per this task's own dependency's checklist item 1 -- the `blur` event could fire and be gone before the listener is registered one line later. `focusLeftSinceClickRef.current` would never get set, so the 300ms cooldown timeout would incorrectly conclude the open was popup-blocked and clear `awaitingLoginReturnRef` even though a real login tab is open -- the next window-focus event (the user genuinely returning from a successful login) would then fail to trigger the intended immediate status refetch, silently falling back to the existing up-to-30s background poll (never a stuck-forever gate -- same bounded failure mode already accepted elsewhere in this component). Fix: move the `window.addEventListener('blur', handleBlurAfterClick)` call (and the `pendingBlurListenerRef.current = handleBlurAfterClick` assignment) to immediately before the `window.open(...)` call, closing this narrow window at no cost (per the code-review pass that raised this during PR #345's review).",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-26T09:42:46Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed exactly as the checklist item specified: moved the `window.addEventListener('blur', handleBlurAfterClick)` call and the `pendingBlurListenerRef.current = handleBlurAfterClick` assignment to immediately before `window.open(login_url, '_blank', 'noopener,noreferrer')` in `IbkrStatusIndicator.tsx` (the `handleBlurAfterClick` function declaration itself was left in place -- function declarations are hoisted within their enclosing scope, so referencing it in `addEventListener` before its textual declaration point was already safe and required no reordering). Also added a new unit test, 'registers the blur listener before calling window.open, so a synchronous focus change during window.open itself cannot be missed', which spies on `window.addEventListener` (letting it call through to the real implementation) and compares its 'blur' registration's `invocationCallOrder` against the existing `window.open` mock's `invocationCallOrder` after a click.",
+      "rationale": "No alternative approach was considered: the checklist item fully specified both the bug and the fix, leaving only mechanical execution and verifying it with a real test. Verified the new test is not a false-positive-proof tautology by temporarily reverting just the ordering (moving `window.open` back before the `addEventListener` call, leaving everything else -- including the new test -- untouched) and re-running the suite: the new test failed with `AssertionError: expected 6 to be less than 5` (the open call's invocation order came before the blur listener's), while the other 16 tests in the file still passed, confirming this test -- and only this test -- would have caught the exact regression this task fixes. Re-applied the fix afterward and re-ran the full file (17/17 passing). Chose comparing `invocationCallOrder` (a Vitest/Jest mock-function property recording each call's arrival order across all spies in a test, undocumented in most guides but standard Vitest/Jest behavior) over an alternative like asserting call counts before/after a `vi.advanceTimersByTime(0)` boundary, because it directly and unambiguously encodes 'which happened first' without relying on any timer/microtask semantics that the actual synchronous code path being tested (both calls happen in the same synchronous event-handler tick) doesn't itself depend on -- a timer-based approach would test something adjacent to, rather than exactly, the ordering bug described."
+    }
+  ],
   "questions": []
 }
