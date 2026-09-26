@@ -2303,6 +2303,20 @@
       "skill": null,
       "state": "done",
       "path": "docs/tasks/done/frontend-ibkr-portfolio-preload-followups-followups-followups.json"
+    },
+    {
+      "id": "backend-ibkr-login-url",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/backend-ibkr-login-url.json"
+    },
+    {
+      "id": "frontend-ibkr-login-button",
+      "area": "frontend/ibkr",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-ibkr-login-button.json"
     }
   ]
 }
