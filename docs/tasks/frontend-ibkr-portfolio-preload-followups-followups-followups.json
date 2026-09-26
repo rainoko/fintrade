@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #339's review (frontend-ibkr-portfolio-preload-followups-followups)",
   "area": "frontend/portfolio",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["frontend-ibkr-portfolio-preload-followups-followups"],
   "references": [
     "docs/tasks/frontend-ibkr-portfolio-preload-followups-followups.json",
@@ -36,5 +36,11 @@
       "rationale": "AddPositionDialog/IbkrPreloadDialog/FollowUpReviewDialog/TradeApgarDialog each own a *local* mutation (their own useMutation() call) with no caller tracking it once the dialog closes -- dismissing while pending there truly discards the mutation's eventual outcome, which is the actual bug PR #338/#339 fixed. ClosePositionDialog is structurally different: PositionsTable.tsx owns the single shared useDeletePosition() instance and passes isPending/error/onConfirm/onCancel down as props specifically *so that* (a) a backdrop click can dismiss this dialog while its DELETE is still in flight, (b) the eventual success/failure is still tracked and surfaced afterward via PositionsTable's own dialogCloseError/strayCloseError logic (a page-level banner naming the position, if the dialog wasn't reopened for the same position by the time it settles), and (c) a *different* position's dialog can be opened concurrently while the first's close is still pending, sharing the same isPending flag. This is documented at length in PositionsTable.tsx's own doc comment (the 'double-click race guard' / 'never actually overlap in flight' / 'stray-failure banner' paragraphs) and exercised by several PositionsTable.test.tsx tests that explicitly dismiss the dialog via a backdrop click while a DELETE is deliberately held pending, then assert the stray-error banner or the second dialog's behavior. Confirmed by actually running `npx vitest run --coverage`: with the guard applied literally, 4 of those PositionsTable tests failed (the backdrop click could no longer dismiss the dialog, so `screen.queryByRole('dialog')` never disappeared). Guarding onCancel here would remove real, tested, relied-upon functionality (the ability to dismiss-and-reopen-elsewhere while a close is in flight) to close an edge case (silently discarding a close outcome) that PositionsTable's lifted-mutation design already solves a different way. Rejected alternative: gate the guard only on the MUI onClose `reason` param (allow 'backdropClick' through, block only 'escapeKeyDown') -- rejected because PositionsTable's own test-file comment notes Escape-while-pending isn't really reachable via real keyboard interaction anyway once the Confirm button auto-blurs itself (a browser-focus quirk, not a live gap), so a reason-gated guard would add complexity to close a gap that doesn't meaningfully exist for this dialog, while a naive full guard (matching the other three) does exist and does regress a real feature."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-ibkr-portfolio-preload-followups-followups-followups",
+    "pr_number": 340,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/340",
+    "pushed_at": "2026-09-26T00:07:18Z"
+  }
 }
