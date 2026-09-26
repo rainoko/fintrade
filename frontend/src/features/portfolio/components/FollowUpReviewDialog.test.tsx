@@ -1,8 +1,10 @@
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { delay, http, HttpResponse } from 'msw'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClosedTradeOut } from '../../../api/portfolio'
 import { resetPortfolioStore } from '../../../../tests/mocks/handlers'
+import { server } from '../../../../tests/mocks/server'
 import { renderWithProviders } from '../../../../tests/renderWithProviders'
 import FollowUpReviewDialog from './FollowUpReviewDialog'
 
@@ -117,5 +119,49 @@ describe('FollowUpReviewDialog', () => {
     // MUI's Dialog stays mounted through its own closing transition, so this
     // must poll rather than assert synchronously right after the rerender.
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  // frontend-ibkr-portfolio-preload-followups-followups-followups: MUI's
+  // Dialog fires its own onClose on Escape regardless of any button's own
+  // disabled state -- only guarding the Cancel button isn't enough (same gap
+  // AddPositionDialog/IbkrPreloadDialog had, fixed there first).
+  it('does not let Escape dismiss the dialog while the follow-up-review mutation is pending', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    server.use(
+      http.post(
+        '/api/portfolio/closed-trades/:trade_id/follow-up-review',
+        async () => {
+          await delay('infinite')
+          return HttpResponse.json({})
+        },
+      ),
+    )
+    renderWithProviders(<FollowUpReviewDialog trade={adskTrade} onClose={onClose} />)
+
+    await user.type(screen.getByLabelText('Follow-up notes'), 'Some hindsight.')
+    await user.click(screen.getByRole('button', { name: 'Save Review' }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled())
+    // Dispatched directly on the dialog itself (fireEvent, not
+    // userEvent.keyboard): once the submit button is disabled by the
+    // pending mutation's loading state, the browser blurs it, moving
+    // `document.activeElement` outside the modal -- userEvent.keyboard()
+    // dispatches to `document.activeElement`, which would then never reach
+    // MUI's Modal keydown handler at all, making this assertion pass
+    // vacuously regardless of whether the guard actually works.
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape', code: 'Escape' })
+
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('lets Escape dismiss the dialog normally once no mutation is pending', () => {
+    const onClose = vi.fn()
+    renderWithProviders(<FollowUpReviewDialog trade={adskTrade} onClose={onClose} />)
+
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape', code: 'Escape' })
+
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })

@@ -17,6 +17,7 @@ import type { TradeApgarIn, TradeApgarQuestionOut } from '../../../api/portfolio
 import DataTable, { type DataTableColumn } from '../../../components/common/DataTable/DataTable'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import { humanizeSnakeCase } from '../../../utils/format'
+import { useGuardedDialogClose } from '../hooks/useGuardedDialogClose'
 import { useResetOnSubjectChange } from '../hooks/useResetOnSubjectChange'
 import { useScoreTradeApgar } from '../hooks/useScoreTradeApgar'
 
@@ -123,8 +124,13 @@ export default function TradeApgarDialog({ ticker, onClose }: TradeApgarDialogPr
 
   const result = scoreTradeApgar.data
 
+  // Guards against MUI's `Dialog` firing its own `onClose` on
+  // Escape/backdrop-click mid-score, regardless of the Close button's own
+  // `disabled` state -- see `useGuardedDialogClose`'s own doc comment.
+  const handleDialogClose = useGuardedDialogClose(handleClose, scoreTradeApgar.isPending)
+
   return (
-    <Dialog open={ticker !== null} onClose={handleClose} fullWidth maxWidth="sm">
+    <Dialog open={ticker !== null} onClose={handleDialogClose} fullWidth maxWidth="sm">
       <DialogTitle>Trade Apgar{ticker ? `: ${ticker}` : ''}</DialogTitle>
       <form onSubmit={handleSubmit}>
         <DialogContent>

@@ -9,6 +9,7 @@ import TextField from '@mui/material/TextField'
 import { useState, type FormEvent } from 'react'
 import type { ClosedTradeOut } from '../../../api/portfolio'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
+import { useGuardedDialogClose } from '../hooks/useGuardedDialogClose'
 import { useRecordFollowUpReview } from '../hooks/useRecordFollowUpReview'
 import { useResetOnSubjectChange } from '../hooks/useResetOnSubjectChange'
 
@@ -78,8 +79,13 @@ export default function FollowUpReviewDialog({ trade, onClose }: FollowUpReviewD
     )
   }
 
+  // Guards against MUI's `Dialog` firing its own `onClose` on
+  // Escape/backdrop-click mid-submit, regardless of the Cancel button's own
+  // `disabled` state -- see `useGuardedDialogClose`'s own doc comment.
+  const handleDialogClose = useGuardedDialogClose(handleClose, recordReview.isPending)
+
   return (
-    <Dialog open={trade !== null} onClose={handleClose} fullWidth maxWidth="sm">
+    <Dialog open={trade !== null} onClose={handleDialogClose} fullWidth maxWidth="sm">
       <DialogTitle>Follow-Up Review{trade ? `: ${trade.ticker}` : ''}</DialogTitle>
       <form onSubmit={handleSubmit}>
         <DialogContent>

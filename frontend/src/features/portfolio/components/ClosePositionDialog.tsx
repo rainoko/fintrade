@@ -121,6 +121,20 @@ function validate(form: FormState, entryDate: string): FormErrors {
  * directly, both portfolio domain concepts — same placement call
  * AddPositionDialog/FollowUpReviewDialog/TradeApgarDialog already made for
  * themselves.
+ *
+ * Deliberately does *not* wire its `onClose` through `useGuardedDialogClose`
+ * the way AddPositionDialog/IbkrPreloadDialog/FollowUpReviewDialog/
+ * TradeApgarDialog do (frontend-ibkr-portfolio-preload-followups-followups-
+ * followups): unlike those four, whose dismiss-while-pending truly discards
+ * the mutation's outcome (each owns its own local mutation with no caller
+ * tracking it once the dialog closes), a backdrop click dismissing *this*
+ * dialog while pending is an existing, deliberate, and tested part of
+ * PositionsTable's own design — see PositionsTable's own doc comment (the
+ * "double-click race guard" / concurrent-dialog tests) and this task's
+ * `decisions` entry. Guarding `onCancel` here would block exactly the
+ * dismiss-while-pending interaction that design and its test suite rely on,
+ * so this dialog's checklist item was investigated and intentionally left
+ * unapplied rather than "fixed" the same way as the other three.
  */
 export default function ClosePositionDialog({
   position,
