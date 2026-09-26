@@ -54,5 +54,11 @@
       "rationale": "`IbkrStatusBadge`'s own tooltip already carries a per-state explanatory sentence for `not_authenticated` (its `fallbackTooltip`, or the response's own `detail`), so a disabled button next to it would either duplicate that explanation in a second tooltip or need one of its own with nothing new to say -- an absent button reads as 'nothing actionable right now' without adding a dead, always-disabled control the user has to notice is not just slow to enable."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-ibkr-login-button",
+    "pr_number": 343,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/343",
+    "pushed_at": "2026-09-26T07:41:05Z"
+  }
 }
