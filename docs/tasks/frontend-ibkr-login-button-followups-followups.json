@@ -1,0 +1,33 @@
+{
+  "id": "frontend-ibkr-login-button-followups-followups",
+  "title": "Non-blocking findings from PR #344's review (frontend-ibkr-login-button-followups)",
+  "area": "frontend/ibkr",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-ibkr-login-button-followups"],
+  "references": [
+    "docs/tasks/done/frontend-ibkr-login-button-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/344"
+  ],
+  "description": "Tracked follow-ups for non-blocking findings raised in pr-reviewer's review of PR #344 (frontend-ibkr-login-button-followups) -- none of these block the accept (no correctness bug, no test/coverage regression, no architecture/methodology violation, and the most significant of them is an already-documented, bounded-severity trade-off), but each is worth fixing/reconsidering so it isn't lost once PR #344 merges and the review comment disappears from view.",
+  "checklist": [
+    {
+      "step": "The `document.hasFocus()`-after-`LOGIN_CLICK_COOLDOWN_MS` (300ms) popup-block heuristic in `IbkrStatusIndicator.tsx` rests on an unverified premise: that a real, successful `window.open` reliably steals focus from the original window within that window. Independently testing this in a real headed Chromium browser (Playwright, under Xvfb, against a real running app with `FINTRADE_IBKR_ENABLED` temporarily true) found the ORIGINAL window's `document.hasFocus()` stayed `true` even after a real new tab genuinely opened (confirmed via the popup's own `document.hasFocus() === true` and a `page` event) -- i.e. in that real-browser test, a successful open and a popup-blocked open were indistinguishable by this check, for at least 500ms. This may be a CDP/automation-specific artifact rather than proof of real end-user breakage, but real end-user configurations that would produce the same false positive are plausible and not rare (e.g. Firefox's 'switch to new tabs immediately' preference unchecked, or any setup that opens tabs/windows without stealing focus). Consider: (a) revalidating with a genuinely manual (non-automated) browser test if feasible, (b) switching to a `window.addEventListener('blur', ...)` listener (fires synchronously and immediately when focus actually leaves, rather than a delayed poll) as a more standard and directly-observable idiom for this exact detection, or (c) reverting to the originally-offered 'accept as a documented, low-cost false positive' option from PR #343's own review, given the fix's benefit is now in real doubt and its failure mode is bounded either way (falls back to the existing up-to-30s poll, never a stuck-forever gate).",
+      "done": false
+    },
+    {
+      "step": "backend/tests/unit/test_config.py::test_ibkr_enabled_defaults_to_false (line 30) still asserts a bare `Settings().ibkr_enabled is False` with no isolation from ambient `.env` state, the identical class of fragility PR #344 fixed for its sibling `test_ibkr_base_url_defaults_to_localhost_gateway` two lines below. tests/unit/api/test_dependencies.py::TestGetIbkrProvider::test_disabled_by_default_yields_none_without_constructing_a_client shares the same root cause. Reproduced: with `backend/.env` containing `FINTRADE_IBKR_ENABLED=true` (plausible ambient dev-machine state, as PR #344's own new docstring itself describes), `pytest tests/unit/test_config.py` fails `test_ibkr_enabled_defaults_to_false` with `assert True is False`. Not a regression (pre-existing, and outside this task's own explicitly-scoped checklist item), but leaves the exact bug class PR #344's item 3 set out to eliminate sitting nearby, unaddressed. Consider sweeping both remaining assertions with the same `Settings(_env_file=None)`/equivalent-isolation fix for consistency and to actually close out the ambient-`.env`-fragility class this task's own description diagnoses in general terms.",
+      "done": false
+    },
+    {
+      "step": "frontend/src/features/ibkr/components/IbkrStatusIndicator.test.tsx's new 'clears the login-return gate when the window never actually loses focus...' test (around the `await waitFor(() => expect(fetchCount).toBeGreaterThan(0))` line right after the click) contains a dead assertion: `fetchCount` is already >0 purely from the initial mount fetch that `screen.findByRole('button', ...)` already awaited, so this line verifies nothing about the click's own effect despite reading like it does -- reverting the entire click-handling gate-clearing logic would not make it fail. Harmless (the test's real assertion, `expect(fetchCount).toBe(countBeforeUnrelatedFocus)`, still correctly exercises the intended behavior), but consider replacing it with the tighter `countAfterInitialFetch`-capture-then-compare pattern its own sibling tests in the same file already use, for clarity and to avoid a misleading no-op assertion.",
+      "done": false
+    },
+    {
+      "step": "The 'Log in to IBKR' button's cooldown-disabled state (`disabled={isOpeningLogin}` in IbkrStatusIndicator.tsx) gives no visual feedback beyond MUI's default dimmed-disabled styling -- no spinner, no label change -- unlike this codebase's own established convention for a brief pending-action disable elsewhere (AddTickerForm.tsx, TradeApgarDialog.tsx, and FollowUpReviewDialog.tsx all use MUI Button's `loading` prop, which shows a spinner in addition to disabling). Not an accessibility regression (the native `disabled` attribute is still correctly announced by assistive technology, and 300ms is short enough to be barely perceptible to a sighted user), but consider `loading={isOpeningLogin}` instead of a bare `disabled` for consistency with the rest of the app's own pending-action button pattern.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
