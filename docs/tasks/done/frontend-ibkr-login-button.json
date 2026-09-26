@@ -3,7 +3,7 @@
   "title": "Login button on the IBKR status indicator: opens the gateway's login page when sign-in is needed",
   "area": "frontend/ibkr",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-ibkr-login-url"],
   "references": [
     "docs/architecture/Frontend.md",
@@ -60,5 +60,28 @@
     "pr_number": 343,
     "pr_url": "https://github.com/rainoko/fintrade/pull/343",
     "pushed_at": "2026-09-26T07:41:05Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-26T07:59:09Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/343",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "No debounce/guard on the 'Log in to IBKR' button: rapid repeated clicks open that many separate duplicate login tabs. Harmless (each `window.open` call is independently `noopener`'d) but untested. Non-blocking, filed as frontend-ibkr-login-button-followups.",
+        "file": "frontend/src/features/ibkr/components/IbkrStatusIndicator.tsx",
+        "line": 122
+      },
+      {
+        "summary": "code-review skill's pass on this PR flagged: if window.open is popup-blocked (can return null for that reason too, indistinguishable from the noopener-return-null case this component already expects), awaitingLoginReturnRef stays true and the next unrelated window-focus event triggers one incorrect extra GET /api/ibkr/status refetch. Low severity (one harmless extra request), not currently tested. Non-blocking, filed as frontend-ibkr-login-button-followups.",
+        "file": "frontend/src/features/ibkr/components/IbkrStatusIndicator.tsx",
+        "line": 55
+      },
+      {
+        "summary": "backend/tests/unit/test_config.py::test_ibkr_base_url_defaults_to_localhost_gateway fails in this dev container because Settings' env_file=\".env\" (relative to CWD) picks up this container's own backend/.env, which sets a real FINTRADE_IBKR_BASE_URL overriding the default the test asserts. Confirmed pre-existing and unrelated to this PR (zero backend files touched by the diff; verified the code itself returns the correct default when .env is bypassed) -- not a regression, but a latent test fragility since this test (unlike its siblings in the same file) doesn't isolate itself from ambient env state. Non-blocking, filed as frontend-ibkr-login-button-followups.",
+        "file": "backend/tests/unit/test_config.py",
+        "line": 34
+      }
+    ],
+    "notes": "Full review of PR #343 (frontend-ibkr-login-button), the frontend half of the IBKR login-button arc (backend half #342 already merged). (1) Independently re-verified the load-bearing frame-busting research claim: curled https://ibkr.home.arpa/ myself (both the 302 redirect and the followed /sso/Login response) -- neither carries X-Frame-Options nor CSP frame-ancestors, confirmed by reading the actual response headers. Fetched and grepped the login page's HTML body directly: found the exact claimed inline script `if (window != top) { top.location.href = location.href; }`, executing at top-level script scope (not gated behind any event handler), so it runs the instant the page loads in a frame -- the PR's window.open-over-iframe/modal decision is soundly justified, not just asserted. (2) Security review of window.open(url, '_blank', 'noopener,noreferrer'): correct and verified empirically via a real Playwright-driven Chromium browser -- the opened popup's window.opener evaluated to null, confirming noopener actually took effect against the real external origin. (3) Read the ref-gated focus-listener useEffect directly: multiple alt-tabs after clicking only refetch once (ref cleared on first focus back), an unrelated focus before ever clicking does not refetch (verified live in the browser: request count stayed at 1), and the listener is cleaned up on unmount with no leak; IbkrStatusIndicator lives inside AppShell (rendered once via react-router's persistent layout route), so it doesn't actually unmount across page navigation during a login attempt in practice anyway. (4) Read the not_authenticated+login_url-absent branch: a plain ternary rendering null, no crash path; confirmed via existing test and consistent with backend's openapi.json description of when login_url is populated. (5) Investigated the reported flaky PortfolioPage.test.tsx timeout: not reproduced across 4 consecutive full `yarn test:coverage` runs (951/951 passing every time). Confirmed via git history this is the same widely-recurring pre-existing coverage-instrumentation-under-parallel-load flake already diagnosed and partially mitigated by backend-indicator-seasons-followups/PR#198 (which already bumped this specific test's own timeout to 15000ms, still present in the current file) -- already tracked, not filed as a new followup since it's an already-known/already-addressed pattern and this PR touches zero files in that area. (6) Independently ran: frontend lint (yarn lint) and tsc -b --noEmit clean; profit-target stale-wording guard clean; frontend `yarn test:coverage` 99.79%/99.14%/99.81%/99.84% stmt/branch/fn/line (well above the 90% gate), IbkrStatusIndicator.tsx itself 100% across all four; backend `pytest --cov=app --cov-fail-under=90` 100% coverage, 1449/1450 passing (the 1 pre-existing/unrelated test-fragility failure filed above, zero backend files touched by this PR so not a regression); `make e2e` -- all 26 persisted specs passed; `python3 scripts/validate_tasks.py` -- 330 files, no violations; code-review skill (medium effort, full diff) found no defensible correctness bug, including checking a possible redundancy with TanStack Query's refetchOnWindowFocus (ruled out -- globally disabled in this app's QueryClient) and a popup-blocked window.open edge case (filed as a followup above). (7) Browser walkthrough (real Playwright-driven Chromium against a real backend + this dev container's real reachable IBKR gateway, FINTRADE_IBKR_ENABLED temporarily flipped true in the gitignored, untracked backend/.env and reverted immediately after): golden path -- badge shows 'IBKR: Sign-in needed', login button renders, click opens a new tab at the real https://ibkr.home.arpa/sso/Login?... URL (not an iframe), popup's window.opener is null, and dispatching a focus event on the main window immediately triggers a second GET /api/ibkr/status (refetch fired); edge case -- dispatching unrelated focus/blur events before ever clicking the button does not trigger any extra request. No console errors in either run. (8) All three checklist items phrased as a judgment call ('decide/record whichever approach') have a corresponding decisions entry with rationale and rejected alternatives -- no gap. (9) No API/schema change in this PR (login_url was already added to openapi.json in #342) -- correctly not touched here. (10) No new/standalone frontend component was created (only an existing feature component, IbkrStatusIndicator.tsx, was extended in place) -- the common/-vs-feature placement question doesn't newly arise; the component's own docstring correctly re-affirms why it stays a feature component, not common/. No new module/dependency/layer added, so architecture-review's own dedicated pass doesn't apply beyond the placement check just described. area is frontend/ibkr, not backend/signals or backend/portfolio, so the verify-elder-signal check doesn't apply. No blocking findings."
   }
 }
