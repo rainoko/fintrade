@@ -2343,7 +2343,7 @@
       "id": "frontend-ibkr-login-button-followups-followups-followups-followups",
       "area": "frontend/ibkr",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-ibkr-login-button-followups-followups-followups-followups.json"
     }
   ]

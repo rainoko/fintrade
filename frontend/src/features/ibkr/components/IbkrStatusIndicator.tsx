@@ -202,7 +202,28 @@ export default function IbkrStatusIndicator() {
               window.addEventListener('blur', handleBlurAfterClick)
               pendingBlurListenerRef.current = handleBlurAfterClick
 
-              window.open(login_url, '_blank', 'noopener,noreferrer')
+              // Most browsers just silently no-op/return `null` from `window.open`
+              // for a popup-blocked or malformed-scheme URL, but some
+              // browser/extension configurations throw synchronously instead (e.g.
+              // a disallowed scheme). Registering the `blur` listener above
+              // `window.open` (rather than after, per this task's own dependency)
+              // closes one timing gap but opens another: a synchronous throw here
+              // would otherwise skip the cooldown `setTimeout` below entirely,
+              // leaving the just-registered listener referenced by
+              // `pendingBlurListenerRef.current` with nothing to remove it until
+              // the next unrelated `blur` event or this component's unmount (see
+              // `frontend-ibkr-login-button-followups-followups-followups-followups`'s
+              // `decisions` entry). The `try`/`catch` below removes it immediately
+              // in that case, then rethrows so this throw's other pre-existing,
+              // already-accepted failure mode -- `isOpeningLogin` staying stuck
+              // `true` -- is left exactly as it was before this fix.
+              try {
+                window.open(login_url, '_blank', 'noopener,noreferrer')
+              } catch (err) {
+                window.removeEventListener('blur', handleBlurAfterClick)
+                pendingBlurListenerRef.current = null
+                throw err
+              }
 
               cooldownTimeoutRef.current = window.setTimeout(() => {
                 setIsOpeningLogin(false)

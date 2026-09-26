@@ -112,6 +112,49 @@ describe('IbkrStatusIndicator', () => {
     expect(blurInvocationOrder).toBeLessThan(openInvocationOrder)
   })
 
+  it('immediately removes the just-registered blur listener if window.open throws synchronously, instead of leaving it dangling until the next blur event or unmount', async () => {
+    const addEventListenerSpy = vi.spyOn(window, 'addEventListener')
+    const removeEventListenerSpy = vi.spyOn(window, 'removeEventListener')
+    vi.spyOn(window, 'open').mockImplementation(() => {
+      throw new Error('disallowed scheme')
+    })
+    mockIbkrStatus({
+      state: 'not_authenticated',
+      detail: 'please log in',
+      login_url: 'https://ibkr.home.arpa/',
+    })
+
+    renderWithProviders(<IbkrStatusIndicator />)
+
+    const button = await screen.findByRole('button', { name: 'Log in to IBKR' })
+    // React's DOM event dispatch (unlike a plain native `addEventListener` call)
+    // doesn't let a listener's synchronous throw propagate back out of
+    // `fireEvent.click` itself -- in dev mode it re-surfaces the error via the
+    // window's own `error` event instead (matching a real browser's reporting for an
+    // uncaught exception during event dispatch), so it's caught here rather than via
+    // `expect(...).toThrow(...)`.
+    const windowErrorListener = vi.fn((event: ErrorEvent) => event.preventDefault())
+    window.addEventListener('error', windowErrorListener)
+    fireEvent.click(button)
+    window.removeEventListener('error', windowErrorListener)
+    expect(windowErrorListener).toHaveBeenCalled()
+    expect(windowErrorListener.mock.calls[0][0].error).toEqual(new Error('disallowed scheme'))
+
+    // Find the exact `blur` handler function the click handler registered just before
+    // the throwing `window.open` call, then assert that same function reference was
+    // also passed to `removeEventListener` -- not merely that *some* `blur` removal
+    // happened (which the pre-existing unmount cleanup effect could also produce, so a
+    // looser "removeEventListener was called with 'blur' at all" check wouldn't
+    // discriminate the fix from a stray unrelated cleanup). This proves the specific
+    // listener was torn down immediately, synchronously with the throw itself --
+    // rather than being left registered until the next unrelated `blur` event or this
+    // component's unmount.
+    const blurAddCall = addEventListenerSpy.mock.calls.find(([eventType]) => eventType === 'blur')
+    expect(blurAddCall).toBeDefined()
+    const registeredBlurHandler = blurAddCall?.[1]
+    expect(removeEventListenerSpy).toHaveBeenCalledWith('blur', registeredBlurHandler)
+  })
+
   it('disables the login button right after a click, so rapid repeated clicks cannot open more than one duplicate login tab', async () => {
     mockIbkrStatus({
       state: 'not_authenticated',
