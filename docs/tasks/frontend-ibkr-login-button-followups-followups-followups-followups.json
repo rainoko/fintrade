@@ -24,5 +24,11 @@
       "rationale": "Rethrowing (rather than swallowing) keeps this fix scoped exactly to the dangling-listener side effect the checklist item describes, leaving the pre-existing, already-accepted `isOpeningLogin` stuck-`true` failure mode on the same path completely untouched -- swallowing the error would have silently changed that other behavior too (e.g. by letting execution reach the `cooldownTimeoutRef` assignment below, which the checklist explicitly says is out of scope). Rejected a broader `try/finally` around the whole click handler body: `finally` would run its cleanup unconditionally even on the non-throwing success path, and the existing code already has its own correct, more precise cleanup for that path (the `cooldownTimeoutRef` timeout and the unmount effect) -- adding a second, redundant cleanup path there would just be more surface area for the two to disagree. Verified with a mutation test: reverted just the `try/catch` (restoring the bare `window.open(...)` call, leaving the new test in `IbkrStatusIndicator.test.tsx` untouched) and reran the file's suite -- the new test failed with the `removeEventListener` mock recording `['error', ...]` as its only call instead of `['blur', handlerFn]` (confirming no `blur` removal happened synchronously with the throw), while the other 17 tests still passed. Restored the fix afterward and reran (18/18 passing). The new test itself asserts on the *same* handler function reference passed to both `addEventListener('blur', ...)` and `removeEventListener('blur', ...)` (not just that some `blur` removal happened at all), to rule out a false pass from the pre-existing unmount-cleanup effect coincidentally also firing during the same test. Also had to work around React's dev-mode event dispatch not letting a synchronous listener throw propagate back out of `fireEvent.click` itself (it resurfaces the error via the window's own `error` event instead, mirroring a real browser's uncaught-exception reporting for a DOM event listener) -- the test captures that via a temporary `window.addEventListener('error', ...)` listener rather than `expect(...).toThrow(...)`."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-ibkr-login-button-followups-followups-followups-followups",
+    "pr_number": 347,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/347",
+    "pushed_at": "2026-09-26T13:31:18Z"
+  }
 }
