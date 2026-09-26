@@ -1,9 +1,10 @@
 import HelpOutlineIcon from '@mui/icons-material/HelpOutlineOutlined'
 import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
 import Tooltip from '@mui/material/Tooltip'
-import type { ReactElement } from 'react'
+import { useEffect, useRef, type ReactElement } from 'react'
 import IbkrStatusBadge from '../../../components/common/IbkrStatusBadge/IbkrStatusBadge'
 import { useIbkrStatus } from '../hooks/useIbkrStatus'
 
@@ -17,6 +18,15 @@ import { useIbkrStatus } from '../hooks/useIbkrStatus'
  * check, and worth surfacing everywhere at a glance rather than only on one
  * particular screen.
  *
+ * Also renders a "Log in to IBKR" button next to the badge whenever `state`
+ * is `not_authenticated` and the response's `login_url` is populated
+ * (`frontend-ibkr-login-button`) — clicking it opens that URL in a new
+ * browser tab/window (`window.open`, never an in-app `<iframe>`/modal: see
+ * this task's `decisions` entry for why IBKR's own login page cannot be
+ * embedded). `login_url` absent for any other reason (an older cached
+ * response, a genuine backend edge case) simply renders no button — the
+ * badge alone still explains the situation via its tooltip.
+ *
  * Feature component (not `common/`): it owns the `useIbkrStatus` data fetch
  * and its own loading/transport-error presentation, so `AppShell` itself
  * stays a thin layout composition (Frontend.md §3) and
@@ -25,6 +35,37 @@ import { useIbkrStatus } from '../hooks/useIbkrStatus'
  */
 export default function IbkrStatusIndicator() {
   const statusQuery = useIbkrStatus()
+  const { refetch } = statusQuery
+
+  // Set the instant "Log in to IBKR" is clicked (a real login page was just
+  // opened in a new tab) and read — then cleared — the next time this
+  // window regains focus, which is this app's own signal that the user has
+  // switched back after attempting the login. That triggers an immediate
+  // status refetch rather than waiting on the next up-to-30s background
+  // poll to notice a completed login. Deliberately not tracking the opened
+  // window's own `.closed` state instead (the checklist's other suggested
+  // mechanism): `window.open` below is called with the `noopener` feature
+  // (this app has no legitimate reason to hold a live reference into IBKR's
+  // own window, and withholding one closes off the standard
+  // "reverse tabnabbing" attack where an opened page uses `window.opener` to
+  // navigate this app's own tab away) — per spec, `window.open` returns
+  // `null` whenever `noopener` is requested, so there would be no window
+  // reference to poll `.closed` on even if this app wanted to. See this
+  // task's `decisions` entry.
+  const awaitingLoginReturnRef = useRef(false)
+
+  useEffect(() => {
+    function handleWindowFocus() {
+      if (!awaitingLoginReturnRef.current) {
+        return
+      }
+      awaitingLoginReturnRef.current = false
+      void refetch()
+    }
+
+    window.addEventListener('focus', handleWindowFocus)
+    return () => window.removeEventListener('focus', handleWindowFocus)
+  }, [refetch])
 
   // `isError` is checked *before* `!data`, not after: TanStack Query keeps
   // the last successful `data` populated across a failed background
@@ -68,7 +109,26 @@ export default function IbkrStatusIndicator() {
     // simply hasn't resolved yet.
     content = <CircularProgress size={16} color="inherit" aria-label="Loading IBKR status" />
   } else {
-    content = <IbkrStatusBadge state={statusQuery.data.state} detail={statusQuery.data.detail} />
+    const { state, detail, login_url } = statusQuery.data
+    content = (
+      <>
+        <IbkrStatusBadge state={state} detail={detail} />
+        {state === 'not_authenticated' && login_url ? (
+          <Button
+            data-testid="ibkr-login-button"
+            size="small"
+            variant="outlined"
+            color="warning"
+            onClick={() => {
+              awaitingLoginReturnRef.current = true
+              window.open(login_url, '_blank', 'noopener,noreferrer')
+            }}
+          >
+            Log in to IBKR
+          </Button>
+        ) : null}
+      </>
+    )
   }
 
   // `role="status"` (implicit `aria-live="polite"`) so a screen-reader user
@@ -83,9 +143,12 @@ export default function IbkrStatusIndicator() {
   // `display: contents` is used, which would silently defeat the point.
   // `Toolbar`'s flex layout blockifies any direct child regardless of its
   // own `display`, so this extra `Box` sizes identically to the bare `Chip`/
-  // `CircularProgress` it used to render as `AppShell`'s last flex item.
+  // `CircularProgress` it used to render as `AppShell`'s last flex item — the
+  // `display: 'flex'`/`gap` below only affects how this `Box`'s OWN children
+  // (the badge and, when shown, the login button) lay out relative to each
+  // other, not how the `Box` itself sits in `Toolbar`'s flex row.
   return (
-    <Box role="status">
+    <Box role="status" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
       {content}
     </Box>
   )

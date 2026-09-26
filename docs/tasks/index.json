@@ -2315,8 +2315,15 @@
       "id": "frontend-ibkr-login-button",
       "area": "frontend/ibkr",
       "skill": "add-frontend-feature",
+      "state": "done",
+      "path": "docs/tasks/done/frontend-ibkr-login-button.json"
+    },
+    {
+      "id": "frontend-ibkr-login-button-followups",
+      "area": "frontend/ibkr",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/frontend-ibkr-login-button.json"
+      "path": "docs/tasks/frontend-ibkr-login-button-followups.json"
     }
   ]
 }
