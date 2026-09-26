@@ -120,9 +120,8 @@ describe('IbkrStatusIndicator', () => {
     await waitFor(() => expect(button).toBeEnabled())
   })
 
-  it('clears the login-return gate when the window never actually loses focus after the click (a likely popup-blocked window.open), so the next unrelated focus does not trigger a spurious extra status refetch', async () => {
+  it('clears the login-return gate when the window never actually loses focus (no blur event) after the click (a likely popup-blocked window.open), so the next unrelated focus does not trigger a spurious extra status refetch', async () => {
     const user = userEvent.setup()
-    vi.spyOn(document, 'hasFocus').mockReturnValue(true)
     let fetchCount = 0
     server.use(
       http.get('/api/ibkr/status', () => {
@@ -138,11 +137,19 @@ describe('IbkrStatusIndicator', () => {
     renderWithProviders(<IbkrStatusIndicator />)
 
     const button = await screen.findByRole('button', { name: 'Log in to IBKR' })
+    const countAfterInitialFetch = fetchCount
     await user.click(button)
-    await waitFor(() => expect(fetchCount).toBeGreaterThan(0))
+    // The click itself never triggers a fetch on its own (only a window `focus` event
+    // does, per the assertions below) -- matching the tighter capture-then-compare
+    // pattern the "does not refetch on an unrelated window focus event..." sibling test
+    // already uses, rather than the previous no-op `toBeGreaterThan(0)` check that
+    // passed purely from the initial mount fetch regardless of the click's own effect.
+    expect(fetchCount).toBe(countAfterInitialFetch)
     const countBeforeUnrelatedFocus = fetchCount
 
-    // Wait past the popup-blocked detection window before the unrelated focus event.
+    // No `blur` event is dispatched here -- simulating a `window.open` that never
+    // actually moved focus away (a likely popup block). Wait past the popup-blocked
+    // detection window before the unrelated focus event.
     await waitFor(() => expect(button).toBeEnabled())
 
     window.dispatchEvent(new Event('focus'))
@@ -151,9 +158,8 @@ describe('IbkrStatusIndicator', () => {
     expect(fetchCount).toBe(countBeforeUnrelatedFocus)
   })
 
-  it('keeps the login-return gate armed when the window did lose focus after the click (a likely successful window.open), still refetching once it regains focus later', async () => {
+  it('keeps the login-return gate armed when the window did lose focus (a blur event) after the click (a likely successful window.open), still refetching once it regains focus later', async () => {
     const user = userEvent.setup()
-    vi.spyOn(document, 'hasFocus').mockReturnValue(false)
     mockIbkrStatus({
       state: 'not_authenticated',
       detail: 'please log in',
@@ -164,9 +170,11 @@ describe('IbkrStatusIndicator', () => {
 
     const button = await screen.findByRole('button', { name: 'Log in to IBKR' })
     await user.click(button)
+    // Simulates a real, successful `window.open` moving focus to the new tab.
+    window.dispatchEvent(new Event('blur'))
 
     // Wait past the popup-blocked detection window -- the gate should still be armed
-    // since `document.hasFocus()` reports this window never regained focus.
+    // since a `blur` event fired, confirming this window actually lost focus.
     await waitFor(() => expect(button).toBeEnabled())
 
     mockIbkrStatus({ state: 'available', detail: null, login_url: 'https://ibkr.home.arpa/' })

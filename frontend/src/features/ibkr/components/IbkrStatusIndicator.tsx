@@ -8,11 +8,12 @@ import { useEffect, useRef, useState, type ReactElement } from 'react'
 import IbkrStatusBadge from '../../../components/common/IbkrStatusBadge/IbkrStatusBadge'
 import { useIbkrStatus } from '../hooks/useIbkrStatus'
 
-// How long the "Log in to IBKR" button stays disabled after a click, and how long this
-// component waits before checking whether `window.open` actually moved focus away (see
-// `awaitingLoginReturnRef` below). Long enough for a real new-tab open to steal focus in
-// practice, short enough that a genuinely popup-blocked click doesn't leave the button
-// disabled for a user-noticeable stretch before they can retry.
+// How long the "Log in to IBKR" button stays disabled (loading) after a click, and how
+// long this component waits for a `window` `blur` event before concluding `window.open`
+// never actually moved focus away (see `awaitingLoginReturnRef` and `handleBlurAfterClick`
+// below). Long enough for a real new-tab open to steal focus in practice, short enough
+// that a genuinely popup-blocked click doesn't leave the button disabled for a
+// user-noticeable stretch before they can retry.
 const LOGIN_CLICK_COOLDOWN_MS = 300
 
 /**
@@ -32,12 +33,15 @@ const LOGIN_CLICK_COOLDOWN_MS = 300
  * this task's `decisions` entry for why IBKR's own login page cannot be
  * embedded). `login_url` absent for any other reason (an older cached
  * response, a genuine backend edge case) simply renders no button — the
- * badge alone still explains the situation via its tooltip. The button
- * disables itself for `LOGIN_CLICK_COOLDOWN_MS` after each click (guards
- * against rapid repeated clicks opening duplicate tabs) and uses that same
- * window to heuristically detect a popup-blocked open, so it doesn't leave
- * the return-refetch gate stuck armed — see `frontend-ibkr-login-button-
- * followups`'s `decisions` entry.
+ * badge alone still explains the situation via its tooltip. The button shows
+ * MUI's `loading` state (spinner + disabled, this codebase's established
+ * pending-action-button convention — see `AddTickerForm.tsx`,
+ * `TradeApgarDialog.tsx`, `FollowUpReviewDialog.tsx`) for
+ * `LOGIN_CLICK_COOLDOWN_MS` after each click (guards against rapid repeated
+ * clicks opening duplicate tabs) and uses that same window to heuristically
+ * detect a popup-blocked open, so it doesn't leave the return-refetch gate
+ * stuck armed — see `frontend-ibkr-login-button-followups`'s `decisions`
+ * entry.
  *
  * Feature component (not `common/`): it owns the `useIbkrStatus` data fetch
  * and its own loading/transport-error presentation, so `AppShell` itself
@@ -74,6 +78,13 @@ export default function IbkrStatusIndicator() {
   const [isOpeningLogin, setIsOpeningLogin] = useState(false)
   const cooldownTimeoutRef = useRef<number | undefined>(undefined)
 
+  // Whether a `window` `blur` event has fired since the most recent click, and the
+  // listener registered for it (so it can be torn down early — see
+  // `handleBlurAfterClick` below and this task's `decisions` entry for why a `blur`
+  // *event* replaced the previous `document.hasFocus()` poll-at-a-fixed-instant check).
+  const focusLeftSinceClickRef = useRef(false)
+  const pendingBlurListenerRef = useRef<(() => void) | null>(null)
+
   useEffect(() => {
     function handleWindowFocus() {
       if (!awaitingLoginReturnRef.current) {
@@ -87,12 +98,16 @@ export default function IbkrStatusIndicator() {
     return () => window.removeEventListener('focus', handleWindowFocus)
   }, [refetch])
 
-  // Clear any pending cooldown timeout on unmount so it can't fire (and call
-  // `setIsOpeningLogin`) after this component is gone.
+  // Clear any pending cooldown timeout, and any still-registered `blur` listener, on
+  // unmount so neither can fire (and call `setIsOpeningLogin`/mutate a ref) after this
+  // component is gone.
   useEffect(() => {
     return () => {
       if (cooldownTimeoutRef.current !== undefined) {
         window.clearTimeout(cooldownTimeoutRef.current)
+      }
+      if (pendingBlurListenerRef.current) {
+        window.removeEventListener('blur', pendingBlurListenerRef.current)
       }
     }
   }, [])
@@ -149,32 +164,50 @@ export default function IbkrStatusIndicator() {
             size="small"
             variant="outlined"
             color="warning"
-            disabled={isOpeningLogin}
+            loading={isOpeningLogin}
             onClick={() => {
               setIsOpeningLogin(true)
               awaitingLoginReturnRef.current = true
+              focusLeftSinceClickRef.current = false
               window.open(login_url, '_blank', 'noopener,noreferrer')
+
+              // `noopener` means the call above always returns `null`
+              // regardless of whether a tab actually opened (see the comment
+              // on `awaitingLoginReturnRef`), so that return value can't
+              // distinguish a real open from a popup-blocked one. But a real
+              // open moves focus to the new tab almost immediately, so a
+              // `blur` event on this window shortly after the click is a
+              // direct, synchronous signal that it happened — a more
+              // standard and precise idiom for this than the previous
+              // `document.hasFocus()` poll at one arbitrary fixed instant
+              // (see this task's `decisions` entry). If no `blur` fires
+              // before the cooldown timeout below, no new tab could have
+              // moved focus away — the click was almost certainly
+              // popup-blocked, so the gate is cleared so the next unrelated
+              // window focus doesn't fire one incorrect extra status
+              // refetch. Still a heuristic, not a guarantee (e.g. a browser
+              // configured to open new tabs in the background wouldn't move
+              // focus even on a real, successful open — see this task's
+              // `decisions` entry for that residual, already-bounded risk):
+              // its failure mode is limited to occasionally missing the
+              // instant refetch for one login attempt and falling back to
+              // the existing up-to-30s background poll, never a stuck
+              // permanently-armed gate.
+              function handleBlurAfterClick() {
+                focusLeftSinceClickRef.current = true
+                window.removeEventListener('blur', handleBlurAfterClick)
+                pendingBlurListenerRef.current = null
+              }
+              window.addEventListener('blur', handleBlurAfterClick)
+              pendingBlurListenerRef.current = handleBlurAfterClick
 
               cooldownTimeoutRef.current = window.setTimeout(() => {
                 setIsOpeningLogin(false)
-                // `noopener` means the call above always returns `null`
-                // regardless of whether a tab actually opened (see the
-                // comment on `awaitingLoginReturnRef`), so that return value
-                // can't distinguish a real open from a popup-blocked one.
-                // But a real open moves focus to the new tab almost
-                // immediately, so if *this* window still reports having
-                // focus after giving that a moment to happen, no new tab
-                // could have opened — the click was almost certainly
-                // popup-blocked. Clear the gate in that case so the next
-                // unrelated window focus doesn't fire one incorrect extra
-                // status refetch. This is a heuristic, not a guarantee (e.g.
-                // a browser configured to open new tabs in the background
-                // wouldn't move focus even on a real, successful open) — its
-                // failure mode is limited to occasionally missing the
-                // instant refetch for one login attempt and falling back to
-                // the existing up-to-30s background poll, never a stuck
-                // permanently-armed gate. See this task's `decisions` entry.
-                if (document.hasFocus()) {
+                if (pendingBlurListenerRef.current) {
+                  window.removeEventListener('blur', pendingBlurListenerRef.current)
+                  pendingBlurListenerRef.current = null
+                }
+                if (!focusLeftSinceClickRef.current) {
                   awaitingLoginReturnRef.current = false
                 }
               }, LOGIN_CLICK_COOLDOWN_MS)
