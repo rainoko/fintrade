@@ -45,5 +45,11 @@
       "rationale": "No alternative seriously considered beyond the checklist's own suggestion (also populating for `gateway_unreachable` on the theory that 'the user might fix the gateway and then want to click login' was briefly considered but rejected: that URL would be a guess about a host/port that has already been shown not to answer requests right now, which is a worse failure mode --a link that silently fails when clicked -- than omitting it and relying on the existing `detail` text to explain the gateway isn't running)."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-ibkr-login-url",
+    "pr_number": 342,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/342",
+    "pushed_at": "2026-09-26T07:09:42Z"
+  }
 }
