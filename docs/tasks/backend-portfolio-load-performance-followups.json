@@ -1,0 +1,32 @@
+{
+  "id": "backend-portfolio-load-performance-followups",
+  "title": "Follow-up: could IBKR ever supply swing-mode's daily/weekly OHLCV, and should it?",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-portfolio-load-performance"],
+  "references": [
+    "docs/tasks/backend-portfolio-load-performance.json",
+    "app/data/ibkr_provider.py",
+    "app/data/day_trader_intraday.py",
+    "app/data/base.py",
+    "app/api/routers/portfolio.py"
+  ],
+  "description": "backend-portfolio-load-performance investigated the user's 'can it be faster when using ibkr as much as possible if ibkr is connected' request and found that `IBKRProvider` (app/data/ibkr_provider.py) cannot currently supply a daily/weekly-OHLCV-shaped fetch matching the swing `DataProvider` protocol (`get_daily_ohlcv`/`get_weekly_ohlcv`): its only market-data method is `get_hourly_bars` (native intraday granularity, ~833-day pagination ceiling at the default `'1h'` bar size), with no existing resample-to-daily/weekly pipeline for it. That parent task's own `decisions` entry has the full investigation detail.\n\nThis follow-up exists to hold that larger, two-part question for whoever picks it up next, WITHOUT assuming either part's answer:\n\n1. **Is building an IBKR-backed daily/weekly-shaped fetch even worth doing?** It would mean a new `IBKRProvider` method (or a small adapter over `get_hourly_bars` + a resampling pass, mirroring `app.data.day_trader_intraday`'s existing hourly-to-target-interval resampling via `app.data.base.resample_ohlcv`), PLUS a design decision on `get_hourly_bars`' own ~833-day lookback ceiling being far short of what swing-mode signal computation reads in practice (well beyond `YFinanceProvider._MIN_WEEKLY_BARS = 26` weekly bars' bare minimum) -- a resampled-from-hourly daily/weekly series would have much less history than yfinance/Stooq's `period='max'` fetch, which could itself degrade signal quality (e.g. Screen 1/Tide's own EMA/MACD warm-up) even if it were faster.\n\n2. **If it is worth building, should swing mode actually USE it when IBKR is connected?** This directly touches the already-established, explicitly-documented precedent that `current_price`/`unrealized_pnl_pct`/`equity` are 'always swing-provider-derived regardless of the active trading mode' (`PortfolioResponse.trading_mode`'s own field description, and `AnalysisResponse`'s equivalent for `as_of`/`extended_data`/`profit_target`). Switching swing mode's own price/signal inputs to IBKR-when-connected would mean two different portfolio snapshots (same account, different moments) could show prices/signals sourced from two different providers depending on IBKR's connection state at request time -- a real product/UX tradeoff (faster loads vs. a potentially confusing source-inconsistency), not a pure performance optimization. This is exactly the kind of judgment call backend-portfolio-load-performance's own description flagged as needing a `decisions` entry with real weighing of the tradeoff, or a `questions`/`waiting_input` escalation if it's genuinely the user's call -- deliberately NOT resolved here in advance, since resolving it meaningfully depends on knowing whether part 1 is even feasible/worth it.",
+  "checklist": [
+    {
+      "step": "Decide (and record as a `decisions` entry) whether building an IBKR-backed daily/weekly-shaped fetch is worth the added complexity given `get_hourly_bars`' own ~833-day lookback ceiling -- if the resulting history window is judged too short for swing-mode signal quality, say so explicitly and close this task without building it, rather than building a fetch pipeline nobody should actually wire in.",
+      "done": false
+    },
+    {
+      "step": "If judged worth building: implement the new IBKR-backed daily/weekly-shaped fetch (a new `IBKRProvider` method or an `app.data.day_trader_intraday`-style resampling adapter over `get_hourly_bars`), with its own hand-computed/reference-value tests per the add-indicator-adjacent data-provider testing convention (no live network calls).",
+      "done": false
+    },
+    {
+      "step": "Resolve the swing-vs-IBKR-source tradeoff described above BEFORE wiring the new fetch into `GET /api/portfolio`/`GET /api/portfolio/risk`: either a `decisions` entry with real weighing of the tradeoff (if judged resolvable by the worker), or a `questions` entry + `waiting_input` state (if it's genuinely the user's call) -- do not silently start mixing data sources into swing mode's price/signal fields without that explicit resolution, per the parent task's own description.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

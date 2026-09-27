@@ -8,6 +8,7 @@ indirectly through the router), plus unit coverage for `daily_ohlcv` passthrough
 GET /api/portfolio's own tests never needed to check.
 """
 
+import time
 from datetime import date
 
 import pandas as pd
@@ -38,6 +39,36 @@ class _StubProvider:
         self._failing = failing or set()
 
     def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
+        if ticker in self._failing:
+            raise TickerNotFoundError(ticker)
+        return _frame(self._prices[ticker])
+
+    def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:  # pragma: no cover - unused here
+        raise NotImplementedError
+
+
+class _DelayedPerTickerProvider:
+    """A DataProvider stand-in whose `get_daily_ohlcv` sleeps for a per-ticker-configurable
+    duration before returning a per-ticker-configurable outcome (either a real close series or
+    raising `TickerNotFoundError`) -- lets a test force *completion* order to differ from
+    *submission* order, the real discriminating check `enrich_positions_with_price`'s concurrent
+    per-row fan-out (`backend-portfolio-load-performance`) needs: a bug that zipped `rows`
+    (submission order) against `results` gathered in completion order (e.g. via
+    `as_completed(futures)` instead of iterating `futures` itself in submission order) would
+    only be caught by a fixture where the first-submitted ticker is deliberately the slowest to
+    finish -- a same-latency fixture (every ticker equally fast/slow) can't distinguish the two
+    orderings and would pass either way. See this task's `decisions` entry, which records having
+    manually mutation-tested this exact bug shape against this fixture before relying on it."""
+
+    def __init__(
+        self, *, prices: dict[str, list[float]], failing: set[str], delay_seconds: dict[str, float]
+    ) -> None:
+        self._prices = prices
+        self._failing = failing
+        self._delay_seconds = delay_seconds
+
+    def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
+        time.sleep(self._delay_seconds.get(ticker, 0.0))
         if ticker in self._failing:
             raise TickerNotFoundError(ticker)
         return _frame(self._prices[ticker])
@@ -104,6 +135,27 @@ class TestEnrichPositionsWithPrice:
 
     def test_empty_rows_yields_empty_list(self) -> None:
         assert enrich_positions_with_price([], _StubProvider()) == []
+
+    def test_result_order_matches_row_order_even_when_completion_order_differs(self) -> None:
+        """The real discriminating check for the concurrent fan-out: `rows[0]` (AAPL) is
+        submitted first but is deliberately the SLOWER of the two fetches to complete, and its
+        own fetch fails, while `rows[1]` (MSFT) is submitted second but finishes first with a
+        successful fetch. A bug that matched `results` up against `rows` by completion order
+        instead of submission order would put MSFT's price on AAPL's position (or vice versa)
+        -- see `_DelayedPerTickerProvider`'s own docstring."""
+        rows = [_row(id="pos_1", ticker="AAPL"), _row(id="pos_2", ticker="MSFT")]
+        provider = _DelayedPerTickerProvider(
+            prices={"MSFT": [330.0]},
+            failing={"AAPL"},
+            delay_seconds={"AAPL": 0.15, "MSFT": 0.0},
+        )
+
+        enriched = enrich_positions_with_price(rows, provider)
+
+        # Order preserved: enriched[0] is still AAPL's own (failed) result, enriched[1] MSFT's.
+        assert [e.position.ticker for e in enriched] == ["AAPL", "MSFT"]
+        assert enriched[0].position.current_price is None
+        assert enriched[1].position.current_price == pytest.approx(330.0)
 
 
 class TestPositionsValue:
