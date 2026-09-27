@@ -2345,6 +2345,27 @@
       "skill": null,
       "state": "done",
       "path": "docs/tasks/done/frontend-ibkr-login-button-followups-followups-followups-followups.json"
+    },
+    {
+      "id": "frontend-support-zones-disappear-after-oscillators",
+      "area": "frontend/stocks",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-support-zones-disappear-after-oscillators.json"
+    },
+    {
+      "id": "backend-portfolio-load-performance",
+      "area": "backend/api",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-portfolio-load-performance.json"
+    },
+    {
+      "id": "frontend-fibonacci-auto-levels",
+      "area": "frontend/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-fibonacci-auto-levels.json"
     }
   ]
 }
