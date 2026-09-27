@@ -34,5 +34,11 @@
       "rationale": "Setting `FINTRADE_IBKR_BASE_URL` to an empty string (rather than e.g. the existing `Settings.ibkr_base_url` default `https://localhost:5000/v1/api`) is safe because `app/api/routers/ibkr.py`'s `get_ibkr_status` never reads `settings.ibkr_base_url` at all when `get_ibkr_provider` yields `None` (i.e. whenever `ibkr_enabled` is falsy, which this pin now guarantees for the e2e suite) -- confirmed by reading both `app/api/dependencies.py::get_ibkr_provider` and the `ibkr.py` route handler directly. An empty string was chosen over duplicating the real default URL specifically to make it visually obvious at the call site that this value is deliberately inert/unused in the e2e suite's disabled-IBKR configuration, rather than a real (if coincidentally correct) gateway address someone might later assume needs updating."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-support-zones-disappear-after-oscillators-followups",
+    "pr_number": 351,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/351",
+    "pushed_at": "2026-09-27T21:54:58Z"
+  }
 }
