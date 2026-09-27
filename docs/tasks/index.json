@@ -2364,8 +2364,8 @@
       "id": "backend-portfolio-load-performance",
       "area": "backend/api",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-portfolio-load-performance.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-portfolio-load-performance.json"
     },
     {
       "id": "frontend-fibonacci-auto-levels",
@@ -2373,6 +2373,13 @@
       "skill": "add-frontend-feature",
       "state": "planned",
       "path": "docs/tasks/frontend-fibonacci-auto-levels.json"
+    },
+    {
+      "id": "backend-portfolio-load-performance-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-portfolio-load-performance-followups.json"
     }
   ]
 }

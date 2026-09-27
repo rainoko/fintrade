@@ -1,6 +1,7 @@
 import logging
 import math
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import cast, get_args
@@ -88,6 +89,17 @@ _SIX_PERCENT_RULE_THRESHOLD = 6.0
 _FOLLOW_UP_DUE_WINDOW_MIN = timedelta(weeks=8)
 _FOLLOW_UP_DUE_WINDOW_MAX = timedelta(weeks=10)
 
+# Bounds how many positions' own swing-mode `get_weekly_ohlcv` fetches
+# `_prefetch_swing_weekly_ohlcv` runs in parallel at once -- same value/rationale as
+# `app.portfolio.pricing._MAX_CONCURRENT_PRICE_FETCHES`/`app.api.day_trader_signal
+# ._MAX_CONCURRENT_TICKER_FETCHES`, picked independently here (this module already imports
+# from `app.api.day_trader_signal`, but its `_fan_out_per_ticker` is a private, day-trader-mode-
+# specific helper -- reusing it here would couple that module's documented day-trader-mode
+# orchestration scope to an unrelated swing-mode concern, so this file gets its own small,
+# equivalent ThreadPoolExecutor helper instead) -- see the backend-portfolio-load-performance
+# task's `decisions` entry.
+_MAX_CONCURRENT_WEEKLY_FETCHES = 8
+
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
 
@@ -131,12 +143,67 @@ def _realized_losses_this_month_pct(db: Session, account: Account, as_of: date) 
         return 0.0
 
 
-def _compute_position_signal(
-    e: EnrichedPosition,
+def _prefetch_swing_weekly_ohlcv(
+    enriched: list[EnrichedPosition],
     provider: DataProvider,
     *,
     trading_mode_setting: TradingModeSetting,
+) -> dict[str, pd.DataFrame | None]:
+    """Fetches `provider.get_weekly_ohlcv` for every position `_compute_position_signal`'s
+    swing branch will actually need it for, concurrently (a small thread pool,
+    `_MAX_CONCURRENT_WEEKLY_FETCHES`) rather than one blocking round trip per position in that
+    function's own per-position loop -- for a portfolio of N held positions in swing mode, this
+    was previously N fully-sequential provider round trips on top of `enrich_positions_with_price`'s
+    own N (a measured, confirmed bottleneck -- see the backend-portfolio-load-performance task's
+    `decisions` entry), mirroring `compute_day_trader_signals_concurrently`'s already-established
+    ThreadPoolExecutor-based pattern for the identical N-tickers problem. Safe against the real
+    `CachedDataProvider` for the same reason `enrich_positions_with_price` is -- see that
+    function's own docstring.
+
+    Returns `{}` outright while day-trader mode is active with a configured triple:
+    `_compute_position_signal`'s day-trader branch never touches `e.daily_ohlcv`/weekly OHLCV at
+    all (its signal comes from `day_trader_outcomes` instead), so prefetching weekly data here
+    would only ever be thrown away unused.
+
+    Only positions with `e.daily_ohlcv is not None` are included -- `_compute_position_signal`'s
+    swing branch already returns `None` immediately for a position whose price fetch failed,
+    without ever needing weekly data, so prefetching it for that position would likewise be
+    wasted work (the same "don't pay for a fetch that's about to be thrown away" rationale
+    `get_risk`'s own daily-then-weekly ordering already documents).
+
+    A `None` value for a given ticker in the returned dict means that ticker's weekly fetch
+    failed (`DataProviderError`) -- since `_compute_position_signal` only ever looks a ticker up
+    here once it has already confirmed `e.daily_ohlcv is not None` for it (i.e. exactly the set
+    this function prefetches for), a `None` here is unambiguous, never "not attempted"."""
+    if (
+        trading_mode_setting.mode is TradingMode.DAY_TRADER
+        and trading_mode_setting.day_trader_timeframe_triple is not None
+    ):
+        return {}
+
+    tickers = [e.position.ticker for e in enriched if e.daily_ohlcv is not None]
+    if not tickers:
+        return {}
+
+    def _fetch(ticker: str) -> pd.DataFrame | None:
+        try:
+            return provider.get_weekly_ohlcv(ticker)
+        except DataProviderError:
+            return None
+
+    with ThreadPoolExecutor(
+        max_workers=min(len(tickers), _MAX_CONCURRENT_WEEKLY_FETCHES)
+    ) as executor:
+        futures = {ticker: executor.submit(_fetch, ticker) for ticker in tickers}
+        return {ticker: future.result() for ticker, future in futures.items()}
+
+
+def _compute_position_signal(
+    e: EnrichedPosition,
+    *,
+    trading_mode_setting: TradingModeSetting,
     day_trader_outcomes: dict[str, DayTraderSignalOutcome],
+    weekly_ohlcv_by_ticker: dict[str, pd.DataFrame | None],
 ) -> SignalResult | None:
     """Runs the same fetch-then-`analyse()` pipeline `GET /api/stocks/{ticker}/analysis` and
     `GET /api/watchlist` use, for a single already-price-enriched position, returning `None`
@@ -163,10 +230,12 @@ def _compute_position_signal(
     signal is unconditionally unavailable too (mirrors `app.api.routers.portfolio.get_risk`'s
     identical `e.position.current_price is None or e.daily_ohlcv is None` guard). Only the
     weekly history (needed for Screen 1/Tide, not fetched by `enrich_positions_with_price` at
-    all) is fetched here, degrading to `None` on `DataProviderError` -- the same narrow
-    (not bare `except Exception`) catch `app.api.routers.watchlist._compute_signal` uses, so a
-    genuine bug in `analyse()` itself still surfaces as a loud 500 rather than a silently
-    swallowed null field.
+    all) is needed here, looked up from `weekly_ohlcv_by_ticker` (`get_portfolio`'s own
+    concurrent prefetch, `_prefetch_swing_weekly_ohlcv` -- see that function's own docstring for
+    the latency rationale, mirroring `day_trader_outcomes`'s identical prefetch-then-lookup shape
+    just above) rather than fetched here directly -- a missing/failed fetch is `None`, which
+    degrades to an unavailable signal exactly like the previous inline
+    `provider.get_weekly_ohlcv(...)`/`except DataProviderError` call used to.
 
     `drop_malformed_daily_bars` is called here with its default `require_full_ohlc_on_latest_bar
     =True` -- NOT `get_risk`'s `False` -- because `analyse()` (unlike `evaluate_exit_flags`)
@@ -194,9 +263,8 @@ def _compute_position_signal(
 
     if e.daily_ohlcv is None:
         return None
-    try:
-        weekly_ohlcv = provider.get_weekly_ohlcv(e.position.ticker)
-    except DataProviderError:
+    weekly_ohlcv = weekly_ohlcv_by_ticker.get(e.position.ticker)
+    if weekly_ohlcv is None:
         return None
 
     daily_ohlcv = drop_malformed_daily_bars(e.daily_ohlcv)
@@ -373,7 +441,14 @@ def get_portfolio(
     (`backend-day-trader-timeframe-mode-api-followups`), every held position's own ticker is
     resolved concurrently up front (`compute_day_trader_signals_concurrently`) rather than one
     IBKR round trip at a time in the loop below -- see that function's own docstring and this
-    task's `decisions` entry for the latency rationale."""
+    task's `decisions` entry for the latency rationale. While swing mode is active (this app's
+    default): `enrich_positions_with_price` above already fetches every position's own price
+    concurrently (`app.portfolio.pricing`'s own docstring), and each position's own weekly OHLCV
+    (needed only for the signal, not the price) is likewise resolved concurrently up front here
+    (`_prefetch_swing_weekly_ohlcv`) rather than one more provider round trip per position in the
+    loop below -- see the backend-portfolio-load-performance task's `decisions` entry for the
+    measured latency this replaces (previously up to ~2N sequential provider round trips for N
+    held positions)."""
     account = db.get(AccountORM, 1)
     cash = account.cash if account is not None else 0.0
 
@@ -391,14 +466,17 @@ def get_portfolio(
             trading_mode_setting.day_trader_timeframe_triple,
             provider=ibkr_provider,
         )
+    weekly_ohlcv_by_ticker = _prefetch_swing_weekly_ohlcv(
+        enriched, provider, trading_mode_setting=trading_mode_setting
+    )
 
     positions_out: list[PositionOut] = []
     for e in enriched:
         signal_result = _compute_position_signal(
             e,
-            provider,
             trading_mode_setting=trading_mode_setting,
             day_trader_outcomes=day_trader_outcomes,
+            weekly_ohlcv_by_ticker=weekly_ohlcv_by_ticker,
         )
         positions_out.append(
             PositionOut(

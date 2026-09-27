@@ -9,6 +9,7 @@ The `db_session` fixture lives in tests/integration/conftest.py; this module kee
 `client` fixture because it additionally needs the get_data_provider override below.
 """
 
+import time
 from datetime import UTC, date, datetime, timedelta
 
 import pandas as pd
@@ -81,6 +82,43 @@ class _StubProvider:
     def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
         if ticker in self._failing or ticker in self._weekly_failing:
             raise DataProviderUnavailableError("provider down")
+        return _hold_weekly_ohlcv()
+
+
+class _DelayedWeeklyProvider:
+    """A DataProvider stand-in whose `get_weekly_ohlcv` sleeps for a per-ticker-configurable
+    duration before succeeding or failing -- lets a test force *completion* order to differ from
+    *submission* order, the real discriminating check `_prefetch_swing_weekly_ohlcv`'s concurrent
+    per-ticker fan-out (backend-portfolio-load-performance) needs: a bug that mapped a completed
+    future's result back onto the wrong ticker key would only be caught by a fixture where the
+    first-submitted ticker is deliberately the slowest to finish -- a same-latency fixture can't
+    distinguish that from a correct implementation. See this task's `decisions` entry, which
+    records having manually mutation-tested this exact bug shape against this fixture."""
+
+    def __init__(
+        self,
+        *,
+        prices: dict[str, list[float]],
+        weekly_ok: set[str],
+        weekly_delay_seconds: dict[str, float],
+        daily_failing: set[str] | None = None,
+    ) -> None:
+        self._prices = prices
+        self._weekly_ok = weekly_ok
+        self._weekly_delay_seconds = weekly_delay_seconds
+        self._daily_failing = daily_failing or set()
+        self.weekly_calls: list[str] = []
+
+    def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
+        if ticker in self._daily_failing:
+            raise TickerNotFoundError(ticker)
+        return _frame(self._prices[ticker])
+
+    def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
+        self.weekly_calls.append(ticker)
+        time.sleep(self._weekly_delay_seconds.get(ticker, 0.0))
+        if ticker not in self._weekly_ok:
+            raise DataProviderUnavailableError(f"{ticker} weekly down")
         return _hold_weekly_ohlcv()
 
 
@@ -459,6 +497,81 @@ class TestGetPortfolioSignal:
         assert by_ticker["MSFT"]["signal"] is None
         # Both positions still contribute their known price to positions_value.
         assert by_ticker["MSFT"]["current_price"] == pytest.approx(330.0)
+
+    def test_weekly_prefetch_outcome_not_swapped_when_completion_order_differs_from_submission_order(
+        self, db_session: Session
+    ) -> None:
+        """The discriminating check for `_prefetch_swing_weekly_ohlcv`'s concurrent per-ticker
+        fan-out: AAPL (`_ordered_positions` submits it first, same entry_date/earlier id than
+        MSFT) is deliberately the SLOWER of the two weekly fetches to complete, and its own
+        fetch fails, while MSFT is submitted second but finishes first with a successful fetch.
+        A bug that mapped a completed future's weekly frame back onto the wrong ticker (e.g.
+        matching by completion order instead of the ticker key each future was submitted under)
+        would swap which position gets a real signal and which gets None -- see
+        `_DelayedWeeklyProvider`'s own docstring."""
+        db_session.add(AccountORM(id=1, cash=1000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=10, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.add(
+            PositionORM(id="pos_2", ticker="MSFT", quantity=5, avg_cost_basis=300.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        provider = _DelayedWeeklyProvider(
+            prices={"AAPL": [110.0], "MSFT": [330.0]},
+            weekly_ok={"MSFT"},
+            weekly_delay_seconds={"AAPL": 0.15, "MSFT": 0.0},
+        )
+        test_client = _make_client(db_session, provider)
+        try:
+            response = test_client.get("/api/portfolio")
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert response.status_code == 200
+        by_ticker = {p["ticker"]: p for p in response.json()["positions"]}
+        assert by_ticker["AAPL"]["signal"] is None
+        assert by_ticker["MSFT"]["signal"] == "HOLD"
+        # Both positions' own weekly fetch was actually attempted (not short-circuited).
+        assert set(provider.weekly_calls) == {"AAPL", "MSFT"}
+        # current_price is unaffected either way -- it comes from the (separate, already
+        # concurrent) daily price fetch, not this weekly prefetch.
+        assert by_ticker["AAPL"]["current_price"] == pytest.approx(110.0)
+        assert by_ticker["MSFT"]["current_price"] == pytest.approx(330.0)
+
+    def test_weekly_prefetch_is_skipped_for_a_position_whose_price_fetch_already_failed(
+        self, db_session: Session
+    ) -> None:
+        """`_prefetch_swing_weekly_ohlcv` only fetches weekly OHLCV for a ticker whose daily
+        (price) fetch already succeeded -- a position whose price fetch failed never reaches
+        `_compute_position_signal`'s weekly lookup at all, so prefetching it would be wasted
+        work (this function's own docstring)."""
+        db_session.add(AccountORM(id=1, cash=1000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="ZZZZ", quantity=10, avg_cost_basis=50.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        provider = _DelayedWeeklyProvider(
+            prices={},
+            weekly_ok=set(),
+            weekly_delay_seconds={},
+            daily_failing={"ZZZZ"},
+        )
+        test_client = _make_client(db_session, provider)
+        try:
+            response = test_client.get("/api/portfolio")
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert response.status_code == 200
+        [position] = response.json()["positions"]
+        assert position["current_price"] is None
+        assert position["signal"] is None
+        assert provider.weekly_calls == []
 
     def test_malformed_open_high_low_on_latest_bar_nulls_signal_but_not_price(
         self, db_session: Session
