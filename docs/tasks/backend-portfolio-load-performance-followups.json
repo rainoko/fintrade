@@ -67,5 +67,11 @@
       "rationale": "A naive fix (calling `_prefetch_swing_weekly_ohlcv` directly from `get_risk`, or inlining an equivalent 'fetch weekly for every swing position up front') was rejected: it would prefetch weekly data for every enriched swing position regardless of whether that position's own daily-side `protective_stop` computation would even succeed, defeating `get_risk`'s own pre-existing, explicitly-documented 'don't pay for a weekly round trip that would be thrown away' optimization (already covered by `test_daily_excluded_position_never_triggers_weekly_fetch`, which still passes unchanged) for any position that fails the cheap daily-side filter -- exactly the risk this task's own checklist item 5 wording flagged. Extracting the shared `_fetch_weekly_ohlcv_concurrently` helper (rather than duplicating the `ThreadPoolExecutor` fan-out inline in `get_risk`) was chosen over leaving two independent copies: this codebase's own established precedent (`backend-day-trader-timeframe-mode-api-followups`'s `compute_day_trader_signals_concurrently` pattern reused, not reimplemented, by every later concurrent-fetch task) favors one shared implementation over duplicated near-identical concurrency shapes, and the parent task's own `decisions` entry already flagged the two independent inline copies it would otherwise have produced across `pricing.py`/`portfolio.py` as a discretionary tradeoff a reviewer might weigh differently -- this task takes the opportunity to resolve that within `portfolio.py`'s own two call sites (the `pricing.py` one stays separate, since it's a different function -- price fetch, not weekly OHLCV -- in a different architectural layer, per that same entry's own layering rationale)."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-portfolio-load-performance-followups",
+    "pr_number": 353,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/353",
+    "pushed_at": "2026-09-27T23:32:13Z"
+  }
 }
