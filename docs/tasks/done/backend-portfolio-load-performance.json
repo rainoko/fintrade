@@ -3,7 +3,7 @@
   "title": "Investigate: GET /api/portfolio's first load is very slow; can IBKR speed it up when connected?",
   "area": "backend/api",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "app/api/routers/portfolio.py",
@@ -72,5 +72,45 @@
     "pr_number": 352,
     "pr_url": "https://github.com/rainoko/fintrade/pull/352",
     "pushed_at": "2026-09-27T22:41:09Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-27T23:01:44Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/352",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Thread-safety verified for real, not just assumed: `enrich_positions_with_price` and `_prefetch_swing_weekly_ohlcv` both submit futures in list/dict order and gather results via `future.result()` iterated in that same submission order (never `as_completed`), so completion order can never scramble which result maps to which ticker/row. Confirmed by reading `CachedDataProvider` (app/data/cache.py) directly: its `self._lock` already serializes every DB-touching section (established by a prior, independently-reviewed task, backend-indicator-history-performance), leaving only the stateless `YFinanceProvider`/`StooqProvider` network calls unlocked -- the same pattern already used and reviewed for `get_indicator_history`'s concurrent daily+weekly fetch, just extended to more concurrent tickers here. No new thread-safety risk introduced.",
+        "file": "backend/app/portfolio/pricing.py"
+      },
+      {
+        "summary": "Manually mutation-tested both new discriminating tests myself: introduced the completion-order-vs-submission-order bug (swapping `future.result() for future in futures` for `as_completed(...)`) into both `enrich_positions_with_price` and `_prefetch_swing_weekly_ohlcv` independently, confirmed each corresponding new test failed with the expected value-swap assertion error, then reverted both mutations and confirmed a clean full-suite baseline. The claimed mutation-testing rigor holds up under independent re-verification.",
+        "file": "backend/tests/unit/test_portfolio_pricing.py"
+      },
+      {
+        "summary": "Confirmed the `StaticPool` fix in test_portfolio_pricing_session.py is the well-understood, correct fix for the stated reason (in-memory SQLite is per-connection by default, so a worker thread opening its own connection to `:memory:` would see an empty database without `StaticPool` forcing one shared connection) -- not papering over a different bug.",
+        "file": "backend/tests/integration/test_portfolio_pricing_session.py"
+      },
+      {
+        "summary": "Speedup is genuine, not a mocked-latency artifact: verified real ThreadPoolExecutor usage (not GIL-serialized/lock-serialized in a way that would defeat concurrency) by reading `CachedDataProvider`'s lock scope directly, and confirmed both fan-outs preserve correctness order-independently. Full backend suite (1454 tests), 100% coverage, ruff/mypy/profit-target-wording/validate_tasks all clean; `backend/openapi.json` re-generation confirmed byte-identical to the committed snapshot (docstring-only diff vs. main, as claimed). e2e suite (`make e2e`, fixture provider) 26/26 passed.",
+        "file": "backend/app/api/routers/portfolio.py"
+      },
+      {
+        "summary": "Deferring the IBKR-source tradeoff to the already-filed backend-portfolio-load-performance-followups task (rather than a `decisions` entry now, or a `questions`/`waiting_input` escalation) is the right call: the investigation genuinely resolved the immediate question (IBKR can't supply the needed shape today), so there's no live tradeoff for a human or a `decisions` entry to weigh yet -- escalating a hypothetical to `questions` would stall an otherwise-complete task on an unanswerable question.",
+        "file": "docs/tasks/backend-portfolio-load-performance.json"
+      },
+      {
+        "summary": "Non-blocking (filed on backend-portfolio-load-performance-followups, already 'planned'): this task's own investigation measured its round-trip-count hypothesis with a synthetic fixed-latency provider that never exercised the actual `analyse()` signal-computation path, so the decisions entry's claim that 'no other cause was found to compete with this as the dominant cost' doesn't hold under realistic conditions -- profiling the real per-position signal-computation loop against the dev DB's own warm-cache, full-history data (e.g. AAPL's ~11,539-row cached daily history) measured ~32s of CPU-bound `analyse()` computation across 19 positions (dominated by `app.signals.kangaroo_tail.detect_kangaroo_tails`'s per-bar candidate evaluation), versus only ~2.7s for the now-concurrent fetch phases this PR optimized. The underlying 'first load is very very slow' complaint is likely only partially resolved by this PR for portfolios holding long-history tickers.",
+        "file": "docs/tasks/backend-portfolio-load-performance-followups.json"
+      },
+      {
+        "summary": "Non-blocking (filed on backend-portfolio-load-performance-followups): the decisions entry says extending get_risk's own sequential weekly-fetch loop to a concurrent treatment was 'left as a candidate for the ...-followups task created alongside this one', but that follow-up task's checklist as originally filed didn't actually contain this candidate -- added as an explicit checklist entry so it isn't lost.",
+        "file": "docs/tasks/backend-portfolio-load-performance-followups.json"
+      },
+      {
+        "summary": "Process note, not a PR defect: this review session had no live browser-automation (Playwright MCP) tool available to drive an interactive walkthrough of the Portfolio page. Substituted (a) the persisted e2e Playwright suite (`make e2e`, fixture provider, 26/26 specs passed, including portfolio.spec.ts) and (b) direct repeated HTTP calls against a real, live-running `GET /api/portfolio` over the dev SQLite DB, confirming identical, stable JSON output and graceful degradation for a pre-existing, unrelated failing ticker (CNDX) exactly as before the change.",
+        "file": null
+      }
+    ],
+    "notes": "Full review: backend test suite (1454 passed, 100% coverage), ruff+mypy+profit-target-wording+validate_tasks all clean, openapi.json regeneration confirmed a no-op vs. the committed snapshot, e2e suite 26/26 passed. Independently re-ran the two claimed mutation tests (introduced the completion-order bug into both `enrich_positions_with_price` and `_prefetch_swing_weekly_ohlcv`, confirmed each fails, reverted). Verified `CachedDataProvider`'s thread-safety by reading its lock implementation directly rather than trusting the claim. area is backend/api (not backend/signals or backend/portfolio and skill isn't verify-elder-signal), so verify-elder-signal wasn't loaded; no new module/dependency/layer added, so architecture-review wasn't loaded. No frontend files touched by this PR. Two non-blocking findings (a likely-dominant, unaddressed CPU-bound signal-computation bottleneck discovered while verifying the claimed speedup, and a decisions-entry/followups-checklist mismatch) filed on the already-existing backend-portfolio-load-performance-followups task rather than a new one."
   }
 }

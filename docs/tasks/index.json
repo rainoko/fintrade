@@ -2364,8 +2364,8 @@
       "id": "backend-portfolio-load-performance",
       "area": "backend/api",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-portfolio-load-performance.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-portfolio-load-performance.json"
     },
     {
       "id": "frontend-fibonacci-auto-levels",
