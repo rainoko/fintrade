@@ -95,6 +95,54 @@ export function bringSeriesToFront(
 }
 
 /**
+ * Moves every series in `seriesGroup` to the top of its pane's render-order
+ * stack, as a single contiguous block, while preserving each member's
+ * position *relative to the other members of the group* — e.g. if
+ * `seriesGroup` is `[a, b, c]`, the group ends up stacked `a` below `b`
+ * below `c` (matching `seriesGroup`'s own order), directly beneath whatever
+ * else calls `bringSeriesToFront` afterwards, regardless of where `a`/`b`/`c`
+ * individually sat in the pane beforehand (mixed in with other series, in
+ * any order).
+ *
+ * `PriceChart.tsx` uses this to re-assert the support/resistance zone
+ * bands' (`BaselineSeries`, frontend-support-resistance-overlay) own z-order
+ * whenever a later-resolving effect (the value-zone mask, the tide-region
+ * shading) adds new fill series to the same pane after the zone bands were
+ * already added — see `bringSeriesToFront`'s own doc comment for why that
+ * reassertion is needed at all, and this function's own
+ * frontend-support-zones-disappear-after-oscillators-followups `decisions`
+ * entry for why more than one zone band could ever need reordering as a
+ * group in the first place (more than one support/resistance zone
+ * currently displayed at once).
+ *
+ * Implemented as `seriesGroup.length` sequential `bringSeriesToFront` calls,
+ * in `seriesGroup`'s own order — deliberately NOT by computing each
+ * member's target index up front (e.g. `paneSeriesCount - seriesGroup.length
+ * + i`) and assigning it directly. That alternative looks equivalent but
+ * isn't: `ISeriesApi.setSeriesOrder` splices its target series out of the
+ * pane's source list and reinserts it at the given index immediately, before
+ * the next call runs — so an index computed once, up front, against the
+ * pre-move layout can land a later group member short of its intended slot
+ * once an earlier already-moved member has shifted the tail of the list out
+ * from under it (confirmed by hand-simulating both approaches against
+ * Lightweight Charts' own bundled `Pane._internal_setSeriesOrder`
+ * implementation — the same source PR #350's review verified
+ * `bringSeriesToFront` itself against). Calling `bringSeriesToFront` once
+ * per member instead sidesteps that entirely: each call always targets "the
+ * very top of the pane, whatever that currently is", so a member processed
+ * later always ends up above one processed earlier — which is exactly
+ * `seriesGroup`'s own order, with no dependency on any member's position
+ * before this function runs.
+ */
+export function bringSeriesGroupToFront(
+  chart: IChartApi,
+  seriesGroup: readonly ISeriesApi<SeriesType>[],
+  paneIndex = 0,
+): void {
+  seriesGroup.forEach((series) => bringSeriesToFront(chart, series, paneIndex))
+}
+
+/**
  * Converts a Lightweight Charts `Time` value back into the plain
  * `'YYYY-MM-DD'` string this app always feeds *in* (every series-building
  * helper under `features/stocks/components/` casts a backend `date` field

@@ -2192,6 +2192,71 @@ describe('PriceChart', () => {
       expect(finalOrder.indexOf(candlestickSeries)).toBe(finalOrder.length - 1)
       expect(finalOrder.indexOf(zoneBandSeries)).toBe(finalOrder.length - 2)
     })
+
+    // Non-blocking follow-up from PR #350's review
+    // (frontend-support-zones-disappear-after-oscillators-followups):
+    // confirms `bringSeriesGroupToFront` (utils/chart.ts) preserves the zone
+    // bands' own order *relative to each other* when more than one is
+    // mounted at once, rather than reversing it -- see that helper's own
+    // doc comment and this task's `decisions` entry for why a naive
+    // "compute each member's target index up front" alternative would
+    // actually get this wrong, and why sequential `bringSeriesToFront` calls
+    // (what this helper does) don't.
+    it("preserves the zone bands' own relative order (does not reverse them) when re-asserting more than one as a group", async () => {
+      mockHistory(twoBars)
+      mockAnalysis([
+        buildZone({ role: 'resistance', upper: 236.9, lower: 233.4 }),
+        buildZone({ role: 'support', upper: 225.0, lower: 222.0 }),
+      ])
+
+      let resolveIndicators: (() => void) | undefined
+      server.use(
+        http.get('/api/stocks/:ticker/indicators', async () => {
+          await new Promise<void>((resolve) => {
+            resolveIndicators = resolve
+          })
+          return HttpResponse.json(indicatorPoints)
+        }),
+      )
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      // Candlestick (1) + both zone bands (2), in the order the zone effect
+      // added them (resistance first, then support -- `mockAnalysis`'s own
+      // array order).
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(3))
+      await waitFor(() => expect(resolveIndicators).toBeDefined())
+
+      const baselineCallsBeforeResolve = addSeriesMock.mock.calls
+        .map((call, i) => ({ definition: call[0], series: addSeriesMock.mock.results[i]!.value }))
+        .filter((entry) => entry.definition === 'BaselineSeries-definition')
+      expect(baselineCallsBeforeResolve).toHaveLength(2)
+      const [resistanceZoneSeries, supportZoneSeries] = baselineCallsBeforeResolve.map(
+        (entry) => entry.series,
+      )
+
+      resolveIndicators?.()
+
+      // Signal-overlay's 6 series + tide-region's 1 -- 3 + 6 + 1 = 10.
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(10))
+
+      const chartInstance = createChartMock.mock.results[0]!.value as {
+        panes: () => { getSeries: () => unknown[] }[]
+      }
+      const finalOrder = chartInstance.panes()[0]!.getSeries()
+
+      const candlestickCall = addSeriesMock.mock.calls
+        .map((call, i) => ({ definition: call[0], series: addSeriesMock.mock.results[i]!.value }))
+        .find((entry) => entry.definition === 'CandlestickSeries-definition')
+      const candlestickSeries = candlestickCall!.series
+
+      // Candlestick still on top; directly beneath it, the two zone bands
+      // stay in their ORIGINAL add order (resistance below support) --
+      // not reversed by the group re-assertion.
+      expect(finalOrder.indexOf(candlestickSeries)).toBe(finalOrder.length - 1)
+      expect(finalOrder.indexOf(supportZoneSeries)).toBe(finalOrder.length - 2)
+      expect(finalOrder.indexOf(resistanceZoneSeries)).toBe(finalOrder.length - 3)
+    })
   })
 
   describe('divergence overlay (frontend-divergence-markers)', () => {
