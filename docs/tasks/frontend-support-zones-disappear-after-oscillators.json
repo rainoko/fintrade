@@ -3,7 +3,7 @@
   "title": "Investigate: support/resistance zones disappear from the price chart once oscillators finish loading",
   "area": "frontend/stocks",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "frontend/src/features/stocks/components/PriceChart.tsx",
@@ -14,21 +14,28 @@
   "checklist": [
     {
       "step": "Reproduce the bug: start the dev stack, load the Stock Detail page for a ticker with visible support/resistance zones (check fixture data or a ticker known to have Elder-relevant zones), and screenshot the price chart at three points: immediately after the price chart itself renders zones, while the Oscillators panel is still loading, and once it has finished loading. Confirm the zones genuinely disappear (not just visually similar-looking) and note the exact moment it happens.",
-      "done": false
+      "done": true
     },
     {
       "step": "Identify the actual root cause by reading the relevant effect/render code directly (don't stop at a plausible theory) -- check whether `PriceChart` remounts, whether `analysisQuery.data`'s reference or content changes at that moment, whether any cleanup function fires unexpectedly, and whether `OscillatorChart`/any shared parent state is genuinely involved versus coincidental timing (e.g. both effects settling around the same moment for unrelated reasons).",
-      "done": false
+      "done": true
     },
     {
       "step": "Fix the identified root cause. Record the diagnosis and fix rationale as a `decisions` entry, including what was ruled out and why.",
-      "done": false
+      "done": true
     },
     {
       "step": "Add a regression test that would have caught this (mutation-test it: temporarily reintroduce the bug, confirm the test fails, then restore the fix) -- likely an integration-style test exercising both `PriceChart` and `OscillatorChart` together under the same parent, not just `PriceChart` in isolation, since the bug is specifically about their interaction.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-27T20:51:04Z",
+      "recorded_by": "task-worker",
+      "decision": "Root cause confirmed by live reproduction (headless Playwright against a real dev backend/frontend stack in fixture-data mode, ticker AAPL, with GET /api/stocks/AAPL/indicators artificially delayed via page.route so the exact moment it resolves could be isolated): the support/resistance zone bands disappearing is entirely internal to PriceChart.tsx -- OscillatorChart is NOT involved at all, and the 'once Oscillators finishes loading' framing is coincidental timing off a query PriceChart itself also depends on. PriceChart mounts its own chart/candlestick series in one effect, then five further effects independently add/remove overlay series onto that same pane: signal-overlay (EMA13/EMA26/channel bands plus a two-AreaSeries 'value zone' fill/mask pair), tide-region background shading, support/resistance zone bands (BaselineSeries), divergence, and kangaroo-tail. The zone-band effect depends only on [historyQuery.data, analysisQuery.data, theme] and commonly resolves (adding its BaselineSeries to the pane) BEFORE the signal-overlay and tide-region effects, which both depend on indicatorsQuery.data -- the same query OscillatorChart also depends on. Lightweight Charts draws a later-added series above an earlier one on the same pane (the same rule this file's own bringSeriesToFront/PR #151 comments already document for the candlestick series), so once indicators resolved, the signal-overlay effect's zoneBottomMaskSeries (an OPAQUE theme.palette.background.paper fill from valueZoneBottom down to the bottom of the pane) and the tide-region effect's full-pane-height AreaSeries got added AFTER the zone bands and painted over them -- confirmed experimentally by temporarily making zoneBottomMaskSeries transparent, which alone restored the lower zone bands' visibility in the same repro. Fixed by adding a zoneSeriesRef (tracking the currently-mounted zone-band series, alongside the existing chartRef/seriesRef pattern) that the signal-overlay and tide-region effects both consult: after adding their own new fill series, each re-asserts the zone bands' own z-order (bringSeriesToFront on each zone series) before finally moving the candlestick series to the front as before.",
+      "rationale": "Mirrors the exact 'self-healing regardless of add/run order' idiom bringSeriesToFront's own doc comment already establishes for the candlestick-vs-fills problem (PR #151), extended to cover the zone-bands-vs-later-fills case that was never handled -- the smallest change consistent with the codebase's own established pattern for this exact class of bug, rather than inventing a new mechanism. Alternatives ruled out during investigation, before settling on this fix: (1) PriceChart remounting when OscillatorChart's query settles -- disproved by reading StockDetailPage.tsx (StockCharts is not conditionally keyed/remounted once analysisQuery.data is populated) and by the createChartMock call count staying at 1 throughout the regression tests; (2) analysisQuery.data's reference or content changing at that moment -- the zone effect's own dependency array doesn't include indicatorsQuery.data at all, so it never re-runs (and its BaselineSeries are never torn down) when indicators resolve; (3) PriceChart and OscillatorChart sharing a chart/series ref, a context, or any chart instance -- utils/chart.ts's createBaseChart is called independently by each and returns a fresh IChartApi per call, confirmed by reading both components' source directly; (4) theme identity changing on re-render -- main.tsx creates the MUI theme once at module scope and never recreates it, so useTheme() returns a stable reference across renders. Alternative fixes considered and rejected: making zoneBottomMaskSeries itself transparent/less opaque (would defeat its own documented purpose of erasing zoneTopSeries's fill below the value zone's lower bound); converting the zone effect to also depend on indicatorsQuery.data so it always re-runs last (would cause the zone bands to flicker/tear down and rebuild every time indicators refetch, for no benefit, and wouldn't fix the case where indicators resolve AFTER analysis on a slow network -- the actual reported scenario). Verified with a genuinely discriminating regression test in both PriceChart.test.tsx (unit-level, asserting the exact final z-order via a real-semantics setSeriesOrder mock) and StockCharts.test.tsx (integration-level, both PriceChart and OscillatorChart mounted together with GET /api/stocks/:ticker/indicators delayed, mirroring the originally reported symptom) -- both mutation-tested by reverting to the pre-fix code and confirming they fail, then restoring the fix and confirming they pass."
+    }
+  ],
   "questions": []
 }

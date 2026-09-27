@@ -114,6 +114,32 @@ const createChartMock = vi.fn(() => {
     addSeries: (...args: unknown[]) => {
       const created = addSeriesMock(...args)
       paneSeries.push(created)
+      // Overridden per-instance (not just the shared `setSeriesOrderMock`
+      // spy every series object literal starts out pointing at) so this
+      // mock's own `paneSeries` array reflects REAL z-order, the same way
+      // the real Lightweight Charts library's pane actually reorders series
+      // when `setSeriesOrder` is called on one of them -- needed to write a
+      // genuinely discriminating regression test for
+      // frontend-support-zones-disappear-after-oscillators (this task's own
+      // `decisions` entry): asserting only on `setSeriesOrderMock`'s call
+      // arguments (as every earlier z-order test in this file already does)
+      // proves *a* reorder happened, but not that the FINAL stack ends up in
+      // the right relative order once multiple independently-timed effects
+      // each reorder a different series. `bringSeriesToFront` (utils/
+      // chart.ts) always calls this with `index = getSeries().length - 1`
+      // (i.e. "move to the very end/top"), so a plain remove-then-insert-at-
+      // that-index reproduces the real move regardless of exactly how many
+      // other series exist at the time.
+      ;(created as { setSeriesOrder: (index: number) => void }).setSeriesOrder = (
+        index: number,
+      ) => {
+        setSeriesOrderMock(index)
+        const currentIndex = paneSeries.indexOf(created)
+        if (currentIndex !== -1) {
+          paneSeries.splice(currentIndex, 1)
+        }
+        paneSeries.splice(index, 0, created)
+      }
       return created
     },
     removeSeries: (series: unknown) => {
@@ -2077,6 +2103,94 @@ describe('PriceChart', () => {
       expect(removePriceLineMock).toHaveBeenCalledTimes(1)
       expect(detachMarkersMock).toHaveBeenCalledTimes(1)
       expect(createPriceLineMock).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('z-order regression: zone bands vs. later-resolving fill series (frontend-support-zones-disappear-after-oscillators)', () => {
+    // Regression test for a user-reported bug: the support/resistance zone
+    // bands rendered correctly on initial load, then disappeared once
+    // GET /api/stocks/{ticker}/indicators resolved -- coincidentally, the
+    // same query OscillatorChart (a sibling under StockCharts.tsx) also
+    // depends on, which is why the symptom read as "zones disappear once
+    // Oscillators finishes loading" even though OscillatorChart never
+    // touches this chart at all. Confirmed live via Playwright screenshots
+    // (delaying only `/indicators`): the zone bands were visible while
+    // `/indicators` was still loading, then vanished the instant it
+    // resolved -- see this task's `decisions` entry for the full
+    // investigation.
+    //
+    // Root cause: the zone effect (gated on `analysisQuery.data`) commonly
+    // runs -- and adds its own `BaselineSeries` zone bands to pane 0 -- on an
+    // EARLIER render than the signal-overlay effect's opaque value-zone mask
+    // and the tide-region effect's background shading (both gated on the
+    // independently-resolving `indicatorsQuery.data`). Lightweight Charts
+    // draws a later-added series above an earlier one on the same pane (the
+    // same rule `bringSeriesToFront`'s own doc comment documents for the
+    // candlestick series) -- but only the candlestick series was ever
+    // explicitly reordered back to the front; the zone bands were not, so
+    // they ended up silently buried underneath (and, in the opaque mask's
+    // case, fully painted over by) whichever fill series happened to be
+    // added later.
+    it('keeps the zone bands in front of the value-zone mask and tide-region shading even when GET /api/stocks/{ticker}/indicators resolves on a LATER render than GET /api/stocks/{ticker}/analysis', async () => {
+      mockHistory(twoBars)
+      mockAnalysis([buildZone({ upper: 225.0, lower: 222.0 })])
+
+      // Delay `/indicators` independently of `/analysis`/`/history` so the
+      // zone effect runs -- and adds its own zone-band series -- well before
+      // the signal-overlay/tide-region effects do, the exact ordering that
+      // reproduced the bug live.
+      let resolveIndicators: (() => void) | undefined
+      server.use(
+        http.get('/api/stocks/:ticker/indicators', async () => {
+          await new Promise<void>((resolve) => {
+            resolveIndicators = resolve
+          })
+          return HttpResponse.json(indicatorPoints)
+        }),
+      )
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      // Candlestick (1) + the single zone band (1) -- the zone effect has
+      // already run and reordered the candlestick to the front, entirely
+      // independently of the still-pending `/indicators` fetch.
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(2))
+      await waitFor(() => expect(resolveIndicators).toBeDefined())
+
+      resolveIndicators?.()
+
+      // Signal-overlay's 6 series (value-zone top/mask, EMA13/EMA26, channel
+      // upper/lower) + tide-region's 1 series (indicatorPoints is a single
+      // Neutral segment) now also exist: 2 + 6 + 1 = 9.
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(9))
+      // Both of those effects reorder series (their own final
+      // `bringSeriesToFront(chart, series)` call, plus -- the fix under
+      // test -- one re-assertion of the zone band's own order each): 4 more
+      // `setSeriesOrder` calls on top of the zone effect's own 1.
+      await waitFor(() => expect(setSeriesOrderMock).toHaveBeenCalledTimes(5))
+
+      const chartInstance = createChartMock.mock.results[0]!.value as {
+        panes: () => { getSeries: () => unknown[] }[]
+      }
+      const finalOrder = chartInstance.panes()[0]!.getSeries()
+
+      function soleSeriesInstance(definition: string): unknown {
+        const matches = addSeriesMock.mock.calls
+          .map((call, i) => ({ definition: call[0], series: addSeriesMock.mock.results[i]!.value }))
+          .filter((entry) => entry.definition === definition)
+        expect(matches).toHaveLength(1)
+        return matches[0]!.series
+      }
+
+      const candlestickSeries = soleSeriesInstance('CandlestickSeries-definition')
+      const zoneBandSeries = soleSeriesInstance('BaselineSeries-definition')
+
+      // The candlestick series is still always the very topmost (unchanged
+      // existing invariant) -- but the zone band now sits directly beneath
+      // it, ABOVE every value-zone/tide-region fill series, instead of
+      // buried underneath them (the reported bug).
+      expect(finalOrder.indexOf(candlestickSeries)).toBe(finalOrder.length - 1)
+      expect(finalOrder.indexOf(zoneBandSeries)).toBe(finalOrder.length - 2)
     })
   })
 

@@ -2350,7 +2350,7 @@
       "id": "frontend-support-zones-disappear-after-oscillators",
       "area": "frontend/stocks",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-support-zones-disappear-after-oscillators.json"
     },
     {
