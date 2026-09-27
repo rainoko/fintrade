@@ -2345,6 +2345,13 @@
       "skill": null,
       "state": "done",
       "path": "docs/tasks/done/frontend-ibkr-login-button-followups-followups-followups-followups.json"
+    },
+    {
+      "id": "frontend-ibkr-preload-loading-feedback",
+      "area": "frontend/portfolio",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-ibkr-preload-loading-feedback.json"
     }
   ]
 }
