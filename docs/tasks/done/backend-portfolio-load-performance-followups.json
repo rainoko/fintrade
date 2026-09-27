@@ -3,7 +3,7 @@
   "title": "Follow-up: could IBKR ever supply swing-mode's daily/weekly OHLCV, and should it?",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-portfolio-load-performance"],
   "references": [
     "docs/tasks/backend-portfolio-load-performance.json",
@@ -73,5 +73,18 @@
     "pr_number": 353,
     "pr_url": "https://github.com/rainoko/fintrade/pull/353",
     "pushed_at": "2026-09-27T23:32:13Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-27T23:40:41Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/353",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Non-blocking: `_fetch_weekly_ohlcv_concurrently`'s docstring claims a duplicate ticker is 'fetched at most once', but `{ticker: executor.submit(_fetch, ticker) for ticker in tickers}` actually re-submits/re-executes `_fetch` once per occurrence (verified independently: 3-item list with one repeat produced 3 calls, not 2) -- only the stored future per key is deduplicated to the last submission. Pre-existing behavior inherited unchanged from `_prefetch_swing_weekly_ohlcv`'s prior inline code (which never made this claim), and currently unreachable given `PositionORM.ticker`'s DB-level `unique=True` constraint (no two positions can share a ticker today). Tracked as a checklist entry on `backend-portfolio-load-performance-followups-followups` (already existed, still planned) rather than a new follow-up task.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 165
+      }
+    ],
+    "notes": "Independently verified every claim in the task-worker's own report rather than trusting it: (1) read docs/Analyse.md §8 directly -- the ~200-trading-day minimum claim is accurate; independently computed IBKRProvider.max_lookback_days_for_bar_size('1h') = 20 pages * 1000 bars/page * 1h = 833.33 calendar days, ~595 trading days at a naive 5/7 ratio -- comfortably clears the 200-day floor, confirming the PR's arithmetic and its correction of the parent task's own framing. (2) Independently re-profiled app.signals.kangaroo_tail.detect_kangaroo_tails with cProfile against a synthetic ~11,539-row daily series (matching AAPL's real cached history length) -- measured 1.71s wall-clock for one call, matching the PR's claimed 1.7-1.8s/ticker range and PR #352's own converging figures; read _evaluate_candidate's implementation and confirm its O(n) per-bar re-slicing/pandas-indexing shape plausibly explains this cost. (3) Diffed docs/tasks/done/backend-portfolio-load-performance.json's decisions array against main -- confirmed genuinely append-only (original two entries byte-unchanged, one new entry appended with its own timestamp/rationale). (4) Mutation-tested _fetch_weekly_ohlcv_concurrently myself: swapped the submission-order gather for an as_completed(...)-based one, confirmed both the new test_weekly_fetch_outcome_not_swapped_when_completion_order_differs_from_submission_order and the pre-existing test_portfolio_get.py concurrency test failed, then reverted (working tree confirmed clean after revert). (5) Read the new backend-portfolio-load-performance-followups-followups task filed for the vectorization prototype -- confirmed its own checklist correctly identifies 'matches old implementation on one synthetic fixture' as feasibility evidence only, not the hand-computed-reference-value rigor add-indicator/verify-elder-signal require, and requires that rigor before any future shipment; deferring is sound. (6) Judged the 'not worth building IBKR fetch' decision a genuinely resolvable engineering call (grounded in measured facts: ~20x-shorter history degrading signal quality, and provider round trips no longer being the dominant cost at all) rather than a product ambiguity needing user escalation -- checklist item 3's premise (which source swing mode should prefer) never arises once item 1 concludes nothing new is being built, and the task's own decisions entries walk through this correctly. (7) Re-ran the full backend suite (1456 passed), coverage (100%, gate 90%), ruff/mypy (clean), check_profit_target_wording.py (clean), validate_tasks.py (clean, both before and after adding my own follow-up checklist entry), and confirmed `python scripts/export_openapi.py` produces zero diff against the committed backend/openapi.json (genuinely a no-op, no route/schema touched). No frontend files are touched by this PR and no user-facing behavior changed (GET /api/portfolio/risk's response shape/filtering semantics are unchanged, only its internal fetch concurrency) -- browser walkthrough and the e2e-test skill are both skipped as genuinely inapplicable, not omitted. No new module/dependency/layer is introduced (a function extracted into a shared private helper within an existing router file), so architecture-review wasn't run. No signal/confidence/risk math shipped in this diff (the vectorization prototype was investigated but explicitly not shipped), so a full verify-elder-signal pass wasn't run either -- the §8 data-requirements claim was independently checked directly instead, per this review's own step 1. One minor non-blocking documentation-accuracy finding filed against the existing backend-portfolio-load-performance-followups-followups follow-up task rather than a new one."
   }
 }

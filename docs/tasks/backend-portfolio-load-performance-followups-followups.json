@@ -36,6 +36,10 @@
     {
       "step": "Re-measure the full swing-mode portfolio load (mirroring backend-portfolio-load-performance's own timing methodology) after whichever fix(es) are implemented, and record the before/after numbers in a `decisions` entry -- this is the task that actually closes out the original 'first load is very very slow' user complaint's CPU-bound half, so its own claim of having done so should be measured, not assumed.",
       "done": false
+    },
+    {
+      "step": "PR #353 review finding (backend-portfolio-load-performance-followups, non-blocking): `_fetch_weekly_ohlcv_concurrently`'s own docstring (`backend/app/api/routers/portfolio.py`) claims 'A duplicate ticker in `tickers` (two positions on the same ticker) is fetched at most once -- the returned dict is keyed by ticker'. This is inaccurate: `{ticker: executor.submit(_fetch, ticker) for ticker in tickers}` calls `executor.submit` (and therefore `_fetch`/`provider.get_weekly_ohlcv`) once per *occurrence* of a ticker in the list, not once per distinct ticker -- only the *stored future* per key ends up deduplicated to the last submission (verified independently: a 3-item list with one repeated ticker produced 3 calls to the wrapped function, not 2). This exact behavior is pre-existing (inherited unchanged from `_prefetch_swing_weekly_ohlcv`'s own prior inline `ThreadPoolExecutor` code, which never made this claim), and is currently unreachable in practice since `PositionORM.ticker` has a DB-level `unique=True` constraint (no two positions can share a ticker today, per `app/db/models.py`'s own multi-lot-support comment) -- so no live portfolio can actually trigger a duplicate-ticker call. Still worth fixing before any future multi-lot-support work makes the scenario reachable: either correct the docstring's claim (say it dedupes the *result*, not the *fetch*), or actually dedupe `tickers` before submitting (e.g. `list(dict.fromkeys(tickers))`) so the code matches what the docstring already asserts.",
+      "done": false
     }
   ],
   "decisions": [],
