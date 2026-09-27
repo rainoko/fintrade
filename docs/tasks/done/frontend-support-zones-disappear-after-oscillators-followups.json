@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from frontend-support-zones-disappear-after-oscillators's PR #350 review",
   "area": "frontend/stocks",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-support-zones-disappear-after-oscillators"],
   "references": [
     "docs/tasks/frontend-support-zones-disappear-after-oscillators.json",
@@ -40,5 +40,28 @@
     "pr_number": 351,
     "pr_url": "https://github.com/rainoko/fintrade/pull/351",
     "pushed_at": "2026-09-27T21:54:58Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-27T22:08:17Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/351",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Independently re-verified the PR's central correction claim by reading Lightweight Charts' own bundled source directly (frontend/node_modules/lightweight-charts/dist/lightweight-charts.development.mjs, Pane._internal_setSeriesOrder: splice-out-by-current-index then splice-in-at-target-index, then a full setZorder(i) reassignment over the resulting array) and hand-tracing three sequential bringSeriesToFront calls against a scattered 5-entry pane. Result matches the task-worker's conclusion exactly: a forward-order forEach of single-series 'move to current top' calls provably preserves the group's relative order (the member processed last ends up truly on top) -- it does not reverse it. PR #350's original review finding was a false positive. Also reproduced this empirically: copied the repo's chart.ts, mutated bringSeriesGroupToFront to `seriesGroup.slice().reverse().forEach(...)` (i.e. actually reintroduced a reversal), and confirmed the PR's new PriceChart.test.tsx test ('preserves the zone bands' own relative order...') fails against that mutant and passes against the real implementation -- the mutation-testing claim in the PR/decisions entry holds up.",
+        "file": "frontend/src/utils/chart.ts",
+        "line": 97
+      },
+      {
+        "summary": "Reproduced the e2e IBKR-env-leak verification independently: temporarily reverted playwright.config.ts to its pre-fix (main) version, exported FINTRADE_IBKR_ENABLED=true ambiently, and ran tests/e2e/scanner.spec.ts + watchlist.spec.ts -- exactly the 2 named specs failed (5 passed). Restored the fixed config with the same ambient env still exported -- all 7 specs in those 2 files passed. Then ran the full 26-spec suite (make e2e) with a clean ambient env -- all 26 passed. Also confirmed backend/.env is untouched by this PR (no diff vs main) and still reads FINTRADE_IBKR_ENABLED=false, and confirmed via app/api/routers/ibkr.py/app/api/dependencies.py that settings.ibkr_base_url is never read when the provider is disabled, so clearing FINTRADE_IBKR_BASE_URL to '' in the e2e pin is safe as the decisions entry claims.",
+        "file": "frontend/playwright.config.ts",
+        "line": 72
+      },
+      {
+        "summary": "Confirmed the correction of PR #350's finding was recorded correctly per CLAUDE.md's append-only convention: the new decisions entries live only on this follow-up task (still open at review time), and docs/tasks/done/frontend-support-zones-disappear-after-oscillators.json (PR #350's own already-done task) has no diff against main -- its existing decisions/review text was left untouched, as it should be since no checklist item on this task called out that text itself as the thing to fix.",
+        "file": "docs/tasks/frontend-support-zones-disappear-after-oscillators-followups.json",
+        "line": 23
+      }
+    ],
+    "notes": "Full review per pr-reviewer process. Backend: pytest --cov=app --cov-fail-under=90 -> 1451 passed, 100% coverage. Frontend: vitest run --coverage -> 960 passed, 99.79%/99.14%/99.81%/99.84% (stmt/branch/fn/line), all >=90% gate. Static analysis: ruff check . clean, mypy clean (67 files), yarn lint clean, yarn tsc -b --noEmit clean, scripts/check_profit_target_wording.py clean. scripts/validate_tasks.py: OK, 338 files. e2e: full 26-spec make e2e run clean-ambient-env -> 26/26 passed; independently reproduced the 2-spec IBKR-env-leak failure/fix per above. No new frontend component was added (bringSeriesGroupToFront is a plain function, not a component) and its placement in utils/chart.ts alongside the pre-existing bringSeriesToFront is correct per Frontend.md Sec3 (domain-agnostic, operates only on IChartApi/ISeriesApi types with no stocks/ticker/signal concept). No API route or schema touched, so no openapi.json regeneration was needed. Change is not backend/signals or backend/portfolio and does not add a new module/dependency/layer, so verify-elder-signal and architecture-review were not separately invoked. Browser walkthrough (step 9): this session's toolset did not include the interactive Playwright MCP browser tools (no browser_* / enable__mcp__* tools were available to invoke), so I could not do the live click-through walkthrough as literally specified -- flagging this explicitly rather than silently skipping it. In its place I ran the full real-Chromium e2e regression suite (via the persisted Playwright Test runner, `make e2e`, all 26 specs including the stock-analysis specs that render PriceChart) plus a mutation-tested unit test that directly discriminates the exact z-order behavior in question, which together substantively cover this PR's actual UI-relevant risk (an internal render-order fix with no new visible states, text, or interactions). No blocking findings. No non-blocking findings beyond what's already recorded above as informational verification notes -- nothing new to file as a follow-up task."
   }
 }
