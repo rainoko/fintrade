@@ -69,6 +69,19 @@ export default defineConfig({
         // instead of the real yfinance/Stooq-backed provider — see this task's `decisions`
         // entry for why the e2e suite needs deterministic, offline market data.
         FINTRADE_DATA_PROVIDER_MODE: 'fixture',
+        // Pinned explicitly, not left to inherit whatever the ambient shell/devcontainer
+        // profile happens to export (frontend-support-zones-disappear-after-oscillators-
+        // followups): this `env` object is *merged with*, not a replacement for, this
+        // process's own `process.env` when Playwright spawns the backend — so a dev
+        // container profile that globally exports `FINTRADE_IBKR_ENABLED=true` (pointing
+        // at a real IBKR gateway) would otherwise leak into this e2e backend process and
+        // deterministically fail `scanner.spec.ts`'s/`watchlist.spec.ts`'s IBKR-disabled-
+        // state assertions -- confirmed happening during PR #350's own review. Explicitly
+        // setting both here (rather than just the enabled flag) means the e2e suite's
+        // IBKR-disabled state no longer depends on ambient environment at all, matching
+        // this suite's other deliberately-pinned/deterministic fixture settings above.
+        FINTRADE_IBKR_ENABLED: 'false',
+        FINTRADE_IBKR_BASE_URL: '',
       },
       url: `http://127.0.0.1:${BACKEND_PORT}/health`,
       reuseExistingServer: false,
