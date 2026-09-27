@@ -1,0 +1,34 @@
+{
+  "id": "frontend-support-zones-disappear-after-oscillators",
+  "title": "Investigate: support/resistance zones disappear from the price chart once oscillators finish loading",
+  "area": "frontend/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "frontend/src/features/stocks/components/PriceChart.tsx",
+    "frontend/src/features/stocks/components/OscillatorChart.tsx",
+    "frontend/src/features/stocks/components/StockCharts.tsx"
+  ],
+  "description": "User-reported bug: on the Stock Detail page, the support/resistance zone bands (`PriceChart.tsx`'s support/resistance effect, `frontend-support-resistance-overlay`) render correctly on initial load, then disappear once `OscillatorChart` finishes loading its own data. Investigated the likely code path before writing this task, but did not reproduce live (no interactive browser session available while authoring this task) -- this is genuinely an investigation task, not a pre-diagnosed fix.\n\nWhat's already known from reading the code:\n- `PriceChart.tsx`'s support/resistance effect keys off `[historyQuery.data, analysisQuery.data, theme]` and re-adds/removes its `BaselineSeries` zone bands, false-breakout markers, and price lines on every dependency change via the effect's own cleanup function.\n- `PriceChart` and `OscillatorChart` are separate sibling components (`StockCharts.tsx`), each presumably owning its own `createChart()` instance -- not obviously sharing one chart/pane, so a naive 'OscillatorChart's effect calls `chart.removeSeries` on PriceChart's own chart' theory seems unlikely on its face, but has NOT been ruled out (check whether they somehow share a chart/series ref, a context, or a ref passed down, rather than assuming full independence).\n- `StockCharts.tsx`'s own doc comment mentions `PriceChart`/`OscillatorChart` 'start from the exact same DEFAULT_RANGE/DEFAULT_INTERVAL constants' and passes `errorSurfacedBySibling` between them -- meaning there IS some cross-component coordination already; check whether any of it could cause `PriceChart` to remount (not just re-render) when `OscillatorChart`'s own query settles, or whether `analysisQuery` is shared/refetched in a way that could momentarily return zones as empty/missing.\n\nThis task's job is to actually reproduce the bug (start the dev stack, load a ticker with visible support/resistance zones, watch what happens to them as the Oscillators panel finishes loading -- screenshot before/during/after via the same Playwright-plus-Read-tool-for-images technique used elsewhere in this codebase's own task history, since there's no interactive MCP browser tool available to a background agent), identify the actual root cause with confidence (not just a plausible theory), then fix it with a genuine regression test.",
+  "checklist": [
+    {
+      "step": "Reproduce the bug: start the dev stack, load the Stock Detail page for a ticker with visible support/resistance zones (check fixture data or a ticker known to have Elder-relevant zones), and screenshot the price chart at three points: immediately after the price chart itself renders zones, while the Oscillators panel is still loading, and once it has finished loading. Confirm the zones genuinely disappear (not just visually similar-looking) and note the exact moment it happens.",
+      "done": false
+    },
+    {
+      "step": "Identify the actual root cause by reading the relevant effect/render code directly (don't stop at a plausible theory) -- check whether `PriceChart` remounts, whether `analysisQuery.data`'s reference or content changes at that moment, whether any cleanup function fires unexpectedly, and whether `OscillatorChart`/any shared parent state is genuinely involved versus coincidental timing (e.g. both effects settling around the same moment for unrelated reasons).",
+      "done": false
+    },
+    {
+      "step": "Fix the identified root cause. Record the diagnosis and fix rationale as a `decisions` entry, including what was ruled out and why.",
+      "done": false
+    },
+    {
+      "step": "Add a regression test that would have caught this (mutation-test it: temporarily reintroduce the bug, confirm the test fails, then restore the fix) -- likely an integration-style test exercising both `PriceChart` and `OscillatorChart` together under the same parent, not just `PriceChart` in isolation, since the bug is specifically about their interaction.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
