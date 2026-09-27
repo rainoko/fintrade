@@ -2378,8 +2378,15 @@
       "id": "backend-portfolio-load-performance-followups",
       "area": "backend/data",
       "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-portfolio-load-performance-followups.json"
+    },
+    {
+      "id": "backend-portfolio-load-performance-followups-followups",
+      "area": "backend/signals",
+      "skill": "add-indicator",
       "state": "planned",
-      "path": "docs/tasks/backend-portfolio-load-performance-followups.json"
+      "path": "docs/tasks/backend-portfolio-load-performance-followups-followups.json"
     }
   ]
 }

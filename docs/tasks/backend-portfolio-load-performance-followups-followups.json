@@ -1,0 +1,47 @@
+{
+  "id": "backend-portfolio-load-performance-followups-followups",
+  "title": "Vectorize/parallelize the CPU-bound per-position signal computation loop (kangaroo_tail and friends)",
+  "area": "backend/signals",
+  "skill": "add-indicator",
+  "state": "planned",
+  "depends_on": [
+    "backend-portfolio-load-performance-followups"
+  ],
+  "references": [
+    "docs/tasks/backend-portfolio-load-performance-followups.json",
+    "docs/tasks/done/backend-portfolio-load-performance.json",
+    "app/signals/kangaroo_tail.py",
+    "app/signals/divergence.py",
+    "app/signals/swing_points.py",
+    "app/signals/engine.py"
+  ],
+  "description": "backend-portfolio-load-performance-followups's own investigation (see its `decisions` entry) re-confirmed PR #352's review finding: for a realistic full-history daily series (e.g. AAPL's ~11,539-row/~46-year cached history), `app.signals.kangaroo_tail.detect_kangaroo_tails` alone costs ~1.7-1.8s per ticker (independently re-measured here via `cProfile`, matching the parent task's own ~1.7s/ticker figure) -- dominated by `_evaluate_candidate`'s per-bar Python loop, which re-slices a `lookback`-row window and re-runs `.mean()`/`.max()`/`.min()`/multiple `.iloc[...]` scalar lookups on every one of the ~11,528 bars scanned, rather than doing a single vectorized pass over the whole series. `app.signals.divergence.find_divergences`/`app.signals.swing_points.find_swing_points` are a smaller but real secondary cost over the same full-history frame (not re-profiled in detail by this task's own investigation -- left for whoever picks this up).\n\nThis is the CPU-bound bottleneck backend-portfolio-load-performance-followups's own investigation concluded is now the DOMINANT cost of a realistic swing-mode portfolio load (its own `decisions` entry has the full comparison against the now-concurrent, comparatively cheap ~2.7s-combined provider-fetch phase PR #352 already fixed) -- fixing the provider-round-trip side of this problem (PR #352, and this task's own two-phase `GET /api/portfolio/risk` fix) does NOT address it, so the original 'first load is very very slow' user complaint is likely only partially resolved until this CPU-bound side is also tackled, for any portfolio holding one or more long-history tickers.\n\n**A vectorized rewrite is very likely feasible and worth doing**: backend-portfolio-load-performance-followups's own investigation prototyped (not shipped -- see that task's `decisions` entry for the exact approach: `pandas.Series.shift`/`.rolling(lookback)` replacing the per-bar window slice, `np.where` replacing the per-bar direction/retracement branching) a vectorized equivalent of `detect_kangaroo_tails`'s full algorithm and measured it against the SAME synthetic ~11,539-row fixture the CPU-bound profiling used: identical tail set (60/60 matching `(date, direction)` pairs) at ~450x wall-clock speedup (1.80s -> 0.004s). This is strong evidence the rewrite is algorithmically sound, but was deliberately NOT shipped by that task -- see its own `decisions` entry for why (needs this task's own dedicated hand-computed reference-value tests per the `add-indicator` convention, not just 'matches the old implementation on one synthetic fixture', plus the same `verify-elder-signal`-governed scrutiny `backend-kangaroo-tail-pattern`'s original implementation got, given this directly gates SELL/BUY confidence).\n\n**Two independent, non-exclusive angles to weigh** (this task's own checklist should decide between them, or do both):\n1. **Algorithmic**: vectorize `detect_kangaroo_tails` (and, time permitting, profile then similarly vectorize `find_divergences`/`find_swing_points`'s own whole-history passes if they turn out to be a comparable cost) -- the higher-payoff fix (a ~450x measured speedup on the single function profiled so far), but higher-risk: it touches core signal-detection math directly, and needs the same reference-value rigor as any other indicator/signal change in this codebase.\n2. **Infra/parallelization**: parallelize `get_portfolio`/`get_risk`'s own per-position `analyse()` calls across positions. Explicitly NOT a `ThreadPoolExecutor` job like this task's own I/O-bound provider-fetch fixes (PR #352, backend-portfolio-load-performance-followups) -- `analyse()` is CPU-bound Python (GIL-bound), so a thread pool wouldn't parallelize it at all. Would need a `ProcessPoolExecutor` (with its own overhead: pickling each position's OHLCV frames across the process boundary, worker startup cost) or an out-of-process task queue -- a materially different, heavier concurrency mechanism than anything currently in this codebase's `app/api/` layer, so a fresh design/cost-benefit pass is warranted before committing to it, not an assumed drop-in.",
+  "checklist": [
+    {
+      "step": "Decide (and record as a `decisions` entry) which of the two angles above to pursue first (or both), with real weighing of effort/risk/payoff -- e.g. the algorithmic vectorization already has strong prototype evidence (450x on the one function profiled) and doesn't need a new concurrency mechanism, but touches core signal math; the ProcessPoolExecutor angle is more contained (no signal-math changes) but adds a new, heavier concurrency primitive and its own overhead that could eat into the gain at today's typical portfolio sizes.",
+      "done": false
+    },
+    {
+      "step": "If pursuing the algorithmic angle: rewrite `detect_kangaroo_tails` as a vectorized pandas/numpy implementation (backend-portfolio-load-performance-followups's own `decisions` entry has a working prototype approach to start from -- shift/rolling for the baseline-range window, np.where for direction/retracement branching), with hand-computed reference-value tests matching this codebase's `add-indicator` convention (not just parity-against-old-implementation on a synthetic fixture) -- verify against `docs/ideas.md`'s own worked description and `backend-kangaroo-tail-pattern.json`'s original decisions for every threshold/tie-break (including the up-priority outside-bar tie-break `backend-kangaroo-tail-pattern-followups.json` documents) so behavior genuinely matches the book-derived algorithm, not just the old code's own possibly-already-subtly-wrong output. Get `verify-elder-signal` review before merging, given this gates SELL/BUY confidence.",
+      "done": false
+    },
+    {
+      "step": "If time/scope permits: profile `find_divergences`/`find_swing_points` the same way (cProfile against a realistic full-history frame) to confirm whether they're worth the same vectorization treatment, or whether kangaroo_tail alone was the dominant secondary cost.",
+      "done": false
+    },
+    {
+      "step": "If pursuing the parallelization angle instead of (or alongside) vectorization: design and implement a `ProcessPoolExecutor`-based (or equivalent) concurrent per-position `analyse()` fan-out for `GET /api/portfolio` and `GET /api/portfolio/risk`, with a measured before/after comparison (not assumed) accounting for process-pool startup/pickling overhead at realistic portfolio sizes, and a genuinely discriminating concurrency-correctness test per this codebase's established mutation-testing standard.",
+      "done": false
+    },
+    {
+      "step": "Re-measure the full swing-mode portfolio load (mirroring backend-portfolio-load-performance's own timing methodology) after whichever fix(es) are implemented, and record the before/after numbers in a `decisions` entry -- this is the task that actually closes out the original 'first load is very very slow' user complaint's CPU-bound half, so its own claim of having done so should be measured, not assumed.",
+      "done": false
+    },
+    {
+      "step": "PR #353 review finding (backend-portfolio-load-performance-followups, non-blocking): `_fetch_weekly_ohlcv_concurrently`'s own docstring (`backend/app/api/routers/portfolio.py`) claims 'A duplicate ticker in `tickers` (two positions on the same ticker) is fetched at most once -- the returned dict is keyed by ticker'. This is inaccurate: `{ticker: executor.submit(_fetch, ticker) for ticker in tickers}` calls `executor.submit` (and therefore `_fetch`/`provider.get_weekly_ohlcv`) once per *occurrence* of a ticker in the list, not once per distinct ticker -- only the *stored future* per key ends up deduplicated to the last submission (verified independently: a 3-item list with one repeated ticker produced 3 calls to the wrapped function, not 2). This exact behavior is pre-existing (inherited unchanged from `_prefetch_swing_weekly_ohlcv`'s own prior inline `ThreadPoolExecutor` code, which never made this claim), and is currently unreachable in practice since `PositionORM.ticker` has a DB-level `unique=True` constraint (no two positions can share a ticker today, per `app/db/models.py`'s own multi-lot-support comment) -- so no live portfolio can actually trigger a duplicate-ticker call. Still worth fixing before any future multi-lot-support work makes the scenario reachable: either correct the docstring's claim (say it dedupes the *result*, not the *fetch*), or actually dedupe `tickers` before submitting (e.g. `list(dict.fromkeys(tickers))`) so the code matches what the docstring already asserts.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
