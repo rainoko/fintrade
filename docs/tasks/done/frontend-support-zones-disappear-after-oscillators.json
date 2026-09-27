@@ -3,7 +3,7 @@
   "title": "Investigate: support/resistance zones disappear from the price chart once oscillators finish loading",
   "area": "frontend/stocks",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "frontend/src/features/stocks/components/PriceChart.tsx",
@@ -43,5 +43,53 @@
     "pr_number": 350,
     "pr_url": "https://github.com/rainoko/fintrade/pull/350",
     "pushed_at": "2026-09-27T20:54:19Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-27T21:22:54Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/350",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Independently reproduced the bug live: checked out the pre-fix PriceChart.tsx (merge-base bf2c2ae) against a real dev stack (fixture data provider, ticker AAPL) with GET /api/stocks/AAPL/indicators delayed via Playwright route interception -- confirmed the wide green support-zone band fills, clearly visible while /indicators was pending, disappeared (only the price-axis edge labels remained) the instant it resolved. Restored the fix and reran the identical script: the same bands stayed visible after /indicators resolved. Also confirmed OscillatorChart.tsx has its own independent chartRef/createBaseChart call, never touching PriceChart's chart -- the 'OscillatorChart is uninvolved' claim holds.",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx",
+        "line": 1105
+      },
+      {
+        "summary": "Verified the z-order/paint-order diagnosis directly against Lightweight Charts' own source (node_modules/lightweight-charts/dist/lightweight-charts.development.mjs): Pane._internal_setSeriesOrder splices the target series out of _dataSources and reinserts at the given index, then reassigns zorder = index for every source in order; _internal_addDataSource pushes new series to the end. This exactly matches bringSeriesToFront's 'later-added draws on top, dynamic reorder is self-healing' premise and confirms the new zoneSeriesRef reassertion (before each of the signal-overlay/tide-region effects' own final candlestick reorder) is a correct fix, not just a plausible one. Confirmed zoneBottomMaskSeries is genuinely opaque (topColor/bottomColor set to the bare theme.palette.background.paper, no alpha channel) and the only two series types (that opaque mask + the tide-region background AreaSeries) capable of occluding a translucent zone band on this pane -- divergence/kangaroo-tail only ever add LineSeries/markers/price-lines, which can't erase a fill the way an AreaSeries can, so the fix's scope (only reasserting from those two effects) is correctly limited.",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx",
+        "line": 1069
+      },
+      {
+        "summary": "Scrutinized the 'real-semantics setSeriesOrder mock' in both PriceChart.test.tsx and StockCharts.test.tsx: its splice-out-then-splice-in-at-index behavior matches Lightweight Charts' actual Pane._internal_setSeriesOrder implementation (verified against the library's own bundled source, see above) -- this is a genuine, not merely plausible-looking, semantics upgrade over the file's earlier no-op setSeriesOrder stubs.",
+        "file": "frontend/src/features/stocks/components/PriceChart.test.tsx",
+        "line": 130
+      },
+      {
+        "summary": "Mutation-tested both new regression tests myself: reverted PriceChart.tsx's fix-only hunks (git apply -R against the bf2c2ae..HEAD diff) with the tests left in place -- both PriceChart.test.tsx's and StockCharts.test.tsx's new tests failed with clear, on-point assertion diffs (setSeriesOrder call count off, zone-band final index 0 instead of length-2). Restored the fix and reran: both pass, along with the full 74-test file pair and the full 959-test frontend suite (99%+ coverage across all four dimensions) and the full 1451-test backend suite (100% coverage, unaffected by this frontend-only change).",
+        "file": "frontend/src/features/stocks/components/StockCharts.test.tsx",
+        "line": 442
+      },
+      {
+        "summary": "Confirmed PR #151's candlestick-vs-fills invariant (candlestick always painted on top) is not regressed: read the code path (every effect still ends with its own bringSeriesToFront(chart, series) call for the candlestick, unchanged by this PR) and confirmed live via a rapid range-preset-switching walkthrough (1M/3M/6M/Max/1Y in quick succession while indicators reload) -- candlesticks stayed on top throughout, zero console errors or failed requests.",
+        "file": "frontend/src/utils/chart.ts",
+        "line": 88
+      },
+      {
+        "summary": "Static analysis clean on both sides (ruff, mypy, eslint, tsc -b --noEmit, scripts/check_profit_target_wording.py) and docs/tasks/ board structurally valid (scripts/validate_tasks.py, 337 files). No backend/API/schema changes in this PR, so no backend/openapi.json update was needed -- confirmed absent from the diff correctly. No new frontend component was added (only PriceChart.tsx's existing effects were modified), so the common/-vs-feature-specific placement check doesn't apply here.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Ran the persisted e2e suite (make e2e): 2 of 26 specs failed (scanner.spec.ts's and watchlist.spec.ts's IBKR-disabled-state assertions), but traced this to a pre-existing environment artifact unrelated to this PR's diff -- this dev container's own shell profile globally exports FINTRADE_IBKR_ENABLED=true (pointing at an ibkr.home.arpa gateway), and Playwright's webServer.env option merges with (rather than replacing) the ambient process.env, so that leaks into the e2e backend process. Confirmed by rerunning with FINTRADE_IBKR_ENABLED=false in the same environment: all 26 specs passed. Not a regression from this PR; filed as a non-blocking follow-up to make playwright.config.ts's backend webServer.env pin FINTRADE_IBKR_ENABLED explicitly.",
+        "file": "frontend/playwright.config.ts",
+        "line": 66
+      },
+      {
+        "summary": "Non-blocking: the new zoneSeriesRef.current.forEach((zoneSeries) => bringSeriesToFront(chart, zoneSeries)) reverses the relative z-order among the zone-band series themselves whenever more than one is mounted (each call moves its target to the pane's current topmost slot, so the last one in the array ends up above earlier ones). Harmless today given how zones render, but tracked as a follow-up.",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx",
+        "line": 1105
+      }
+    ],
+    "notes": "Thorough, well-scoped fix with a genuinely investigated (not just plausible) root cause. Independently reproduced the bug and its fix live in a real browser, verified the z-order diagnosis against Lightweight Charts' own bundled source rather than trusting the PR's account of it, mutation-tested both new regression tests by hand, and confirmed the PR #151 candlestick-on-top invariant still holds. No blocking findings. Two non-blocking findings filed to docs/tasks/frontend-support-zones-disappear-after-oscillators-followups.json (a cosmetic zone-band self-ordering reversal, and a pre-existing e2e determinism gap around ambient FINTRADE_IBKR_ENABLED unrelated to this PR)."
   }
 }

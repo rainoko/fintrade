@@ -1,0 +1,25 @@
+{
+  "id": "frontend-support-zones-disappear-after-oscillators-followups",
+  "title": "Non-blocking follow-ups from frontend-support-zones-disappear-after-oscillators's PR #350 review",
+  "area": "frontend/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-support-zones-disappear-after-oscillators"],
+  "references": [
+    "docs/tasks/frontend-support-zones-disappear-after-oscillators.json",
+    "https://github.com/rainoko/fintrade/pull/350"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #350 (frontend-support-zones-disappear-after-oscillators) -- recorded here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule so they aren't lost once that PR merges and its review comment scrolls out of view.",
+  "checklist": [
+    {
+      "step": "`PriceChart.tsx`'s new `zoneSeriesRef.current.forEach((zoneSeries) => bringSeriesToFront(chart, zoneSeries))` (in both the signal-overlay and tide-region effects) reverses the relative z-order *among* the zone-band series themselves whenever more than one is currently mounted: each `bringSeriesToFront` call moves its target to the pane's current topmost slot, so the last zone series in the array ends up above earlier ones, opposite of their original add order. Harmless today (support/resistance zones essentially never visually overlap enough for stacking order to matter, and both roles use the same translucent fill treatment), but worth either preserving relative order when reasserting (e.g. reinsert as a contiguous block via a single computed base index) or leaving an explicit comment noting the reversal is a known, accepted no-op if this is ever revisited.",
+      "done": false
+    },
+    {
+      "step": "`frontend/playwright.config.ts`'s backend `webServer.env` only sets `FINTRADE_DATABASE_URL`/`FINTRADE_DATA_PROVIDER_MODE`, and Playwright's `env` option merges with (does not replace) the ambient `process.env` -- so a shell/devcontainer profile that globally exports `FINTRADE_IBKR_ENABLED=true` (as this dev container's own profile does, pointing at an `ibkr.home.arpa` gateway) leaks into the e2e backend process and deterministically fails the two IBKR-disabled-state specs (`tests/e2e/scanner.spec.ts`'s 'shows the disabled/unavailable state... when IBKR is disabled', `tests/e2e/watchlist.spec.ts`'s 'market breadth card shows the disabled panel when IBKR is not connected'). Confirmed during this PR's review: `make e2e` failed those 2 specs with `FINTRADE_IBKR_ENABLED=true` inherited from the shell, then passed all 26 with `FINTRADE_IBKR_ENABLED=false` in the same environment otherwise unchanged. Fix by having `playwright.config.ts`'s backend `webServer.env` explicitly pin `FINTRADE_IBKR_ENABLED: 'false'` (and clear `FINTRADE_IBKR_BASE_URL`) so the suite is deterministic regardless of ambient shell env, per this repo's own e2e-test skill note that a weakened/ambient-dependent env gate is a regression in its own right.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
