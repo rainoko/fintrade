@@ -17,6 +17,7 @@ threshold-derived response fields (two_percent_rule_breached/six_percent_rule_br
 degrade-gracefully exclusion of a position whose price/history couldn't be fetched.
 """
 
+import time
 from datetime import UTC, date, datetime, timedelta
 from unittest.mock import patch
 
@@ -130,6 +131,45 @@ class _StubProvider:
 
     def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
         self.weekly_calls.append(ticker)
+        if ticker in self._failing_weekly:
+            raise TickerNotFoundError(ticker)
+        return self._weekly[ticker]
+
+
+class _DelayedWeeklyStubProvider:
+    """Like `_StubProvider`, but `get_weekly_ohlcv` sleeps for a per-ticker-configurable
+    duration before succeeding/failing -- lets a test force *completion* order to differ from
+    *submission* order, the discriminating check `get_risk`'s own phase (b)
+    (`_fetch_weekly_ohlcv_concurrently`, backend-portfolio-load-performance-followups) needs:
+    a bug that mapped a completed future's weekly frame back onto the wrong ticker key (e.g.
+    matching by completion order instead of the ticker key each future was submitted under)
+    would only be caught by a fixture where the first-submitted ticker is deliberately the
+    slowest to finish -- a same-latency fixture can't distinguish that from a correct
+    implementation. Mirrors `tests/integration/test_portfolio_get.py`'s identically-shaped
+    `_DelayedWeeklyProvider` for `_prefetch_swing_weekly_ohlcv`'s own analogous fan-out. See
+    this task's `decisions` entry, which records manually mutation-testing this exact bug shape
+    against this fixture."""
+
+    def __init__(
+        self,
+        *,
+        daily: dict[str, pd.DataFrame],
+        weekly: dict[str, pd.DataFrame],
+        weekly_delay_seconds: dict[str, float],
+        failing_weekly: set[str] | None = None,
+    ) -> None:
+        self._daily = daily
+        self._weekly = weekly
+        self._weekly_delay_seconds = weekly_delay_seconds
+        self._failing_weekly = failing_weekly or set()
+        self.weekly_calls: list[str] = []
+
+    def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
+        return self._daily[ticker]
+
+    def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
+        self.weekly_calls.append(ticker)
+        time.sleep(self._weekly_delay_seconds.get(ticker, 0.0))
         if ticker in self._failing_weekly:
             raise TickerNotFoundError(ticker)
         return self._weekly[ticker]
@@ -414,6 +454,48 @@ class TestGetRisk:
         [position] = response.json()["positions"]
         assert position["ticker"] == "AAPL"
         assert provider.weekly_calls == ["AAPL"]
+
+    def test_weekly_fetch_outcome_not_swapped_when_completion_order_differs_from_submission_order(
+        self, db_session: Session
+    ) -> None:
+        """The discriminating check for `get_risk`'s own phase (b) concurrent weekly fetch
+        (backend-portfolio-load-performance-followups): AAPL (`_ordered_positions` submits it
+        first -- earlier `entry_date` than MSFT) is deliberately the SLOWER of the two weekly
+        fetches to complete, and its own fetch fails, while MSFT is submitted second but
+        finishes first with a successful fetch. A bug that mapped a completed future's weekly
+        frame back onto the wrong ticker (e.g. matching by completion order instead of the
+        ticker key each future was submitted under, or an `as_completed(...)`-based gather)
+        would swap which position survives into `positions` -- see
+        `_DelayedWeeklyStubProvider`'s own docstring."""
+        db_session.add(AccountORM(id=1, cash=100_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=1.0, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.add(
+            PositionORM(
+                id="pos_2", ticker="MSFT", quantity=1.0, avg_cost_basis=100.0, entry_date=date(2026, 1, 2)
+            )
+        )
+        db_session.commit()
+
+        daily = _daily_frame(_UPTREND_CLOSES, _UPTREND_LOWS)
+        weekly = _weekly_frame(_FLAT_WEEKLY_CLOSES)
+        provider = _DelayedWeeklyStubProvider(
+            daily={"AAPL": daily, "MSFT": daily},
+            weekly={"MSFT": weekly},
+            weekly_delay_seconds={"AAPL": 0.15, "MSFT": 0.0},
+            failing_weekly={"AAPL"},
+        )
+
+        response = _get_risk(db_session, provider)
+
+        assert response.status_code == 200
+        by_ticker = {p["ticker"]: p for p in response.json()["positions"]}
+        assert "AAPL" not in by_ticker
+        assert "MSFT" in by_ticker
+        # Both positions' own weekly fetch was actually attempted concurrently (not
+        # short-circuited by the other's outcome).
+        assert set(provider.weekly_calls) == {"AAPL", "MSFT"}
 
     def test_position_with_weekly_frame_missing_close_column_is_excluded(self, db_session: Session) -> None:
         # protective_stop succeeds (the daily frame is well-formed), but evaluate_exit_flags's
@@ -1238,6 +1320,35 @@ class TestDayTraderMode:
         )
 
         response = _get_risk_with_ibkr(db_session, provider, ibkr_provider=None)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["trading_mode"]["mode"] == "day_trader"
+        assert body["positions"] == []
+
+    def test_position_with_failed_swing_price_fetch_is_excluded_in_day_trader_mode(
+        self, db_session: Session
+    ) -> None:
+        """`current_price`/`equity` are always swing-provider-derived regardless of trading
+        mode (`RiskResponse.trading_mode`'s own field description) -- so a position whose
+        swing-provider daily (price) fetch fails is excluded from `positions` even while
+        day-trader mode is active with a fully-available IBKR triple for it, exactly as it
+        already is in swing mode (`test_position_with_failed_price_fetch_is_excluded`).
+        Exercises `get_risk`'s day-trader branch's own `e.position.current_price is None`
+        guard directly (backend-portfolio-load-performance-followups: this guard moved into
+        its own day-trader-only sub-loop when this endpoint's swing branch became a two-phase
+        cheap-filter-then-concurrent-fetch design)."""
+        db_session.add(AccountORM(id=1, cash=100_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=10, avg_cost_basis=90.0, entry_date=date(2020, 1, 1))
+        )
+        set_trading_mode_setting(
+            db_session, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        db_session.commit()
+        provider = _StubProvider(failing_daily={"AAPL"})
+
+        response = _get_risk_with_ibkr(db_session, provider, _all_legs_available_ibkr_provider())
 
         assert response.status_code == 200
         body = response.json()
