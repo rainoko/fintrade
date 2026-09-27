@@ -2350,8 +2350,15 @@
       "id": "frontend-support-zones-disappear-after-oscillators",
       "area": "frontend/stocks",
       "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-support-zones-disappear-after-oscillators.json"
+    },
+    {
+      "id": "frontend-support-zones-disappear-after-oscillators-followups",
+      "area": "frontend/stocks",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/frontend-support-zones-disappear-after-oscillators.json"
+      "path": "docs/tasks/frontend-support-zones-disappear-after-oscillators-followups.json"
     },
     {
       "id": "backend-portfolio-load-performance",
