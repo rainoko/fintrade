@@ -66,5 +66,11 @@
       "rationale": "This codebase's established standard for concurrency-correctness claims (`app.api.day_trader_signal`'s own `TestComputeDayTraderSignalsConcurrently::test_maps_each_distinct_ticker_to_its_own_outcome_not_a_shared_or_swapped_one`) requires a test that would actually fail under a plausible per-ticker-result-mixup bug, not merely a 'runs without crashing' smoke test with same-shaped-but-not-genuinely-distinguishing fixtures. A same-latency multi-ticker fixture (e.g. this codebase's existing `test_multiple_positions_are_all_enriched`) already catches a naive value-swap bug (since positions are asserted by ticker), but wouldn't catch a completion-order-vs-submission-order bug specifically -- deliberately mismatched per-ticker latency was needed to force that distinction to actually matter."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-portfolio-load-performance",
+    "pr_number": 352,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/352",
+    "pushed_at": "2026-09-27T22:41:09Z"
+  }
 }
