@@ -3,7 +3,7 @@
   "title": "Vectorize/parallelize the CPU-bound per-position signal computation loop (kangaroo_tail and friends)",
   "area": "backend/signals",
   "skill": "add-indicator",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "backend-portfolio-load-performance-followups"
   ],
@@ -74,5 +74,11 @@
       "rationale": "The docstring's existing claim is the semantically RIGHT contract for this function to have (a caller shouldn't need to pre-deduplicate its own ticker list, and `weekly_by_id`'s per-position keying at each call site already assumes exactly this) -- weakening the docstring to describe the buggy behavior accurately would be technically honest but would leave a real latent inefficiency (and, if `PositionORM.ticker`'s DB-level `unique=True` constraint is ever relaxed for genuine multi-lot support, a real *correctness* risk: a duplicate ticker's SECOND submission's future would silently overwrite the first's in the `futures` dict, so if the two fetches raced and gave different transient results -- e.g. one hit a rate limit, one didn't -- which result 'wins' would depend on dict-overwrite order, not on which was actually correct) sitting behind an accurate-but-weaker docstring instead of fixed. The one-line `list(dict.fromkeys(...))` fix (order-preserving, no new dependency) is strictly cheaper than the redundant round trip(s) it prevents even in the common single-fetch case, so there's no performance tradeoff being made against fixing it. Verified with a genuinely discriminating unit test (`tests/integration/test_portfolio_get.py::TestFetchWeeklyOhlcvConcurrentlyDedup`) calling the private helper directly with a duplicate-ticker list (since this scenario is currently unreachable end-to-end through `GET /api/portfolio` given the DB unique constraint) -- manually mutation-tested by reverting the fix and confirming the new test fails (3 calls instead of 2), then re-applied and confirmed it passes."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-portfolio-load-performance-followups-followups",
+    "pr_number": 354,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/354",
+    "pushed_at": "2026-09-28T00:09:17Z"
+  }
 }
