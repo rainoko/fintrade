@@ -39,6 +39,8 @@ its centerline in between, and the two troughs are exactly 20 bars apart (the ti
 Lovvorn's accepted 20-40 range) -- a fully qualifying bullish MACD-Histogram divergence.
 """
 
+from unittest.mock import patch
+
 import pandas as pd
 import pytest
 
@@ -385,6 +387,132 @@ class TestLatestAndCurrentDivergence:
 
     def test_current_divergence_is_none_when_no_series_supplied(self) -> None:
         assert current_divergence(_FIXTURE_A_PRICE) is None
+
+
+class TestCurrentDivergenceSharedSwingPass:
+    """docs/tasks/backend-portfolio-load-performance-followups-followups-followups.json:
+    `current_divergence` must share ONE `find_swing_points` pass across all three indicators
+    it checks, instead of each indicator's own `latest_divergence` call independently re-running
+    it (previously 3 indicators x 2 kinds = 6 redundant full-history scans on the identical
+    `price`/`window` pair)."""
+
+    def test_find_swing_points_called_exactly_once_for_three_indicators(self) -> None:
+        stochastic = pd.Series([50.0] * 10 + [15.0] + [50.0] * 19 + [35.0] + [50.0] * 10)
+        rsi = pd.Series([50.0] * 10 + [10.0] + [50.0] * 19 + [25.0] + [50.0] * 10)
+
+        with patch.object(
+            divergence, "find_swing_points", wraps=divergence.find_swing_points
+        ) as spy:
+            result = current_divergence(
+                _FIXTURE_A_PRICE,
+                macd_histogram=_FIXTURE_A_MACD_HISTOGRAM,
+                stochastic=stochastic,
+                rsi=rsi,
+            )
+
+        assert spy.call_count == 1
+        assert result is not None
+        assert result.indicator == "macd_histogram"  # unchanged tie-break result
+
+    def test_find_swing_points_called_once_for_a_single_indicator(self) -> None:
+        with patch.object(
+            divergence, "find_swing_points", wraps=divergence.find_swing_points
+        ) as spy:
+            current_divergence(_FIXTURE_A_PRICE, macd_histogram=_FIXTURE_A_MACD_HISTOGRAM)
+
+        assert spy.call_count == 1
+
+    def test_current_divergence_matches_per_indicator_latest_divergence(self) -> None:
+        """Cross-checks the new shared-swing-pass path against the old per-indicator
+        ``latest_divergence`` (which independently re-derives its own swing points via
+        ``find_divergences``) for each of the three indicators individually -- proving the
+        shared swing points aren't stale/wrong relative to what an independent, from-scratch
+        computation for that exact same indicator would produce."""
+        stochastic = pd.Series([50.0] * 10 + [15.0] + [50.0] * 19 + [35.0] + [50.0] * 10)
+        rsi = pd.Series([50.0] * 10 + [10.0] + [50.0] * 19 + [25.0] + [50.0] * 10)
+
+        assert current_divergence(
+            _FIXTURE_A_PRICE, macd_histogram=_FIXTURE_A_MACD_HISTOGRAM
+        ) == latest_divergence(
+            _FIXTURE_A_PRICE, _FIXTURE_A_MACD_HISTOGRAM, indicator_name="macd_histogram"
+        )
+        assert current_divergence(_FIXTURE_A_PRICE, stochastic=stochastic) == latest_divergence(
+            _FIXTURE_A_PRICE, stochastic, indicator_name="stochastic"
+        )
+        assert current_divergence(_FIXTURE_A_PRICE, rsi=rsi) == latest_divergence(
+            _FIXTURE_A_PRICE, rsi, indicator_name="rsi"
+        )
+
+    def test_current_divergence_picks_up_a_bearish_divergence_via_shared_highs(self) -> None:
+        """The shared swing-point pass must correctly split into BOTH lows and highs -- this
+        fixture only qualifies on the bearish (highs) side, isolating that branch specifically
+        (every other `current_divergence` test in this file exercises the bullish/lows side
+        only)."""
+        price = pd.Series(
+            [float(v) for v in range(50, 101, 5)]
+            + [float(v) for v in range(95, 49, -5)]
+            + [float(v) for v in range(58, 131, 8)]
+            + [float(v) for v in range(126, 89, -4)]
+        )
+        histogram = pd.Series(
+            [0.0] * 10
+            + [10.0]
+            + [6.0, 2.0, -2.0, -6.0, -8.0, -8.0, -8.0, -8.0, -8.0, -8.0]
+            + [-6.0, -4.0, -2.0, 0.0, 1.0, 2.0, 2.0, 2.0, 2.0, 3.0]
+            + [0.0] * 10
+        )
+
+        result = current_divergence(price, macd_histogram=histogram)
+
+        assert result is not None
+        assert result.kind == "bearish"
+        assert result == latest_divergence(price, histogram, indicator_name="macd_histogram")
+
+    def test_current_divergence_is_not_stale_across_consecutive_calls_with_different_price(
+        self,
+    ) -> None:
+        """Regression guard against a hypothetically mis-keyed cache (this fix doesn't add a
+        persistent cache -- swing points are recomputed fresh at the top of every
+        `current_divergence` call -- but this proves it stays that way): three back-to-back
+        calls in the same process, alternating between a bullish-only fixture and a
+        bearish-only fixture, must each reflect their OWN `price`/`indicator` inputs, not a
+        previous call's."""
+        bearish_price = pd.Series(
+            [float(v) for v in range(50, 101, 5)]
+            + [float(v) for v in range(95, 49, -5)]
+            + [float(v) for v in range(58, 131, 8)]
+            + [float(v) for v in range(126, 89, -4)]
+        )
+        bearish_histogram = pd.Series(
+            [0.0] * 10
+            + [10.0]
+            + [6.0, 2.0, -2.0, -6.0, -8.0, -8.0, -8.0, -8.0, -8.0, -8.0]
+            + [-6.0, -4.0, -2.0, 0.0, 1.0, 2.0, 2.0, 2.0, 2.0, 3.0]
+            + [0.0] * 10
+        )
+
+        first = current_divergence(_FIXTURE_A_PRICE, macd_histogram=_FIXTURE_A_MACD_HISTOGRAM)
+        second = current_divergence(bearish_price, macd_histogram=bearish_histogram)
+        third = current_divergence(_FIXTURE_A_PRICE, macd_histogram=_FIXTURE_A_MACD_HISTOGRAM)
+
+        assert first is not None and first.kind == "bullish"
+        assert second is not None and second.kind == "bearish"
+        assert third == first
+
+    def test_current_divergence_respects_window_changes_not_just_price(self) -> None:
+        """A window wide enough to exclude FIXTURE_A's own swing points (positions 10/30, each
+        needing `window` bars on both sides to confirm -- see app.signals.swing_points) must
+        genuinely change the result, proving the shared swing pass is keyed off `window` too,
+        not silently reusing swings computed for a different `window` value."""
+        default_result = current_divergence(
+            _FIXTURE_A_PRICE, macd_histogram=_FIXTURE_A_MACD_HISTOGRAM, window=DEFAULT_SWING_WINDOW
+        )
+        wide_window_result = current_divergence(
+            _FIXTURE_A_PRICE, macd_histogram=_FIXTURE_A_MACD_HISTOGRAM, window=15
+        )
+
+        assert default_result is not None
+        assert wide_window_result is None
 
 
 class TestDivergenceSwingCache:
