@@ -38,5 +38,11 @@
       "rationale": "This task's own checklist item 2 (immediately above) explicitly names 'a human sanity-check / wording tweak next time that task file is touched' as the resolution, with a worked example matching exactly what was applied ('N/A -- angle not pursued, see decisions') -- i.e. the checklist item itself calls out the OTHER task's existing checklist-item text as the thing to fix, which is the specific carve-out CLAUDE.md's append-only convention (for correcting a stale claim in an already-done task) allows an in-place edit under: narrow factual clarification (not a rewrite of what was actually decided -- the original 'is defensible... but is ambiguous' framing and the original step description are both left completely intact, only a bracketed addendum was appended), original text recoverable via git history, the correction is ALSO recorded as a fresh `decisions` entry on that same task (added directly to backend-portfolio-load-performance-followups-followups.json, alongside this pointer entry here), and it doesn't touch code or merge state. Only appending a decisions entry elsewhere (e.g. only here, or only as a brand-new entry on that other task without touching the ambiguous line itself) would have left the actual object of the review finding -- the checklist item's own confusing text a future reader scans -- unchanged, which defeats the point of a 'wording tweak' fix specifically (as opposed to a general decisions-log correction)."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-portfolio-load-performance-followups-followups-followups",
+    "pr_number": 355,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/355",
+    "pushed_at": "2026-09-28T04:53:39Z"
+  }
 }
