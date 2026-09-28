@@ -2385,7 +2385,7 @@
       "id": "backend-portfolio-load-performance-followups-followups",
       "area": "backend/signals",
       "skill": "add-indicator",
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/backend-portfolio-load-performance-followups-followups.json"
     }
   ]

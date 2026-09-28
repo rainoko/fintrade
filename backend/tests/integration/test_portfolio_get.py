@@ -923,3 +923,31 @@ class TestDayTraderMode:
         assert body["trading_mode"]["mode"] == "swing"
         [position] = body["positions"]
         assert position["signal"] == "HOLD"
+
+
+class TestFetchWeeklyOhlcvConcurrentlyDedup:
+    """`_fetch_weekly_ohlcv_concurrently`'s own docstring claims a duplicate ticker in its
+    `tickers` argument is "fetched at most once" (docs/tasks/backend-portfolio-load-performance-
+    followups-followups.json PR #353 review finding: this used to be inaccurate -- the dict
+    comprehension submitted one `executor.submit` call per *occurrence*, not per distinct
+    ticker, only the *stored future* per key ended up deduplicated to the last submission). This
+    tests the helper function directly (not reachable end-to-end through `GET /api/portfolio`,
+    since `PositionORM.ticker` has a DB-level `unique=True` constraint -- no live portfolio can
+    actually hand this helper a duplicate ticker today) to genuinely discriminate a fix from the
+    old behavior: a `["AAPL", "MSFT", "AAPL"]` input must make exactly ONE real call to the
+    wrapped fetch per distinct ticker (two calls total), not three."""
+
+    def test_duplicate_ticker_is_fetched_exactly_once(self) -> None:
+        from app.api.routers.portfolio import _fetch_weekly_ohlcv_concurrently
+
+        calls: list[str] = []
+
+        class _CountingProvider:
+            def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
+                calls.append(ticker)
+                return _hold_weekly_ohlcv()
+
+        result = _fetch_weekly_ohlcv_concurrently(["AAPL", "MSFT", "AAPL"], _CountingProvider())
+
+        assert sorted(calls) == ["AAPL", "MSFT"]
+        assert result.keys() == {"AAPL", "MSFT"}
