@@ -3,7 +3,7 @@
   "title": "Vectorize/parallelize the CPU-bound per-position signal computation loop (kangaroo_tail and friends)",
   "area": "backend/signals",
   "skill": "add-indicator",
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-portfolio-load-performance-followups"
   ],
@@ -80,5 +80,53 @@
     "pr_number": 354,
     "pr_url": "https://github.com/rainoko/fintrade/pull/354",
     "pushed_at": "2026-09-28T00:09:17Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-28T04:29:42Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/354",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Independently re-derived hand-computed test cases (not reused from the PR's own suite) against docs/Analyse.md Row 13's 5-step algorithm, run directly against the vectorized detect_kangaroo_tails: a plain up-tail, the outside-bar (new-high-AND-new-low) tie-break case (confirmed defaults to 'up' as the doc/prior decisions require), and negative controls for body-not-retraced, a tail-sized flank, a wrong-direction confirming bar, and a leading-NaN-baseline region. All matched hand-derived expected output exactly -- no methodology drift found.",
+        "file": "backend/app/signals/kangaroo_tail.py",
+        "line": 159
+      },
+      {
+        "summary": "Scrutinized the vectorized rewrite for the classic vectorization bug classes: rolling-window/.shift() alignment was traced arithmetically and confirmed bar-for-bar identical to the old per-bar slice (rolling(lookback).shift(1) covers exactly bars i-lookback..i-1); NaN at the series' start (fewer than `lookback` prior bars) correctly evaluates every downstream comparison to False via numpy's NaN-comparison semantics, matching the old loop's range(lookback, n-1) never considering those positions; the last-position after_range/confirming_close NaN quirk is harmless since confirms_ok's own NaN check already excludes that position regardless. No off-by-one, no masked/false signal found.",
+        "file": "backend/app/signals/kangaroo_tail.py",
+        "line": 207
+      },
+      {
+        "summary": "Independently reproduced the isolated-function speedup: on a freshly-generated ~11,539-row random-walk fixture and a separately-constructed pattern-injected fixture (461 injected candidates, 36 field-for-field-matching detections between old and new implementations), measured ~683x-758x speedup -- same order of magnitude as the PR's claimed ~955x/~765x (fixture-construction differences account for the numeric gap, not a discrepancy in the claim). Also independently reproduced the end-to-end claim by calling app.signals.engine.analyse() directly (the same code path GET /api/portfolio's per-position loop uses) for 8 long-history positions with and without the vectorized kangaroo_tail (via unittest.mock.patch swapping in the pre-PR implementation): measured 20.62s -> 6.28s (3.29x), closely matching the PR's own ~20.5s -> ~6.1s (3.36x) claim.",
+        "file": "backend/app/signals/kangaroo_tail.py",
+        "line": 64
+      },
+      {
+        "summary": "Confirmed the _fetch_weekly_ohlcv_concurrently dedup fix is correct (list(dict.fromkeys(tickers)) before executor.submit) and independently mutation-tested the regression test's discriminating power by simulating the old (pre-fix) submission logic against the same 3-ticker-with-one-duplicate input: it makes 3 real fetch calls, which would fail the new test's `sorted(calls) == ['AAPL', 'MSFT']` assertion, confirming the test genuinely catches a reversion of this fix.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 179
+      },
+      {
+        "summary": "Confirmed via docs/tasks/index.json that this is genuinely the last open item in the IBKR/portfolio-performance follow-up chain -- no further planned/implementing/testing/waiting_input task references backend-portfolio-load-performance or its descendants besides this one.",
+        "file": "docs/tasks/index.json",
+        "line": 0
+      },
+      {
+        "summary": "Backend test suite: 1458 passed, 100% line/branch coverage (pytest --cov=app --cov-fail-under=90), independently re-run. ruff check ., mypy, and scripts/check_profit_target_wording.py all clean. scripts/validate_tasks.py clean. Re-ran scripts/export_openapi.py and confirmed backend/openapi.json is a genuine no-op (git status --porcelain empty after regeneration) -- correct, since no route/schema signature changed. No frontend files touched by this PR, so frontend lint/tsc/coverage were not re-run (last known state: clean per prior PRs); no UI surface exists for this change (no route/schema/response-shape change, no frontend consumer touched), so the browser walkthrough (step 9) and the persisted e2e suite (step 9a) are both explicitly skipped as not applicable.",
+        "file": null,
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking (filed as a follow-up task, backend-portfolio-load-performance-followups-followups-followups): app.signals.divergence.current_divergence redundantly re-runs find_swing_points on the same price series once per indicator/kind (6x per ticker, ~0.72s), now the largest remaining O(history) secondary cost after this PR's kangaroo_tail fix -- correctly identified and measured by this PR's own decisions entry but left unfixed and not previously tracked as its own task.",
+        "file": "app/signals/divergence.py",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking (filed as a follow-up task): a code-review pass (independent 300-trial randomized differential fuzzer against the pre-PR scalar implementation, zero mismatches) found no correctness issues in scope, but flagged that this task's own checklist item 4 (the ProcessPoolExecutor parallelization angle) is marked done:true despite the decisions entry stating it was never pursued -- ambiguous bookkeeping, not a code bug, worth a wording tweak next time this task file is touched.",
+        "file": "docs/tasks/backend-portfolio-load-performance-followups-followups.json",
+        "line": 33
+      }
+    ],
+    "notes": "Full independent re-verification per the verify-elder-signal-governed rigor this task's checklist calls for: own hand-computed test cases (including the outside-bar tie-break), vectorization-bug-class scrutiny (rolling/shift alignment, NaN handling, tie-break preservation), independent reproduction of both the isolated-function and end-to-end speedup claims, and mutation-testing the dedup-fix regression test -- all corroborated the PR's own claims with no discrepancies. A backgrounded code-review skill pass additionally ran its own 300-trial randomized differential fuzz test against the old scalar implementation with zero mismatches. Backend tests/coverage/static-analysis/task-board-validation all independently re-run and clean; OpenAPI regen confirmed a genuine no-op. This is confirmed as the final item in the IBKR/portfolio-performance follow-up chain. No blocking findings. Two non-blocking findings filed as docs/tasks/backend-portfolio-load-performance-followups-followups-followups.json."
   }
 }
