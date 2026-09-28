@@ -1,0 +1,29 @@
+{
+  "id": "backend-portfolio-load-performance-followups-followups-followups",
+  "title": "Non-blocking follow-ups from backend-portfolio-load-performance-followups-followups's PR #354 review",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [
+    "backend-portfolio-load-performance-followups-followups"
+  ],
+  "references": [
+    "docs/tasks/backend-portfolio-load-performance-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/354",
+    "app/signals/divergence.py",
+    "app/signals/kangaroo_tail.py"
+  ],
+  "description": "PR #354 (backend-portfolio-load-performance-followups-followups) vectorized detect_kangaroo_tails and was accepted after independent re-verification (hand-computed reference-value tests, vectorization-bug-class scrutiny, isolated-function and end-to-end speedup reproduction, dedup-fix mutation test). This tracks the review's non-blocking findings so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "PR #354's own `decisions` entry (checklist item 3, profiling find_divergences/find_swing_points) found that `app.signals.divergence.current_divergence` re-runs `find_swing_points` on the SAME `price` series independently for each of its 3 indicators x 2 kinds (macd_histogram/stochastic/rsi x bullish/bearish) -- 6 redundant full-history swing-point scans per ticker, measured at ~0.72s/ticker on an AAPL-scale ~11,539-row series, now the largest remaining O(history) secondary cost in a swing-mode portfolio load after this PR's kangaroo_tail fix. The task-worker judged fixing this out of scope for that task (it would mean restructuring `current_divergence`'s own call structure, e.g. a `build_divergence_swing_cache`-equivalent single price-swing-point pass shared across all 3 indicators, reusable the same way `confirmed_divergence_as_of` already reuses one) and did not file a tracked follow-up for it at the time -- recorded here instead so it isn't lost. Worth a dedicated task: share one price-swing-point pass across `current_divergence`'s 3 indicators instead of recomputing it 6 times, with its own hand-computed/mutation-tested verification per this codebase's `add-indicator`-adjacent conventions for signal-detection changes.",
+      "done": false
+    },
+    {
+      "step": "PR #354 review (code-review skill pass, backend/app/signals/kangaroo_tail.py + backend/app/api/routers/portfolio.py scope): in backend-portfolio-load-performance-followups-followups.json's checklist, item 4 (\"If pursuing the parallelization angle instead of (or alongside) vectorization: design and implement a ProcessPoolExecutor-based...\") is marked `\"done\": true`, but the task's own `decisions` entry explicitly states the ProcessPoolExecutor angle was NOT pursued at all (the algorithmic/vectorization angle was chosen instead). Marking a conditional, never-triggered checklist step `done: true` rather than `false` or reworded (e.g. \"N/A -- angle not pursued, see decisions\") is defensible (the condition that would have required action was never met) but is ambiguous enough that a future reader scanning checklist completion could misread it as \"the ProcessPoolExecutor version was built.\" Non-blocking, documentation-only -- worth a human sanity-check / wording tweak next time that task file is touched.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

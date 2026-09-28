@@ -158,9 +158,16 @@ def _fetch_weekly_ohlcv_concurrently(
     Returns `{}` immediately for an empty `tickers` list, without spinning up a thread pool at
     all -- both call sites already guard the case where nothing needs fetching, but this keeps
     the helper safe to call unconditionally too. A duplicate ticker in `tickers` (two positions
-    on the same ticker) is fetched at most once -- the returned dict is keyed by ticker, so
-    every position sharing that ticker looks up the same result, matching `weekly_by_id`'s
-    own per-*position* keying at each call site, not per-fetch.
+    on the same ticker) is fetched at most once -- `tickers` is deduplicated (order-preserving)
+    before any `executor.submit` call, so a repeated ticker contributes exactly one real fetch,
+    not one per occurrence (docs/tasks/backend-portfolio-load-performance-followups-followups.json's
+    `decisions` entry: this was previously inaccurate -- a duplicate ticker was actually
+    re-submitted/re-executed once per occurrence, only the *stored future* per key ended up
+    deduplicated to the last submission -- currently unreachable given `PositionORM.ticker`'s
+    DB-level `unique=True` constraint, but fixed here rather than left inaccurate for whenever a
+    future multi-lot-support change might make it reachable). The returned dict is keyed by
+    ticker, so every position sharing that ticker looks up the same result, matching
+    `weekly_by_id`'s own per-*position* keying at each call site, not per-fetch.
 
     A `None` value for a given ticker in the returned dict means that ticker's weekly fetch
     failed (`DataProviderError`) -- distinguishable from "not attempted" only by the caller's
@@ -169,6 +176,8 @@ def _fetch_weekly_ohlcv_concurrently(
     if not tickers:
         return {}
 
+    unique_tickers = list(dict.fromkeys(tickers))
+
     def _fetch(ticker: str) -> pd.DataFrame | None:
         try:
             return provider.get_weekly_ohlcv(ticker)
@@ -176,9 +185,9 @@ def _fetch_weekly_ohlcv_concurrently(
             return None
 
     with ThreadPoolExecutor(
-        max_workers=min(len(tickers), _MAX_CONCURRENT_WEEKLY_FETCHES)
+        max_workers=min(len(unique_tickers), _MAX_CONCURRENT_WEEKLY_FETCHES)
     ) as executor:
-        futures = {ticker: executor.submit(_fetch, ticker) for ticker in tickers}
+        futures = {ticker: executor.submit(_fetch, ticker) for ticker in unique_tickers}
         return {ticker: future.result() for ticker, future in futures.items()}
 
 
