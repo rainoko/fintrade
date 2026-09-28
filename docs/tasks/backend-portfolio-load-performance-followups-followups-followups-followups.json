@@ -1,0 +1,45 @@
+{
+  "id": "backend-portfolio-load-performance-followups-followups-followups-followups",
+  "title": "Non-blocking follow-ups from backend-portfolio-load-performance-followups-followups-followups's PR #355 review",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [
+    "backend-portfolio-load-performance-followups-followups-followups"
+  ],
+  "references": [
+    "docs/tasks/done/backend-portfolio-load-performance-followups-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/355",
+    "app/signals/divergence.py",
+    "backend/tests/unit/signals/test_divergence.py"
+  ],
+  "description": "PR #355 (backend-portfolio-load-performance-followups-followups-followups) shared one find_swing_points pass across current_divergence's 3 indicators and was accepted after independent re-verification (own hand-computed cross-indicator-tie-break scenario, 200-trial differential fuzz test, mutation test re-run, speedup reproduction, verify-elder-signal check finding no methodology drift). This tracks the review's non-blocking findings so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "PR #355 review (backgrounded code-review skill pass, high effort): `current_divergence` now calls `find_swing_points(price, window=window)` unconditionally at the top of the function, before checking whether any of macd_histogram/stochastic/rsi was actually supplied -- a genuine behavior change from pre-fix `main`, verified directly: `current_divergence(price, window=0)` with all three indicators left at their `None` default returns `None` on `main` (no indicator branch ever executes, so `find_swing_points` is never called) but raises `ValueError('window must be >= 1 (got 0)')` post-fix. Separately confirmed that even with a valid window, calling `current_divergence` with zero indicators now performs one wasted full-history `find_swing_points` scan that pre-fix never did (verified via a wraps-spy: 1 call vs 0). Not reachable today -- `app.signals.engine`'s only call site always supplies all three indicators with the default (valid) window, and no API-level parameter exposes a caller-controlled `window` for divergence -- but a real narrowing of the public function's documented contract ('any subset ... a None series is simply skipped'). Fix: guard the eager `find_swing_points` call behind `if macd_histogram is not None or stochastic is not None or rsi is not None:` (or compute the swing lists lazily on first actual need), with a regression test covering the zero-indicators-plus-invalid-window case.",
+      "done": false
+    },
+    {
+      "step": "PR #355 review (same code-review pass): `_latest_divergence_from_swings` duplicates `latest_divergence`'s own tie-break logic (bullish-then-bearish candidate list via `divergences_from_swings`, `max(..., key=lambda d: d.second.date)`) instead of `latest_divergence` delegating to the new shared-swings helper -- a maintenance hazard: a future change to the tie-break rule applied to only one of the two now-duplicated copies would silently desync `latest_divergence` and `current_divergence`'s per-indicator result, and the PR's own cross-check tests (`test_current_divergence_matches_per_indicator_latest_divergence`) wouldn't catch the drift since they only run today's already-matching logic. Worth refactoring: have `latest_divergence` itself call `swing_lows(price, window=window)`/`swing_highs(price, window=window)` once and delegate into `_latest_divergence_from_swings`, removing the duplicated tie-break code entirely.",
+      "done": false
+    },
+    {
+      "step": "PR #355 review (same code-review pass, cosmetic): the bearish-only `price`/`histogram` fixture in `tests/unit/signals/test_divergence.py` is copy-pasted verbatim between `test_current_divergence_picks_up_a_bearish_divergence_via_shared_highs` and `test_current_divergence_is_not_stale_across_consecutive_calls_with_different_price`, instead of being hoisted to a module-level `_FIXTURE_B_PRICE`/`_FIXTURE_B_MACD_HISTOGRAM` pair matching the file's existing `_FIXTURE_A_*` convention.",
+      "done": false
+    },
+    {
+      "step": "PR #355 review finding: the PR description and this task's own filing task's `decisions` entry both claim '35 pre-existing hand-computed-value tests... pass unchanged; added 7 new tests'. Independently counted: the pre-existing file had 29 tests (not 35), and the PR adds 6 new tests (the `TestCurrentDivergenceSharedSwingPass` class has 6 methods, not 7) -- 29 + 6 = 35 total, so the final total happens to be correct, but both individual figures are off by one. Documentation-accuracy nit -- worth a corrective `decisions` entry (append-only, per CLAUDE.md) on `backend-portfolio-load-performance-followups-followups-followups.json` next time it's touched.",
+      "done": false
+    },
+    {
+      "step": "PR #355 review finding: `backend-portfolio-load-performance-followups-followups-followups.json`'s own `decisions` entry claims `latest_divergence` is 'still used directly by GET /api/stocks/{ticker}/analysis's whole-history divergence display'. Verified this is inaccurate: that endpoint's divergence data flows through `app.signals.engine.analyse`'s call to `current_divergence` (the only caller of `current_divergence` in `app/`), and post-PR-#355 `current_divergence` no longer calls `latest_divergence` at all internally (it calls `_latest_divergence_from_swings` instead). `latest_divergence` now has zero callers outside its own module and the test suite -- it remains a correct, independently-tested public function, just not wired into any production code path today. Worth a corrective `decisions` entry (append-only) next time that task file is touched.",
+      "done": false
+    },
+    {
+      "step": "PR #355 review finding: the checklist-item-4 wording-tweak `decisions` entry on `backend-portfolio-load-performance-followups-followups-followups.json` (and its mirrored entry on `backend-portfolio-load-performance-followups-followups.json`) cites CLAUDE.md's narrow 'amending an existing decisions entry's text in place' carve-out as authority for editing the OTHER task's checklist-item `step` text -- but that carve-out, by its own text, is scoped specifically to correcting a stale claim inside an already-done task's `decisions` entry, not to checklist `step` text; CLAUDE.md never states this carve-out extends to checklist items. The actual edit holds up on its own terms regardless (it was independently and explicitly authorized by the filing task's own checklist item 2's 'worth a human sanity-check / wording tweak next time that task file is touched' instruction, and was executed conservatively as a non-destructive bracketed append with a fresh decisions entry) -- but the specific authority cited is a category mismatch. Worth either (a) a fresh, narrow decisions-entry correction noting the more precise authorizing source, or (b) raising to a human whether CLAUDE.md's in-place-edit carve-out should be explicitly extended to cover checklist-item text too, given this is likely to recur.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
