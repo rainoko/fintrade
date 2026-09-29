@@ -517,6 +517,7 @@ class IBKRProvider:
         self._require_available()
         payload = self._request("POST", "/iserver/scanner/run", json=scan_config)
         self._last_scanner_run_at = self._clock()
+        print(f"IBKRProvider.run_scanner: {len(payload)} results returned for scan_config={scan_config}")
         return _parse_scanner_results(payload)
 
     def resolve_conid(self, ticker: str) -> int | None:
@@ -669,10 +670,23 @@ def _parse_bars(payload: object) -> list[IBKRBar]:
 
 
 def _parse_scanner_results(payload: object) -> list[ScannerResult]:
-    """`{"contracts": [{"conid":.., "symbol":.., "companyName":.., "rank":..}, ...]}` per
-    docs/ideas.md's documented `/iserver/scanner/run` shape. Same skip-malformed-rows
-    behavior as `_parse_bars`, except a missing/malformed `conid` drops the whole row
-    (there's no meaningful scanner result without one to key it by)."""
+    """`{"contracts": [{"con_id":.., "symbol":.., "company_name":.., "rank":..}, ...]}` --
+    a live gateway's actual field names (snake_case `con_id`/`company_name`), confirmed
+    against a real running gateway; docs/ideas.md's documented shape had guessed
+    camelCase (`conid`/`companyName`, unverified until now -- see this module's own
+    "Testing constraint" docstring paragraph), which silently dropped every single result
+    (every row's `conid` lookup came back `None`, hitting the "missing conid" skip branch
+    below) rather than erroring, since a live gateway was never exercised until a user hit
+    this in practice. `rank` isn't present in the confirmed live payload at all -- IBKR's
+    own scan-result ordering is implicit in list order, not a per-row field -- so this
+    stays `None` for every real result today; kept as a lookup (rather than removed
+    outright) since `IBKRScannerResultOut.rank`'s own field description already documents
+    it as "if the gateway supplied one" -- a gateway response or scan category that does
+    include it degrades correctly with no further code change needed.
+
+    Same skip-malformed-rows behavior as `_parse_bars`, except a missing/malformed
+    `con_id` drops the whole row (there's no meaningful scanner result without one to key
+    it by)."""
     if not isinstance(payload, dict):
         return []
     raw_contracts = payload.get("contracts") or []
@@ -680,7 +694,7 @@ def _parse_scanner_results(payload: object) -> list[ScannerResult]:
     for raw in raw_contracts:
         if not isinstance(raw, dict):
             continue
-        conid = raw.get("conid")
+        conid = raw.get("con_id")
         if conid is None:
             continue
         try:
@@ -691,7 +705,7 @@ def _parse_scanner_results(payload: object) -> list[ScannerResult]:
             ScannerResult(
                 conid=conid_int,
                 symbol=raw.get("symbol"),
-                company_name=raw.get("companyName"),
+                company_name=raw.get("company_name"),
                 rank=_int_or_none(raw.get("rank")),
             )
         )

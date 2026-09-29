@@ -2401,6 +2401,20 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/backend-portfolio-load-performance-followups-followups-followups-followups.json"
+    },
+    {
+      "id": "backend-ibkr-primary-data-provider",
+      "area": "backend/data",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-ibkr-primary-data-provider.json"
+    },
+    {
+      "id": "backend-data-provider-timeouts",
+      "area": "backend/data",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-data-provider-timeouts.json"
     }
   ]
 }

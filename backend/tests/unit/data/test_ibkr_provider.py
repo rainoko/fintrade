@@ -555,8 +555,8 @@ class TestRunScanner:
         )
         payload = {
             "contracts": [
-                {"conid": 265598, "symbol": "AAPL", "companyName": "Apple Inc", "rank": 1},
-                {"conid": 272093, "symbol": "MSFT", "companyName": "Microsoft Corp", "rank": 2},
+                {"con_id": 265598, "symbol": "AAPL", "company_name": "Apple Inc", "rank": 1},
+                {"con_id": 272093, "symbol": "MSFT", "company_name": "Microsoft Corp", "rank": 2},
             ]
         }
         request = mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
@@ -577,7 +577,7 @@ class TestRunScanner:
             "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
             return_value=mocker.Mock(state="available", detail=None),
         )
-        payload = {"contracts": [{"symbol": "NOCONID"}, {"conid": 1, "symbol": "OK"}]}
+        payload = {"contracts": [{"symbol": "NOCONID"}, {"con_id": 1, "symbol": "OK"}]}
         mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
 
         results = IBKRProvider().run_scanner({})
@@ -601,7 +601,7 @@ class TestRunScanner:
             "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
             return_value=mocker.Mock(state="available", detail=None),
         )
-        payload = {"contracts": ["not a dict", {"conid": 1, "symbol": "OK"}]}
+        payload = {"contracts": ["not a dict", {"con_id": 1, "symbol": "OK"}]}
         mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
 
         results = IBKRProvider().run_scanner({})
@@ -614,7 +614,7 @@ class TestRunScanner:
             "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
             return_value=mocker.Mock(state="available", detail=None),
         )
-        payload = {"contracts": [{"conid": "not-a-number", "symbol": "BAD"}]}
+        payload = {"contracts": [{"con_id": "not-a-number", "symbol": "BAD"}]}
         mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
 
         results = IBKRProvider().run_scanner({})
@@ -626,7 +626,7 @@ class TestRunScanner:
             "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
             return_value=mocker.Mock(state="available", detail=None),
         )
-        payload = {"contracts": [{"conid": 1, "symbol": "AAPL", "rank": "not-a-number"}]}
+        payload = {"contracts": [{"con_id": 1, "symbol": "AAPL", "rank": "not-a-number"}]}
         mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
 
         results = IBKRProvider().run_scanner({})

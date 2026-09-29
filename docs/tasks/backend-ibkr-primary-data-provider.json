@@ -1,0 +1,44 @@
+{
+  "id": "backend-ibkr-primary-data-provider",
+  "title": "When the IBKR gateway is connected, use it exclusively for market data instead of yfinance/Stooq",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "docs/Analyse.md#9-data-sources-free",
+    "docs/architecture/Backend.md",
+    "backend/app/data/ibkr_provider.py",
+    "backend/app/data/base.py",
+    "backend/app/api/dependencies.py"
+  ],
+  "description": "User-requested change (raised in conversation while diagnosing ticker-detail-view slowness caused by yfinance being rate-limited, docs/tasks/backend-data-provider-timeouts.json): whenever the IBKR Client Portal Gateway is connected/available, this app should source market data from IBKR exclusively -- daily/weekly OHLCV, and whatever else `DataProvider` currently supplies -- and not call yfinance/Stooq at all in that case, not even as a fallback on a per-call error. Only when IBKR isn't connected (disabled, gateway unreachable, not authenticated) should the app fall back to today's yfinance-primary/Stooq-fallback behavior.\n\nThis directly reverses an existing, explicit design decision recorded in `IBKRProvider`'s own module docstring: 'That makes it a poor fit as this app's *primary* data source (unlike `YFinanceProvider`'s always-on, no-login-step nature) -- it's used only for the specific extra capabilities it uniquely unlocks' (hourly bars for day-trader mode, the market scanner). `IBKRProvider` also deliberately does *not* implement the `DataProvider` protocol (`app/data/base.py`) today -- see that same docstring's rationale (its capabilities 'don't map onto that protocol's `get_daily_ohlcv`/`get_weekly_ohlcv`/`get_extended_data` shape at all'). Implementing this task means revisiting that decision with the new requirement in hand, not silently working around it -- record the reversal and why as a `decisions` entry per CLAUDE.md's decision-memory convention, referencing the original rationale being superseded.\n\nOpen research questions to resolve before/while implementing (don't assume -- confirm against a live gateway, the same way every other IBKR-provider fact in this codebase has been confirmed rather than guessed from docs, per `IBKRProvider`'s own 'Testing constraint' docstring paragraph and this session's own experience finding two live-gateway-only bugs in the scanner path):\n- Can `/iserver/marketdata/history` (already wrapped by `IBKRProvider.get_hourly_bars`, whose `_VALID_BAR_INTERVALS`/`_BAR_INTERVAL_STEP` already include `'1d'`/`'1w'`) actually serve full-history daily/weekly bars for an arbitrary held/watched ticker the way `YFinanceProvider.get_daily_ohlcv`/`get_weekly_ohlcv` do today, or does it have a shorter lookback ceiling that makes it unsuitable for Screen 1's 26-week-minimum requirement or the various whole-history passes (support/resistance zones, Autoenvelope channel, insider-cluster detection) that assume deep history?\n- `get_extended_data` (earnings/dividend dates, short interest, insider transactions) has no obvious IBKR Client Portal Web API equivalent researched yet anywhere in this codebase/docs/ideas.md -- confirm whether IBKR's API can supply any of these at all. If it can't, 'use IBKR for everything' may need a carve-out (e.g. extended data keeps using yfinance/Stooq even while IBKR is otherwise primary) -- decide and record rather than silently guessing either way.\n- Every ticker needs an IBKR conid before any of its endpoints are usable (`IBKRProvider.resolve_conid`, one `/iserver/secdef/search` round trip per ticker) -- decide whether/how this gets cached (today nothing caches conid resolutions across requests) so switching to IBKR-primary doesn't add a resolution round trip to every single request for every ticker.\n- How 'IBKR is connected' is checked per request without adding a slow, real network round trip (`get_gateway_status` hits `/iserver/auth/status` live) to every single market-data call -- reuse/extend the existing singleton (`app.api.dependencies._get_ibkr_provider_singleton`) and its existing caching patterns (e.g. `get_scanner_params`'s 15-minute TTL cache) rather than inventing a third caching scheme.\n- The user's own instruction is explicit that no yfinance/Stooq fallback should happen while IBKR is connected, even on a single call's own failure (e.g. an unresolvable conid, a transient IBKR-side error) -- this removes the resilience a fallback would otherwise provide. Decide and record (as a `decisions` entry, not silently) what such a per-call failure should do instead: presumably the same graceful-degradation contract this app already uses elsewhere (a null/degraded field, or the existing `DataProviderUnavailableError` -> 503 path) rather than ever silently reaching for yfinance.\n\nApplies to every caller of `get_data_provider` (`app.api.dependencies`), not just the ticker detail view that prompted this -- `GET /api/stocks/{ticker}/analysis`, `GET /api/watchlist` (+ breadth), `GET /api/portfolio` (+ risk), and `GET /api/stocks/{ticker}/indicator-history` all share this same dependency and would all switch together.",
+  "checklist": [
+    {
+      "step": "Research (against a live gateway, not just documented assumptions) whether /iserver/marketdata/history can serve the same daily/weekly history depth get_daily_ohlcv/get_weekly_ohlcv need, and whether any IBKR endpoint can supply an equivalent to get_extended_data's earnings/dividend/short-interest/insider-transaction fields. Record findings and any resulting scope carve-outs as a decisions entry.",
+      "done": false
+    },
+    {
+      "step": "Decide and record (decisions entry) how IBKR conid resolution is cached across requests so switching to IBKR-primary doesn't add a resolve_conid round trip per ticker per request.",
+      "done": false
+    },
+    {
+      "step": "Decide and record (decisions entry) how 'IBKR is connected' is determined per request cheaply (reusing/extending the existing singleton + caching patterns already in app.api.dependencies/IBKRProvider), and how a mid-request IBKR-specific failure degrades given the no-yfinance-fallback-while-connected constraint.",
+      "done": false
+    },
+    {
+      "step": "Record the reversal of IBKRProvider's existing 'not a primary data source, doesn't implement DataProvider' design decision as a decisions entry, referencing the original rationale (its own module docstring) being superseded and why.",
+      "done": false
+    },
+    {
+      "step": "Implement: either make IBKRProvider satisfy the DataProvider protocol or add a new adapter that does, and wire app.api.dependencies.get_data_provider to return it instead of CachedDataProvider(YFinanceProvider(), StooqProvider(), db) whenever IBKR is connected/available, falling back to today's yfinance/Stooq behavior only when it isn't.",
+      "done": false
+    },
+    {
+      "step": "Tests: provider-selection logic (IBKR-connected vs not) with mocked IBKR responses matching whatever live-gateway shapes were confirmed in the research step (mirroring tests/unit/data/test_ibkr_provider.py's existing mocked-HTTP-boundary convention -- no live network calls per docs/architecture/Testing.md), plus a regression assertion that yfinance/Stooq are never invoked while IBKR is connected.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
