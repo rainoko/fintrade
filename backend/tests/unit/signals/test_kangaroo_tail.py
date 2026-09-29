@@ -97,6 +97,48 @@ class TestDownwardTailDetection:
         assert tail.suggested_stop == pytest.approx((101.0 + 90.0) / 2)
 
 
+class TestMultipleTailsInOneScan:
+    """`detect_kangaroo_tails`'s vectorized implementation (docs/tasks/backend-portfolio-load-
+    performance-followups-followups.json) evaluates every candidate position across the whole
+    series in one elementwise pass, then only turns the qualifying positions into `KangarooTail`
+    objects -- a real risk specific to that rewrite is a position mapped to the wrong bar's
+    fields once more than one position qualifies in the same scan (e.g. an off-by-one in
+    `np.flatnonzero`'s index-into-array reads). This exercises `detect_kangaroo_tails` directly
+    (unlike `TestLatestKangarooTail`'s `test_returns_the_most_recent_of_several_tails`, which
+    only ever inspects the LAST of several tails via `latest_kangaroo_tail`) with two
+    independent, opposite-direction tails, asserting every hand-computed field of BOTH."""
+
+    def test_detects_both_an_earlier_up_tail_and_a_later_down_tail_with_correct_fields(self) -> None:
+        overrides = _up_tail_overrides()
+        # A second, later down-tail pattern (mirrors _down_tail_overrides' own math) starting
+        # far enough after the first tail's confirming bar (11) that its own lookback window
+        # (positions 15-24) is pure filler again -- same spacing convention as
+        # TestLatestKangarooTail.test_returns_the_most_recent_of_several_tails.
+        overrides[25] = {"open": 100.0, "high": 101.0, "low": 90.0, "close": 99.5}
+        overrides[26] = {"open": 99.5, "high": 101.0, "low": 98.5, "close": 101.0}
+        daily_ohlcv = _build_ohlcv(30, overrides)
+
+        tails = detect_kangaroo_tails(daily_ohlcv)
+
+        assert len(tails) == 2
+        first, second = tails
+        assert first.direction == "up"
+        assert first.date == daily_ohlcv.index[10]
+        assert first.confirmed_date == daily_ohlcv.index[11]
+        assert first.high == pytest.approx(110.0)
+        assert first.low == pytest.approx(99.0)
+        assert first.range_multiple == pytest.approx(5.5)
+        assert first.suggested_stop == pytest.approx((110.0 + 99.0) / 2)
+
+        assert second.direction == "down"
+        assert second.date == daily_ohlcv.index[25]
+        assert second.confirmed_date == daily_ohlcv.index[26]
+        assert second.high == pytest.approx(101.0)
+        assert second.low == pytest.approx(90.0)
+        assert second.range_multiple == pytest.approx(5.5)
+        assert second.suggested_stop == pytest.approx((101.0 + 90.0) / 2)
+
+
 class TestGatingConditions:
     """Each test disturbs exactly one required condition of the base up-tail fixture and
     confirms detection correctly fails -- proving every checklist requirement (shape, both

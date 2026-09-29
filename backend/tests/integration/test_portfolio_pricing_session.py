@@ -11,12 +11,22 @@ tests/unit/data/test_cache.py's `session` fixture) and counts SQL SELECTs issued
 `positions` table across a two-position enrichment loop that includes a real cache-miss
 commit partway through, to prove the fix actually avoids the re-query rather than just
 asserting the config flag in isolation (tests/unit/test_db_session.py does that part).
+
+`_make_session`'s engine uses `StaticPool` -- required since
+`backend-portfolio-load-performance`'s concurrent-fetch fix: `enrich_positions_with_price`
+itself now fans its per-position fetches out across a small thread pool, so `CachedDataProvider`
+(and the session it wraps) is genuinely touched from more than one OS thread within this test.
+Without `StaticPool`, an in-memory SQLite engine hands a *different*, empty database to a thread
+other than the one `Base.metadata.create_all` ran on (the same reason
+`tests/integration/conftest.py`'s own `db_session` fixture needs it, for `TestClient`'s
+request-handling thread) -- see this task's `decisions` entry.
 """
 
 from datetime import date
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.data.cache import CachedDataProvider
 from app.db.models import Base, PositionORM
@@ -25,7 +35,9 @@ from tests.integration.conftest import _count_position_selects, _StubDailyProvid
 
 
 def _make_session(*, expire_on_commit: bool) -> Session:
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     Base.metadata.create_all(engine)
     TestingSessionLocal = sessionmaker(
         bind=engine, autoflush=False, autocommit=False, expire_on_commit=expire_on_commit

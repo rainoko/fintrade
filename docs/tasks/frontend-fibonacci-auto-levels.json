@@ -1,0 +1,41 @@
+{
+  "id": "frontend-fibonacci-auto-levels",
+  "title": "Stock Detail price chart: auto-calculated Fibonacci retracement levels for the currently visible range, recalculated on zoom/pan",
+  "area": "frontend/stocks",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "docs/Analyse.md",
+    "frontend/src/features/stocks/components/PriceChart.tsx"
+  ],
+  "description": "User-requested feature: on the Stock Detail page's price chart, Fibonacci retracement levels should be calculated automatically from the currently-visible chart range (not a fixed lookback window), and recalculated whenever the user zooms or pans the chart. Confirmed via a repo-wide search before writing this task: there is no existing Fibonacci code anywhere in this codebase (backend or frontend) -- this is new functionality, not a fix to something already there.\n\nThis is a purely client-side geometric calculation over data the frontend already has (`historyQuery.data`'s OHLCV bars, the same data `PriceChart.tsx`'s existing overlays already read) -- no backend/API change is needed unless the investigation below finds a genuine reason one is. Elder's own Triple Screen methodology (docs/Analyse.md) doesn't itself prescribe Fibonacci retracements as part of the signal system (check this directly rather than assuming) -- so this is an additive, purely visual charting aid the user wants, analogous in spirit to the existing support/resistance zone overlay (`frontend-support-resistance-overlay`) but computed client-side from swing points rather than fetched from the backend's own signal computation.\n\nStandard Fibonacci retracement mechanics: pick a swing high and a swing low (the highest high and lowest low within some range), then draw horizontal levels at fixed ratios between them (commonly 0%, 23.6%, 38.2%, 50%, 61.8%, 78.6%, 100%, sometimes extension levels beyond 100% too). The open design question this task must resolve (research first, don't just guess): should the swing high/low be the absolute highest-high and lowest-low bars within the currently visible time range (simplest, matches the user's literal wording 'calculated automatically to current view'), or should it use a more sophisticated swing-point detection (e.g. the two most recent local extrema) -- research how other charting tools/conventions handle 'auto Fibonacci' before picking, and record the choice with rationale as a `decisions` entry.",
+  "checklist": [
+    {
+      "step": "Research standard Fibonacci retracement conventions (which ratio levels are standard, how 'automatic'/'auto-fib' tools in other charting platforms typically pick their anchor swing high/low from a visible range) and decide the exact algorithm this feature will use. Record the decision and rationale (including alternatives considered) as a `decisions` entry.",
+      "done": false
+    },
+    {
+      "step": "Determine the currently-visible bar range on `PriceChart.tsx`'s lightweight-charts instance (the library exposes a visible-time-range API on its time scale) and compute the swing high/low + Fibonacci levels from the bars within that range, using the algorithm decided above.",
+      "done": false
+    },
+    {
+      "step": "Render the computed levels as horizontal price lines/labels on the price chart, styled distinctly from the existing support/resistance zone bands (so a user can tell the two apart) but consistent with this component's existing overlay conventions (colors, legend entry if one is warranted -- check how the support/resistance zone legend is built for the pattern to follow).",
+      "done": false
+    },
+    {
+      "step": "Subscribe to the chart's visible-range-change event (zoom/pan) and recalculate + redraw the levels when it fires, debounced appropriately so a drag/zoom gesture doesn't recompute on every intermediate frame.",
+      "done": false
+    },
+    {
+      "step": "Handle degenerate cases gracefully: fewer than 2 visible bars, a flat range with no meaningful high/low spread, and the chart's own loading/error states (mirror how the existing support/resistance effect already guards `finiteBars.length < 2`).",
+      "done": false
+    },
+    {
+      "step": "Tests (vitest/Testing Library, no live network calls): the Fibonacci-level calculation itself (hand-computed reference values, matching this codebase's `add-indicator`-style convention for verifying numeric calculations), the visible-range recalculation trigger, and the degenerate-case guards. Storybook coverage if any new piece lands in `components/common/` (unlikely here, given this is chart-library-specific rendering logic tightly coupled to `PriceChart.tsx`, but check per Frontend.md §3's placement rule).",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

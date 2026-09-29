@@ -525,6 +525,60 @@ def _pick_most_recent(candidates: list[Divergence]) -> Divergence | None:
     return min(most_recent, key=lambda d: _INDICATOR_PRIORITY[d.indicator])
 
 
+def _latest_divergence_from_swings(
+    lows: list[SwingPoint],
+    highs: list[SwingPoint],
+    price: pd.Series,
+    indicator: pd.Series,
+    *,
+    indicator_name: DivergenceIndicator,
+    min_bars_apart: int,
+    max_bars_apart: int,
+    max_second_extreme_depth_ratio: float,
+) -> Divergence | None:
+    """The ``latest_divergence`` result for one indicator, but from already-computed PRICE
+    swing points (``lows`` for the bullish scan, ``highs`` for the bearish one) instead of
+    ``latest_divergence``'s own ``find_divergences`` calls, each of which independently reruns
+    ``find_swing_points`` on ``price`` from scratch. ``current_divergence`` uses this to share
+    ONE swing-point pass across all three indicators it checks, instead of the 3 indicators x 2
+    kinds = 6 redundant full-history swing-point scans ``latest_divergence`` would otherwise
+    perform on the exact same ``price`` series (docs/tasks/backend-portfolio-load-performance-
+    followups-followups-followups.json's `decisions` entry has the measured cost this fixes,
+    ~0.72s/ticker on an AAPL-scale history).
+
+    Mirrors ``latest_divergence``'s own tie-break exactly (``max`` by ``second.date``, bullish
+    candidates appended before bearish so a tied date favors bullish, matching the order
+    ``latest_divergence`` itself builds its own two-``find_divergences``-call candidate list
+    in) rather than reusing ``_pick_most_recent`` (a subtly different function -- built for
+    picking across multiple *indicators*, whose tie-break additionally keys off
+    ``_INDICATOR_PRIORITY``, which is irrelevant here since every candidate below shares the
+    same ``indicator_name``)."""
+    candidates: list[Divergence] = []
+    candidates += divergences_from_swings(
+        lows,
+        price,
+        indicator,
+        indicator_name=indicator_name,
+        kind="bullish",
+        min_bars_apart=min_bars_apart,
+        max_bars_apart=max_bars_apart,
+        max_second_extreme_depth_ratio=max_second_extreme_depth_ratio,
+    )
+    candidates += divergences_from_swings(
+        highs,
+        price,
+        indicator,
+        indicator_name=indicator_name,
+        kind="bearish",
+        min_bars_apart=min_bars_apart,
+        max_bars_apart=max_bars_apart,
+        max_second_extreme_depth_ratio=max_second_extreme_depth_ratio,
+    )
+    if not candidates:
+        return None
+    return max(candidates, key=lambda d: d.second.date)
+
+
 def current_divergence(
     price: pd.Series,
     *,
@@ -541,17 +595,33 @@ def current_divergence(
     macd_histogram/stochastic/rsi are supplied (any subset; a ``None`` series is simply
     skipped). See ``_INDICATOR_PRIORITY`` for the tie-break rule.
 
+    Computes PRICE's own swing points via a SINGLE ``find_swing_points(price, window=window)``
+    call, shared across all three indicators below (rather than each indicator independently
+    calling ``latest_divergence`` -> ``find_divergences`` -> ``swing_lows``/``swing_highs``,
+    which would each re-run ``find_swing_points`` on the identical ``price``/``window`` pair --
+    up to 3 indicators x 2 kinds = 6 redundant full-history scans previously, now 1). ``price``
+    and ``window`` are identical across every one of those 6 original calls (a single ``window``
+    argument shared by all three indicators, not one per indicator), so this caching is exact,
+    not approximate -- see docs/tasks/backend-portfolio-load-performance-followups-followups-
+    followups.json's `decisions` entry for the measured cost this fixes and the correctness
+    reasoning.
+
     Written as three explicit (not looped-over) indicator checks -- rather than iterating a
     ``(name, series)`` tuple list -- so each ``indicator_name`` argument stays a precise string
     literal for static type-checking, instead of widening to plain ``str`` across a
     heterogeneous loop."""
+    all_swings = find_swing_points(price, window=window)
+    lows = [p for p in all_swings if p.kind == "low"]
+    highs = [p for p in all_swings if p.kind == "high"]
+
     candidates: list[Divergence] = []
     if macd_histogram is not None:
-        found = latest_divergence(
+        found = _latest_divergence_from_swings(
+            lows,
+            highs,
             price,
             macd_histogram,
             indicator_name="macd_histogram",
-            window=window,
             min_bars_apart=min_bars_apart,
             max_bars_apart=max_bars_apart,
             max_second_extreme_depth_ratio=max_second_extreme_depth_ratio,
@@ -559,11 +629,12 @@ def current_divergence(
         if found is not None:
             candidates.append(found)
     if stochastic is not None:
-        found = latest_divergence(
+        found = _latest_divergence_from_swings(
+            lows,
+            highs,
             price,
             stochastic,
             indicator_name="stochastic",
-            window=window,
             min_bars_apart=min_bars_apart,
             max_bars_apart=max_bars_apart,
             max_second_extreme_depth_ratio=max_second_extreme_depth_ratio,
@@ -571,11 +642,12 @@ def current_divergence(
         if found is not None:
             candidates.append(found)
     if rsi is not None:
-        found = latest_divergence(
+        found = _latest_divergence_from_swings(
+            lows,
+            highs,
             price,
             rsi,
             indicator_name="rsi",
-            window=window,
             min_bars_apart=min_bars_apart,
             max_bars_apart=max_bars_apart,
             max_second_extreme_depth_ratio=max_second_extreme_depth_ratio,

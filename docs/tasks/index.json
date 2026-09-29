@@ -2352,6 +2352,60 @@
       "skill": "add-frontend-feature",
       "state": "planned",
       "path": "docs/tasks/frontend-ibkr-preload-loading-feedback.json"
+      "id": "frontend-support-zones-disappear-after-oscillators",
+      "area": "frontend/stocks",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-support-zones-disappear-after-oscillators.json"
+    },
+    {
+      "id": "frontend-support-zones-disappear-after-oscillators-followups",
+      "area": "frontend/stocks",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-support-zones-disappear-after-oscillators-followups.json"
+    },
+    {
+      "id": "backend-portfolio-load-performance",
+      "area": "backend/api",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-portfolio-load-performance.json"
+    },
+    {
+      "id": "frontend-fibonacci-auto-levels",
+      "area": "frontend/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-fibonacci-auto-levels.json"
+    },
+    {
+      "id": "backend-portfolio-load-performance-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-portfolio-load-performance-followups.json"
+    },
+    {
+      "id": "backend-portfolio-load-performance-followups-followups",
+      "area": "backend/signals",
+      "skill": "add-indicator",
+      "state": "done",
+      "path": "docs/tasks/done/backend-portfolio-load-performance-followups-followups.json"
+    },
+    {
+      "id": "backend-portfolio-load-performance-followups-followups-followups",
+      "area": "backend/signals",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-portfolio-load-performance-followups-followups-followups.json"
+    },
+    {
+      "id": "backend-portfolio-load-performance-followups-followups-followups-followups",
+      "area": "backend/signals",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-portfolio-load-performance-followups-followups-followups-followups.json"
     }
   ]
 }

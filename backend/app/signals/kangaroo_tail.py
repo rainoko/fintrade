@@ -60,11 +60,43 @@ be run once over the *full* available history and its results simply filtered by
 position for a caller (``app.signals.engine.analyse_history``) that needs a genuinely
 no-look-ahead "as of this bar" answer per bar -- no swing-point-style confirmation cache is
 needed, just a plain sorted list.
-"""
+
+**Vectorized implementation** (docs/tasks/backend-portfolio-load-performance-followups-followups.json's
+`decisions` entry has the full before/after measurement): `detect_kangaroo_tails` used to loop
+once per bar (`_evaluate_candidate`), re-slicing a `lookback`-row window and re-running
+`.mean()`/`.max()`/`.min()`/several scalar `.iloc[...]` lookups on every one of the ~11,528 bars
+scanned for a realistic full-history daily series -- measured at ~1.6-1.8s for one ~11,539-row
+ticker (AAPL-scale history), the dominant CPU-bound cost of a realistic swing-mode portfolio
+load (`backend-portfolio-load-performance-followups`'s own investigation). It's now a single
+vectorized pass: `pandas.Series.rolling(lookback).mean()/.max()/.min()` (each `.shift(1)`ed so
+the window at position `i` covers exactly bars `i-lookback` through `i-1`, matching the old
+per-bar slice `daily_ohlcv.iloc[position - lookback : position]` bar-for-bar) computes every
+candidate's baseline range/window extremes across the whole series at once;
+`pandas.Series.shift(1)`/`.shift(-1)` read the flanking bars' own ranges and the confirming
+bar's close the same way. Every per-bar boolean check (tail-sized, new-extreme,
+body-retraced-from-tip, flanks-normal, confirms-direction) becomes one elementwise numpy
+comparison over the full array, `&`-combined into a single final boolean mask -- only the
+positions where every check passes (typically a small handful, not thousands) are then turned
+into `KangarooTail` objects, so the O(n) cost is now pandas' own compiled rolling/shift
+implementation rather than n Python-level function calls. This produced a measured ~1.66s ->
+~0.0017s (~955x) speedup on the same synthetic ~11,539-row random-walk fixture (0 tails present),
+and ~1.68s -> ~0.0022s (~765x) on a second, purpose-built ~11,539-row fixture with 460 candidate
+patterns injected every ~25 bars (10 of which pass every gate) -- exercising the actual
+tail-detection/rejection branches at scale, not just the "nothing qualifies" case. Both fixtures'
+old-vs-new output matched EXACTLY (every field of every `KangarooTail`, not just the count) when
+independently cross-checked against the pre-vectorization implementation -- see this task's own
+`decisions` entry for the full methodology. See this module's own test suite
+(`tests/unit/signals/test_kangaroo_tail.py`) for the hand-computed reference values this rewrite
+is verified against -- the pre-existing reference-value tests (written against the old per-bar
+implementation, using a flat, hand-computable filler baseline) are reused verbatim here, proving
+the rewrite reproduces the book-derived algorithm's exact behavior, not just "agrees with the old
+code on one large random fixture" (see this task's own `decisions` entry for why that distinction
+mattered enough to block shipping the original prototype)."""
 
 from dataclasses import dataclass
 from typing import Literal
 
+import numpy as np
 import pandas as pd
 
 Direction = Literal["up", "down"]
@@ -124,122 +156,6 @@ def _validate_columns(daily_ohlcv: pd.DataFrame) -> None:
         raise ValueError(f"daily_ohlcv is missing required column(s): {sorted(missing)}")
 
 
-def _bar_range(daily_ohlcv: pd.DataFrame, position: int) -> float:
-    return float(daily_ohlcv["high"].iloc[position] - daily_ohlcv["low"].iloc[position])
-
-
-def _is_tail_sized(bar_range: float, baseline_range: float, range_multiplier: float) -> bool:
-    """Whether a single bar's own range qualifies as tail-sized against ``baseline_range`` --
-    shared by both the candidate tail's own qualification and the "normal height" flanking-bar
-    check (a flanking bar must NOT itself be tail-sized)."""
-    if baseline_range <= 0:
-        return False
-    return bar_range >= range_multiplier * baseline_range
-
-
-def _body_retraced_from_tip(
-    direction: Direction,
-    open_: float,
-    close: float,
-    high: float,
-    low: float,
-    bar_range: float,
-    min_retracement: float,
-) -> bool:
-    """Whether both ``open_`` and ``close`` sit at least ``min_retracement`` of ``bar_range``
-    away from the tip (``high`` for an upward tail, ``low`` for a downward one) -- "the close
-    ends up back near the open, not at the extreme". See this module's docstring, point 3."""
-    if bar_range <= 0:
-        return False
-    if direction == "up":
-        open_retracement = (high - open_) / bar_range
-        close_retracement = (high - close) / bar_range
-    else:
-        open_retracement = (open_ - low) / bar_range
-        close_retracement = (close - low) / bar_range
-    return open_retracement >= min_retracement and close_retracement >= min_retracement
-
-
-def _confirms_direction(direction: Direction, tail_close: float, confirming_close: float) -> bool:
-    """Whether the confirming (next) bar's close continues in the direction the tail's
-    reversal implies -- below the tail's own close for an upward (bearish) tail, above it for
-    a downward (bullish) one. See this module's docstring, point 5."""
-    if direction == "up":
-        return confirming_close < tail_close
-    return confirming_close > tail_close
-
-
-def _evaluate_candidate(
-    daily_ohlcv: pd.DataFrame,
-    position: int,
-    *,
-    lookback: int,
-    range_multiplier: float,
-    min_retracement: float,
-) -> KangarooTail | None:
-    """Evaluates bar ``position`` as a candidate Kangaroo Tail, requiring bars
-    ``position - lookback`` through ``position + 1`` to all exist. Returns ``None`` the moment
-    any check fails, or the confirmed ``KangarooTail`` if every one passes -- see this module's
-    docstring for the full ordered algorithm."""
-    window = daily_ohlcv.iloc[position - lookback : position]
-    baseline_range = float((window["high"] - window["low"]).mean())
-
-    bar_range = _bar_range(daily_ohlcv, position)
-    if not _is_tail_sized(bar_range, baseline_range, range_multiplier):
-        return None
-
-    high = float(daily_ohlcv["high"].iloc[position])
-    low = float(daily_ohlcv["low"].iloc[position])
-    window_high_max = float(window["high"].max())
-    window_low_min = float(window["low"].min())
-
-    makes_new_high = high > window_high_max
-    makes_new_low = low < window_low_min
-    if not makes_new_high and not makes_new_low:
-        return None
-    # A bar could in principle satisfy both (a huge "outside bar", beyond the lookback
-    # window's high AND low at once) -- "up" takes priority in that degenerate tie, since a
-    # genuine Kangaroo Tail's body-position check below only ever passes for one direction in
-    # practice (the body can't retrace toward both ends of the range at once unless
-    # min_retracement is exactly 0.5 and the body sits exactly on the midpoint). Recorded as
-    # its own decision in docs/tasks/backend-kangaroo-tail-pattern-followups.json (not this
-    # module's originating task, backend-kangaroo-tail-pattern.json, whose own `decisions`
-    # array does not actually cover this specific tie-break) -- see that followups task's
-    # `decisions` entry and its dedicated outside-bar regression test
-    # (test_kangaroo_tail.py::TestGatingConditions::
-    # test_outside_bar_new_high_and_new_low_defaults_to_up_direction).
-    direction: Direction = "up" if makes_new_high else "down"
-
-    open_ = float(daily_ohlcv["open"].iloc[position])
-    close = float(daily_ohlcv["close"].iloc[position])
-    if not _body_retraced_from_tip(direction, open_, close, high, low, bar_range, min_retracement):
-        return None
-
-    before_range = _bar_range(daily_ohlcv, position - 1)
-    if _is_tail_sized(before_range, baseline_range, range_multiplier):
-        return None  # the "before" flanking bar isn't of normal height
-
-    # `detect_kangaroo_tails`' own loop bound (`range(lookback, n - 1)`) already guarantees
-    # `position + 1` is always a valid index here -- no separate bounds guard needed.
-    after_range = _bar_range(daily_ohlcv, position + 1)
-    if _is_tail_sized(after_range, baseline_range, range_multiplier):
-        return None  # the "after" flanking bar isn't of normal height
-
-    confirming_close = float(daily_ohlcv["close"].iloc[position + 1])
-    if not _confirms_direction(direction, close, confirming_close):
-        return None
-
-    return KangarooTail(
-        direction=direction,
-        date=daily_ohlcv.index[position],
-        confirmed_date=daily_ohlcv.index[position + 1],
-        high=high,
-        low=low,
-        range_multiple=bar_range / baseline_range,
-        suggested_stop=(high + low) / 2,
-    )
-
-
 def detect_kangaroo_tails(
     daily_ohlcv: pd.DataFrame,
     *,
@@ -259,6 +175,12 @@ def detect_kangaroo_tails(
     function in ``app.signals`` -- see ``app.signals.engine.drop_malformed_daily_bars``); this
     function does not clean it itself.
 
+    **Vectorized** (see this module's docstring's "Vectorized implementation" section for the
+    full before/after story): every candidate position's checks are computed as a single
+    elementwise numpy comparison over the whole series at once, rather than a per-bar Python
+    loop -- functionally equivalent to evaluating each bar independently (this function's own
+    docstring, points 1-5), just computed in bulk.
+
     Raises:
         ValueError: if ``daily_ohlcv`` is non-empty but missing a required column
             (``open``/``high``/``low``/``close``), or if ``lookback`` is less than 1.
@@ -270,18 +192,106 @@ def detect_kangaroo_tails(
     _validate_columns(daily_ohlcv)
 
     n = len(daily_ohlcv)
+    # A candidate needs `lookback` bars before it and 1 bar after it -- too short a series has
+    # no valid candidate position at all (mirrors the old loop's `range(lookback, n - 1)` being
+    # empty whenever `n - 1 <= lookback`).
+    if n < lookback + 2:
+        return []
+
+    high = daily_ohlcv["high"].to_numpy(dtype=float)
+    low = daily_ohlcv["low"].to_numpy(dtype=float)
+    open_ = daily_ohlcv["open"].to_numpy(dtype=float)
+    close = daily_ohlcv["close"].to_numpy(dtype=float)
+    bar_range = high - low
+
+    # Baseline "average bar range" (point 1): the mean bar range over the `lookback` bars
+    # immediately preceding each position -- a rolling mean over a window ENDING at the
+    # previous bar, i.e. `.shift(1)` after `.rolling(lookback)` so the window at position `i`
+    # covers exactly bars `i-lookback` through `i-1` (bar-for-bar identical to the old
+    # `daily_ohlcv.iloc[position - lookback : position]` slice). Positions with fewer than
+    # `lookback` prior bars get NaN here, which every comparison below treats as "does not
+    # qualify" -- exactly mirroring the old loop never considering those positions at all.
+    bar_range_series = pd.Series(bar_range)
+    baseline_range = bar_range_series.rolling(lookback).mean().shift(1).to_numpy()
+    window_high_max = pd.Series(high).rolling(lookback).max().shift(1).to_numpy()
+    window_low_min = pd.Series(low).rolling(lookback).min().shift(1).to_numpy()
+    before_range = bar_range_series.shift(1).to_numpy()
+    after_range = bar_range_series.shift(-1).to_numpy()
+    confirming_close = pd.Series(close).shift(-1).to_numpy()
+
+    with np.errstate(invalid="ignore", divide="ignore"):
+        baseline_positive = baseline_range > 0
+
+        # Point 2: tail qualification -- own range >= range_multiplier * baseline, AND a
+        # genuine new extreme beyond the whole lookback window (not just wider than average).
+        is_tail_sized = baseline_positive & (bar_range >= range_multiplier * baseline_range)
+        makes_new_high = high > window_high_max
+        makes_new_low = low < window_low_min
+        qualifies_extreme = makes_new_high | makes_new_low
+
+        # "up" takes priority on the degenerate outside-bar tie (both a new high AND a new low
+        # at once) -- see this module's docstring, point 2, and
+        # docs/tasks/backend-kangaroo-tail-pattern-followups.json's `decisions` entry for the
+        # original scalar tie-break this reproduces exactly (`"up" if makes_new_high else
+        # "down"`, only ever reached once `qualifies_extreme` holds).
+        direction_is_up = makes_new_high
+
+        # Point 3: body position -- both open and close must retrace at least
+        # `min_retracement` of the bar's own range back from the tip. Computed for both
+        # directions unconditionally (cheap elementwise numpy math) then selected via
+        # `np.where`; a zero `bar_range` would otherwise divide to +-inf, so it's masked out
+        # explicitly (`bar_range > 0`) rather than relying on an inf/NaN comparison happening
+        # to come out False -- the old scalar `_body_retraced_from_tip` had the identical
+        # `bar_range <= 0: return False` guard for the same reason.
+        up_open_retracement = (high - open_) / bar_range
+        up_close_retracement = (high - close) / bar_range
+        down_open_retracement = (open_ - low) / bar_range
+        down_close_retracement = (close - low) / bar_range
+        body_ok_up = (up_open_retracement >= min_retracement) & (up_close_retracement >= min_retracement)
+        body_ok_down = (down_open_retracement >= min_retracement) & (down_close_retracement >= min_retracement)
+        body_ok = np.where(direction_is_up, body_ok_up, body_ok_down) & (bar_range > 0)
+
+        # Point 4: flanked by two bars of normal height -- neither the immediately-before nor
+        # immediately-after bar may itself be tail-sized, against the SAME baseline computed
+        # for the candidate position (matching the old code passing the candidate's own
+        # `baseline_range` into both flanking checks, not a baseline recomputed for the
+        # flanking bar's own position).
+        before_tail_sized = baseline_positive & (before_range >= range_multiplier * baseline_range)
+        after_tail_sized = baseline_positive & (after_range >= range_multiplier * baseline_range)
+        flanks_normal = ~before_tail_sized & ~after_tail_sized
+
+        # Point 5: confirming next bar -- its close must continue in the reversal's direction.
+        # `confirming_close` is NaN for the very last position (no bar after it exists), and a
+        # NaN comparison is always False in numpy, so the last position is naturally excluded
+        # here without a separate bounds check (the old loop's `range(lookback, n - 1))` upper
+        # bound achieved the same exclusion structurally instead).
+        confirms_up = confirming_close < close
+        confirms_down = confirming_close > close
+        confirms_ok = np.where(direction_is_up, confirms_up, confirms_down)
+
+        qualifies = is_tail_sized & qualifies_extreme & body_ok & flanks_normal & confirms_ok
+        # Only ever read (below) at a `qualifies` position, where `baseline_positive` is
+        # already guaranteed True (via `is_tail_sized`) -- computed under the same
+        # divide-by-zero/NaN suppression as everything else above for the same reason.
+        range_multiple = bar_range / baseline_range
+
+    suggested_stop = (high + low) / 2
+    index = daily_ohlcv.index
+
     tails = []
-    # A candidate at `position` needs `lookback` bars before it and 1 bar after it.
-    for position in range(lookback, n - 1):
-        tail = _evaluate_candidate(
-            daily_ohlcv,
-            position,
-            lookback=lookback,
-            range_multiplier=range_multiplier,
-            min_retracement=min_retracement,
+    for position in np.flatnonzero(qualifies):
+        direction: Direction = "up" if direction_is_up[position] else "down"
+        tails.append(
+            KangarooTail(
+                direction=direction,
+                date=index[position],
+                confirmed_date=index[position + 1],
+                high=float(high[position]),
+                low=float(low[position]),
+                range_multiple=float(range_multiple[position]),
+                suggested_stop=float(suggested_stop[position]),
+            )
         )
-        if tail is not None:
-            tails.append(tail)
     return tails
 
 

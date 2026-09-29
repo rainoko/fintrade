@@ -9,6 +9,7 @@ was read from -- see the api-portfolio-risk task's `decisions` entry for why the
 happened now rather than staying deferred.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 import pandas as pd
@@ -17,6 +18,16 @@ from app.data.base import DataProvider
 from app.data.exceptions import DataProviderError
 from app.db.models import PositionORM
 from app.portfolio.models import Position
+
+# Bounds how many positions' own `latest_close` fetches `enrich_positions_with_price` runs in
+# parallel at once -- same value and rationale as `app.api.day_trader_signal
+# ._MAX_CONCURRENT_TICKER_FETCHES` (a small, un-configurable constant, not tuned against a real
+# slow/high-latency provider since no sandboxed environment has one to measure against), picked
+# independently here rather than imported from that module: this file must not depend on
+# `app.api.day_trader_signal` (an api-layer module) -- see docs/architecture/Backend.md's own
+# layering note for this file ("imported only from the api/ layer") and this task's `decisions`
+# entry (docs/tasks/backend-portfolio-load-performance.json).
+_MAX_CONCURRENT_PRICE_FETCHES = 8
 
 
 @dataclass(frozen=True)
@@ -58,10 +69,34 @@ def enrich_positions_with_price(
     `current_price=None`/`unrealized_pnl_pct=None` rather than falling back to cost basis,
     and its bad price can't NaN-poison a running total (e.g. `positions_value` below) a
     caller sums across positions, since `None` is skipped rather than summed.
+
+    The per-row `latest_close` calls are fanned out across a small thread pool
+    (`_MAX_CONCURRENT_PRICE_FETCHES`) rather than run one at a time -- for a portfolio of N
+    held positions with a cache-cold `provider`, this was previously N fully-sequential
+    provider round trips (a measured, confirmed bottleneck -- see the
+    backend-portfolio-load-performance task's `decisions` entry), mirroring
+    `app.api.day_trader_signal.compute_day_trader_signals_concurrently`'s already-established
+    ThreadPoolExecutor-based pattern for the identical N-tickers problem. Safe against the real
+    `CachedDataProvider` (app/data/cache.py) specifically because that class's own `self._lock`
+    already serializes every section of its public methods that touches the shared, request-
+    scoped `Session` -- see its own docstring (established by
+    docs/tasks/backend-indicator-history-performance.json's concurrent daily+weekly fetch) --
+    only the slow, network-bound source fetch itself ever actually overlaps across threads.
+    `rows` is guaranteed to have no duplicate tickers (`PositionORM.ticker` is a DB-level
+    `unique` column), so no per-ticker de-duplication is needed here the way
+    `compute_day_trader_signals_concurrently` needs for its own, possibly-repeating `tickers`
+    argument. Order is preserved: `results[i]` corresponds to `rows[i]` regardless of which
+    order the underlying futures actually complete in.
     """
+    if not rows:
+        return []
+
+    with ThreadPoolExecutor(max_workers=min(len(rows), _MAX_CONCURRENT_PRICE_FETCHES)) as executor:
+        futures = [executor.submit(latest_close, provider, row.ticker) for row in rows]
+        results = [future.result() for future in futures]
+
     enriched: list[EnrichedPosition] = []
-    for row in rows:
-        current_price, daily_ohlcv = latest_close(provider, row.ticker)
+    for row, (current_price, daily_ohlcv) in zip(rows, results, strict=True):
         unrealized_pnl_pct = (
             (current_price - row.avg_cost_basis) / row.avg_cost_basis * 100.0
             if current_price is not None

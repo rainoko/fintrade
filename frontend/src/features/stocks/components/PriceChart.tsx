@@ -35,7 +35,12 @@ import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
 import { useStockAnalysis } from '../hooks/useStockAnalysis'
 import { useStockHistory } from '../hooks/useStockHistory'
-import { bringSeriesToFront, createBaseChart, isFiniteNumber } from '../../../utils/chart'
+import {
+  bringSeriesGroupToFront,
+  bringSeriesToFront,
+  createBaseChart,
+  isFiniteNumber,
+} from '../../../utils/chart'
 import {
   clickedDivergenceExtreme,
   divergenceMarkerLabelAndPosition,
@@ -873,6 +878,20 @@ export default function PriceChart({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
+  // Support/resistance zone band series currently on the chart (see the
+  // zone effect below), tracked here (not just a local variable inside that
+  // effect) so the OTHER pane-0-fill-adding effects below (signal-overlay,
+  // tide-region) can re-assert the zone bands' own z-order whenever THEY add
+  // a new fill series -- see this task's (frontend-support-zones-disappear-
+  // after-oscillators) `decisions` entry for why this ref exists at all: the
+  // zone effect and these other effects are independently gated (this one on
+  // `analysisQuery.data`, the others on `indicatorsQuery.data`) and commonly
+  // settle on different renders, so whichever one happens to run LAST wins
+  // the pane's z-order by default -- exactly the failure mode
+  // `bringSeriesToFront`'s own doc comment already describes for the
+  // candlestick series, but that fix only special-cased the candlestick,
+  // never the zone bands.
+  const zoneSeriesRef = useRef<ISeriesApi<'Baseline'>[]>([])
   // Divergence-marker click-to-explain (frontend-divergence-markers): page
   // coordinates of the last divergence-marker click, or `null` before any
   // click / once the balloon is closed -- fed into `AnchoredInfoBalloon`
@@ -1062,11 +1081,40 @@ export default function PriceChart({
     })
     zoneBottomMaskSeries.setData(valueZoneBottom)
 
+    // Bug fixed post-review (frontend-support-zones-disappear-after-
+    // oscillators): `zoneBottomMaskSeries` above is an OPAQUE fill (the
+    // chart's own paper background color) from `valueZoneBottom` down to the
+    // very bottom of the pane -- by design (see this effect's own block
+    // comment above), to erase the portion of `zoneTopSeries`'s translucent
+    // fill that dips below the value zone's lower bound. But since this
+    // effect (gated on `indicatorsQuery.data`) commonly runs and re-runs on
+    // a LATER render than the support/resistance zone effect below (gated on
+    // the independently-resolving `analysisQuery.data`), that opaque mask
+    // gets added to this pane AFTER the zone bands already were -- and
+    // Lightweight Charts draws a later-added series on top of an earlier one
+    // on the same pane (same rule `bringSeriesToFront`'s own doc comment
+    // documents for the candlestick series), so the mask silently painted
+    // over -- fully hid, not just dimmed -- every zone band sitting below
+    // the value zone (i.e. almost every support zone, which sits below the
+    // current price the EMAs track) the moment this effect's own data
+    // resolved. Reproduced live: zones visible while `/indicators` was still
+    // loading, gone the instant it resolved (the same query
+    // `OscillatorChart` also depends on, which is why the bug reads as
+    // "zones disappear once Oscillators finishes loading" even though
+    // `OscillatorChart` never touches this chart at all -- purely
+    // coincidental timing off the one query both happen to share). Fixed by
+    // re-asserting the zone bands' own z-order as a group (via `zoneSeriesRef`,
+    // which the zone effect below keeps up to date, and
+    // `bringSeriesGroupToFront`, which preserves the zone bands' order
+    // relative to each other -- see that helper's own doc comment) every
+    // time THIS effect adds new fill series to the pane, before finally
+    // moving the candlestick series to the very front as before.
+    bringSeriesGroupToFront(chart, zoneSeriesRef.current)
     // Move the candlestick series to the very end of this pane's render-
     // order stack (dynamically -- see `bringSeriesToFront`'s own doc
     // comment) so it always paints on top of the zone fill/mask, and of any
     // other fill series another effect on this same pane may have added
-    // (the support/resistance zone bands below) -- see the block comment
+    // (the support/resistance zone bands above) -- see the block comment
     // above.
     bringSeriesToFront(chart, series)
 
@@ -1241,6 +1289,20 @@ export default function PriceChart({
       scaleMargins: { top: 0, bottom: 0 },
     })
 
+    // Same z-order fix as the signal-overlay effect above (this task's
+    // `decisions` entry): re-assert the support/resistance zone bands' own
+    // order (as a group, via `bringSeriesGroupToFront` -- see that helper's
+    // own doc comment for why this preserves the zone bands' order relative
+    // to each other) before this effect's newly-added region series get
+    // buried under them by the final candlestick reorder below -- this
+    // effect is gated on `indicatorsQuery.data`, independently of the zone
+    // effect's own `analysisQuery.data`, so it commonly (re-)runs on a later
+    // render than the zone effect and would otherwise add its own fill
+    // series on top of already-drawn zone bands. Lower-impact than the
+    // value-zone mask fixed there (this shading is translucent, ~8% alpha,
+    // not opaque), but the same z-order violation nonetheless, so fixed the
+    // same way for consistency.
+    bringSeriesGroupToFront(chart, zoneSeriesRef.current)
     // Keep the candlestick series painting on top of this new background
     // shading too (see `bringSeriesToFront`'s own doc comment) -- these
     // series sit on their own price scale, but z-order within a pane is
@@ -1352,6 +1414,13 @@ export default function PriceChart({
       },
     )
 
+    // Published so the other pane-0-fill-adding effects (signal-overlay,
+    // tide-region) can re-assert these zone bands' own z-order whenever THEY
+    // add a new fill series on a later render -- see `zoneSeriesRef`'s own
+    // doc comment and this task's (frontend-support-zones-disappear-after-
+    // oscillators) `decisions` entry for the z-order bug this fixes.
+    zoneSeriesRef.current = zoneSeriesList
+
     const falseBreakoutMarkers = buildFalseBreakoutMarkers(
       displayedZones,
       firstDate,
@@ -1403,6 +1472,15 @@ export default function PriceChart({
       zoneSeriesList.forEach((zoneSeries) => chart.removeSeries(zoneSeries))
       falseBreakoutPriceLines.forEach((priceLine) => series.removePriceLine(priceLine))
       falseBreakoutMarkersPlugin?.detach()
+      // Only clear the ref if it still points at THIS exact zoneSeriesList
+      // -- a subsequent run of this same effect (e.g. a fresh
+      // `analysisQuery.data`) may already have published its own newer list
+      // into `zoneSeriesRef` by the time this stale cleanup runs (same
+      // "don't clobber a newer value" guard convention `chartRef`/
+      // `seriesRef` use elsewhere in this component).
+      if (zoneSeriesRef.current === zoneSeriesList) {
+        zoneSeriesRef.current = []
+      }
     }
   }, [historyQuery.data, analysisQuery.data, theme])
 
