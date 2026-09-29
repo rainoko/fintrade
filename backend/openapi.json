@@ -1508,9 +1508,10 @@
         "properties": {
           "scan_config": {
             "additionalProperties": true,
-            "description": "IBKR's own `/iserver/scanner/run` request body: `instrument`/`type`/`location`/`filter` keys, built from the option lists `GET /api/ibkr/scanner/params` returns. Passed to the gateway as-is -- this app does not validate or transform it (matching `IBKRProvider.run_scanner`'s own contract). To apply ch. 56's own liquidity-filter advice (skip illiquid names, roughly <500k-1M average daily volume), include IBKR's own volume-floor filter code from `get_scanner_params`'s filter option list here -- this endpoint does not inject one automatically (see this task's `decisions` entry).",
+            "description": "IBKR's own `/iserver/scanner/run` request body: `instrument`/`type`/`location`/`filter` keys, built from the option lists `GET /api/ibkr/scanner/params` returns. Passed to the gateway as-is -- this app does not validate or transform it (matching `IBKRProvider.run_scanner`'s own contract). `filter` must be present as an array (an empty one is fine) -- a live gateway rejects the call with a 400 ('filter must be an array') if it's omitted entirely, confirmed against a real running gateway. To apply ch. 56's own liquidity-filter advice (skip illiquid names, roughly <500k-1M average daily volume), include IBKR's own volume-floor filter code from `get_scanner_params`'s filter option list here -- this endpoint does not inject one automatically (see this task's `decisions` entry).",
             "examples": [
               {
+                "filter": [],
                 "instrument": "STK",
                 "location": "STK.US.MAJOR",
                 "type": "TOP_PERC_GAIN"

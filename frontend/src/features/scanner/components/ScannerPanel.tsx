@@ -27,6 +27,16 @@ export interface ScannerPanelProps {
 const SCAN_INSTRUMENT = 'STK'
 const SCAN_LOCATION = 'STK.US.MAJOR'
 
+// A live gateway rejects `POST /iserver/scanner/run` with 400 ("filter must
+// be an array") when `filter` is omitted entirely -- confirmed against a
+// real running gateway (this task's own schema/example had `filter` as
+// optional, unverified until now, mirroring the module-wide "no sandboxed
+// environment has a live gateway to test against" constraint
+// `IBKRProvider`'s own docstring documents). No filter UI exists yet (see
+// the comment above), so this is always sent empty -- an always-present,
+// always-empty array, not a real filter, until a filter picker exists.
+const SCAN_FILTER: unknown[] = []
+
 /**
  * Owns the pick-a-category / run-a-scan / review-results flow: the selected
  * category, the `useRunScanner` mutation, and which of
@@ -52,6 +62,7 @@ export default function ScannerPanel({ categories }: ScannerPanelProps) {
         instrument: SCAN_INSTRUMENT,
         location: SCAN_LOCATION,
         type: categoryCode,
+        filter: SCAN_FILTER,
       },
     })
   }

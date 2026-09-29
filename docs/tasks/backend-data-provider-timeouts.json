@@ -1,0 +1,40 @@
+{
+  "id": "backend-data-provider-timeouts",
+  "title": "Add explicit request timeouts to the yfinance/Stooq market-data provider calls",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "docs/Analyse.md#9-data-sources-free",
+    "docs/architecture/Backend.md",
+    "backend/app/data/yfinance_provider.py",
+    "backend/app/data/stooq_provider.py",
+    "backend/app/api/routers/stocks.py"
+  ],
+  "description": "Found while diagnosing why the ticker detail view (GET /api/stocks/{ticker}/analysis) was very slow (conversation session, 2026-09-29): the cause wasn't IBKR (confirmed -- swing mode never touches ibkr_provider, and GET /api/ibkr/status stayed fast throughout). Yahoo Finance was rate-limiting this environment (confirmed directly: a fresh request to https://query1.finance.yahoo.com/... returned HTTP 429) after a burst of real requests. Neither YFinanceProvider nor StooqProvider sets an explicit timeout on its outbound HTTP calls (yfinance's own internal default is 30s per underlying call, unset/unoverridden by this app's provider code) -- and get_analysis/_compute_signal fetch daily OHLCV, weekly OHLCV, and extended data sequentially (three separate blocking calls per ticker), so a degraded provider can stack close to 90+ seconds of latency for one ticker. Because each of those runs on FastAPI's shared worker-thread pool and nothing cancels a request a client has already given up on, this compounded under this session's testing load into genuine resource exhaustion: the live dev backend process was directly observed holding 125 live threads, at which point even trivial, unrelated endpoints (GET /docs, a static page; GET /api/ibkr/status, no provider call at all) became unresponsive too -- confirmed by requesting them concurrently with a stuck request. For comparison, the identical fetch-analyse-zones pipeline run directly in a fresh Python process with a warm cache completed in well under 1 second, showing the cost is in the request-handling layer under load, not the computation itself.\n\nThis is a real, generally-applicable robustness gap (not specific to today's rate-limiting spike) -- any future Yahoo Finance outage, rate-limit, or network degradation will reproduce the same cascading slowdown for every user of this app, not just fail the one affected ticker.",
+  "checklist": [
+    {
+      "step": "Add an explicit, reasoned timeout to every outbound yfinance HTTP call in YFinanceProvider (yfinance's Ticker.history()/other calls accept a timeout= kwarg passed through to the underlying request -- confirmed present in the installed yfinance package's own data.py, default 30s per call today if unset). Decide and record (decisions entry) the chosen value, trading off failing fast under a real outage against not killing a legitimately-slow-but-working fetch.",
+      "done": false
+    },
+    {
+      "step": "Check whether StooqProvider's own HTTP fetch (_fetch_csv) has an explicit timeout today; add one with the same reasoning if not.",
+      "done": false
+    },
+    {
+      "step": "Research and decide (decisions entry) whether GET /api/stocks/{ticker}/analysis's sequential daily -> weekly -> extended-data fetch (app/api/routers/stocks.py's get_analysis) should become concurrent, mirroring the ThreadPoolExecutor pattern this codebase already uses elsewhere for the same reason (app.api.day_trader_signal.compute_day_trader_signals_concurrently, app.portfolio.pricing's per-position concurrent fetch) -- so a slow provider adds its cost once per ticker rather than up to three times.",
+      "done": false
+    },
+    {
+      "step": "Verify a provider timeout surfaces through the existing DataProviderUnavailableError -> 503 path (docs/architecture/API.md), not as an unhandled exception -- this app's already-documented graceful-degradation contract for the data layer.",
+      "done": false
+    },
+    {
+      "step": "Tests: a mocked slow/hanging provider call that exceeds the new timeout, asserting it fails fast with the expected DataProviderUnavailableError rather than hanging -- no live network calls, per docs/architecture/Testing.md.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
