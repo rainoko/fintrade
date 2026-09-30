@@ -1,0 +1,49 @@
+{
+  "id": "backend-portfolio-load-performance-followups-followups-followups-followups-followups-followups",
+  "title": "Non-blocking follow-up from backend-portfolio-load-performance-followups-followups-followups-followups-followups's PR #366 review",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "done",
+  "depends_on": [
+    "backend-portfolio-load-performance-followups-followups-followups-followups-followups"
+  ],
+  "references": [
+    "docs/tasks/done/backend-portfolio-load-performance-followups-followups-followups-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/366",
+    "backend/app/signals/divergence.py"
+  ],
+  "description": "PR #366 (backend-portfolio-load-performance-followups-followups-followups-followups-followups) closed out PR #357's 3 non-blocking findings (find_divergences no-production-caller docstring note, a stale test comment fix, and latest_divergence's double swing-scan consolidation -- independently verified behavior-preserving via source inspection of app.signals.swing_points and a mutation test that swapped the low/high partition filters and confirmed 5 of 39 tests in tests/unit/signals/test_divergence.py fail) and was accepted. This tracks the review's one non-blocking finding so it isn't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "PR #366 review finding (backgrounded code-review skill pass, high effort): `find_divergences`'s docstring (backend/app/signals/divergence.py, around line 451) now contains two adjacent, self-contradicting paragraphs. The pre-existing sentence -- 'Runs swing-point detection fresh on the full `price` series every call -- fine for a single whole-history pass (e.g. GET /api/stocks/{ticker}/analysis, or this module's own reference tests)...' -- reads as citing the analysis endpoint as a real usage example of a caller doing a single whole-history pass. This PR's own newly-added paragraph immediately below it, '**Status: no production caller today.**', flatly states the opposite: `app.signals.engine` (the only production consumer of this module) never calls `find_divergences` at all, reaching divergence detection exclusively through `current_divergence`/`confirmed_divergence_as_of`. Confirmed via `grep -rn find_divergences backend/app/ backend/tests/` that the function genuinely has zero production call sites (only `tests/unit/signals/test_divergence.py` calls it) -- so the new paragraph is accurate and the old sentence's implied usage example is not, and never was, a real call site; it was written as general advisory guidance ('fine for X pattern, use the cache variant for Y pattern') rather than a literal caller citation, but sitting directly above the new paragraph it now reads as a factual contradiction. Not a functional bug -- worth a small wording fix next time this docstring is touched (e.g. rephrasing the older sentence to drop or hedge the specific endpoint example, since it's illustrating a call *pattern* the function would suit, not an actual current caller).",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-30T09:58:57Z",
+      "recorded_by": "task-worker",
+      "decision": "Reconciled find_divergences's docstring by rewriting the pre-existing sentence rather than deleting it or rewriting the newly-added 'no production caller today' paragraph: the first paragraph now describes the single-whole-history-pass pattern generically (this module's own reference tests, plus a hypothetical single-pass caller such as an endpoint computing over a full history in one shot) instead of naming GET /api/stocks/{ticker}/analysis as if it were an actual caller. The second paragraph (added by PR #366, confirmed accurate via grep) is left unchanged.",
+      "rationale": "The task description's own review finding already established via grep that find_divergences has zero production call sites, so the second paragraph's factual claim is correct and shouldn't be softened. The first paragraph's endpoint mention was always meant as illustrative advisory guidance about a call *pattern* ('fine for a single whole-history pass') rather than a literal citation of a real caller, so hedging it to a generic hypothetical preserves that intent while removing the false implication that the analysis endpoint actually calls this function. Considered and rejected: deleting the first paragraph's example entirely (loses useful illustrative context for future readers) and rewording the second paragraph instead (would weaken an accurate, already-reviewer-confirmed statement to accommodate an inaccurate one)."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/backend-portfolio-load-performance-followups-followups-followups-followups-followups-followups",
+    "pr_number": 367,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/367",
+    "pushed_at": "2026-09-30T10:00:28Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-30T10:03:05Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/367",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Docstring-only fix, verified end to end: re-read the final docstring text and confirmed the two paragraphs no longer contradict each other (the reworded paragraph now illustrates the single-whole-history-pass pattern generically instead of naming GET /api/stocks/{ticker}/analysis as an implied real caller). Independently re-verified the 'no production caller today' claim via `grep -rn find_divergences backend/app/ backend/tests/` -- only test callers exist; app.signals.engine reaches divergence detection exclusively via current_divergence/confirmed_divergence_as_of -> _latest_divergence_from_swings/divergences_from_swings. Also spot-checked the unchanged app.signals.engine.analyse_history cross-reference in the same paragraph and confirmed it's still accurate. decisions entry is genuine (states what was decided and why, records rejected alternatives). Backend suite: pytest --cov=app -> 1491 passed, 100% coverage (gate is 90%). ruff check . and mypy both clean; scripts/check_profit_target_wording.py and scripts/validate_tasks.py both clean. No API route/schema touched, so openapi.json correctly untouched. No frontend/UI surface -- browser walkthrough and e2e suite steps don't apply, explicitly skipped. No blocking or non-blocking findings; no new followups task filed."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-30T10:05:40Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran `pytest --cov=app --cov-report=term-missing`: 1491 passed, 100% coverage, matching pr-reviewer's reported numbers exactly. Re-read the diff (git diff origin/main...HEAD): only backend/app/signals/divergence.py's find_divergences docstring plus task-board bookkeeping changed. Confirmed the reworded first paragraph no longer implies GET /api/stocks/{ticker}/analysis is a real caller (now phrased as a hypothetical single-pass pattern) and re-ran `grep -rn find_divergences backend/app/ backend/tests/` myself, confirming zero production call sites outside this module and tests -- the 'no production caller today' paragraph's claim holds."
+  }
+}

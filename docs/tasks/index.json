@@ -2420,8 +2420,8 @@
       "id": "backend-portfolio-load-performance-followups-followups-followups-followups-followups-followups",
       "area": "backend/signals",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-portfolio-load-performance-followups-followups-followups-followups-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-portfolio-load-performance-followups-followups-followups-followups-followups-followups.json"
     },
     {
       "id": "backend-ibkr-primary-data-provider",
