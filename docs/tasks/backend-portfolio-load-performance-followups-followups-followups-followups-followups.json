@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from backend-portfolio-load-performance-followups-followups-followups-followups's PR #357 review",
   "area": "backend/signals",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": [
     "backend-portfolio-load-performance-followups-followups-followups-followups"
   ],
@@ -16,17 +16,30 @@
   "checklist": [
     {
       "step": "PR #357 review finding: after this PR's refactor (`latest_divergence` now delegates to `_latest_divergence_from_swings` instead of calling `find_divergences` directly), `find_divergences` (backend/app/signals/divergence.py, module-level, public) has zero callers anywhere in `app/` -- confirmed via grep, no production call site remains (it's exercised only by `tests/unit/signals/test_divergence.py`). This is a pre-existing condition, not newly introduced by this PR: `current_divergence` (the only production caller of anything in this module, via `app.signals.engine.analyse`) never called `latest_divergence` even before PR #357 (it already computed swing points directly since the PR #354/#355 swing-sharing optimization), and `latest_divergence` itself already had zero production callers per this task's own ancestor-task decisions-entry correction (item 5 of the parent task's checklist) -- `find_divergences` was already unreachable from production before this PR simply followed the same chain one level further. Worth a documentation pass: either note in `find_divergences`'s own docstring (and/or a `decisions` entry on the task that introduced it, `backend-divergence-detection`) that it and `latest_divergence` are both now test-only/reference public functions with no production call site, or reconsider whether they should still be public API surface at all.",
-      "done": false
+      "done": true
     },
     {
       "step": "PR #357 review finding (backgrounded code-review skill pass, high effort): the `_FIXTURE_B_PRICE`/`_FIXTURE_B_MACD_HISTOGRAM` module-level comment this PR added (`tests/unit/signals/test_divergence.py`, near line 91) claims 'every other `current_divergence` test in this file exercises the bullish/lows side only' -- but this same PR also adds `test_current_divergence_agrees_with_latest_divergence_on_a_two_candidate_fixture`, which calls `current_divergence` on `_FIXTURE_C_*` and asserts `result.kind == \"bearish\"`, i.e. it also exercises `current_divergence`'s bearish/highs-selecting path (via the multi-candidate tie-break, a different branch than FIXTURE_B's single-candidate bearish-only branch, but still a bearish `current_divergence` result). The comment's claim was accurate for the PRE-#357 file but became stale the moment this PR's own FIXTURE_C test was added alongside it. Cosmetic, self-inflicted by this PR -- worth a small wording fix (e.g. 'every other single-candidate `current_divergence` test...') next time this file is touched.",
-      "done": false
+      "done": true
     },
     {
       "step": "PR #357 review finding (backgrounded code-review skill pass, high effort): `latest_divergence`'s refactored body calls `swing_lows(price, window=window)` and `swing_highs(price, window=window)` as two separate calls, each of which independently reruns the full `find_swing_points` scan over the same `price` series (2 full O(history) passes) -- rather than one `find_swing_points` call partitioned by `kind` locally, the pattern `current_divergence`/`build_divergence_swing_cache` already use to avoid exactly this redundancy (see `docs/tasks/done/backend-swing-point-detector-followups.json`'s checklist item 4/its decisions entry, which deliberately fixed this double-scan ONLY at `build_divergence_swing_cache`, the one call site judged to `genuinely need both sides` at the time). Not a regression this PR introduces -- `latest_divergence`'s pre-#357 body had the identical 2-scan cost via two separate `find_divergences` calls (bullish then bearish), each internally hitting `swing_lows`/`swing_highs` respectively -- and `latest_divergence` has zero production callers today (see this task's other checklist items), so the cost is real only for direct/test callers of this specific public function. Worth considering whether `latest_divergence` should also do one partitioned `find_swing_points` call instead of two, next time this module is touched for a reason that would naturally include it.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-30T09:42:59Z",
+      "recorded_by": "task-worker",
+      "decision": "Documented `find_divergences`'s status in its own docstring as having no production caller today (kept as a public, test/reference-only entry point), rather than removing it or leaving the gap undocumented.",
+      "rationale": "`find_divergences` is exercised extensively and directly by tests/unit/signals/test_divergence.py (the module's own hand-computed reference-value tests target it as the simplest, most direct entry point for exercising every filter in `_evaluate_pair`), and the rest of the module's tie-break/caching helpers (`divergences_from_swings`, `_latest_divergence_from_swings`) are built on the same code path it exercises -- removing it would either delete that direct test coverage or force those tests onto a less direct entry point for no behavioral gain. Kept public rather than made private (`_find_divergences`) since nothing in this task's scope calls for an API-surface change, only a documentation gap fix; a future task can reconsider visibility if this status changes."
+    },
+    {
+      "timestamp": "2026-09-30T09:42:59Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed `latest_divergence`'s double swing-point scan: replaced its separate `swing_lows(price, window=window)` + `swing_highs(price, window=window)` calls with a single `find_swing_points(price, window=window)` call partitioned locally by `kind`, matching the pattern `current_divergence`/`build_divergence_swing_cache` already use.",
+      "rationale": "`swing_lows`/`swing_highs` are each just `find_swing_points` plus a `kind` filter (app.signals.swing_points), so calling both independently reruns the identical O(history_length) scan over the identical `price`/`window` pair twice for no behavioral difference -- verified the two approaches are equivalent by inspecting `swing_points.py` directly. The parent task's own ancestor decision (docs/tasks/done/backend-swing-point-detector-followups.json) deliberately scoped this fix to only `build_divergence_swing_cache` at the time, the one call site judged to need it then; this task's own checklist item explicitly flagged `latest_divergence` as the same pattern recurring and this task is already touching this exact function/file for two other checklist items, so 'next time this module is touched for a reason that would naturally include it' (the prior finding's own phrasing) applies now rather than deferring further. Rejected leaving it merely documented-but-unfixed: the fix is small, behavior-preserving (confirmed by the existing test suite, all of which still passes), and removes a real if narrow inefficiency rather than just restating it for a third time in the task history."
+    }
+  ],
   "questions": []
 }

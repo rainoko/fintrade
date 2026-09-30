@@ -453,7 +453,22 @@ def find_divergences(
     reference tests), but a caller re-running this once per bar over a growing prefix (e.g.
     app.signals.engine.analyse_history) should use ``build_divergence_swing_cache`` +
     ``confirmed_divergence_as_of`` instead, to avoid an O(history_length) swing-point re-scan
-    on every one of up to thousands of calls -- see that pair's own docstrings."""
+    on every one of up to thousands of calls -- see that pair's own docstrings.
+
+    **Status: no production caller today.** ``app.signals.engine`` (the only production
+    consumer of this module) reaches divergence detection exclusively through
+    ``current_divergence``/``confirmed_divergence_as_of``, neither of which calls this function
+    -- and ``latest_divergence``, the one function in this module that used to call it directly,
+    was refactored to delegate to ``_latest_divergence_from_swings`` instead (see that
+    function's own docstring). Kept public and exercised directly by this module's own reference
+    tests (``tests/unit/signals/test_divergence.py``, which hand-verify every filter against
+    known price/indicator fixtures) -- it remains the simplest correct entry point for "every
+    qualifying divergence of one kind, given a full price/indicator history", useful for
+    ad hoc/exploratory analysis and as the base case the rest of this module's tie-break/caching
+    helpers (``divergences_from_swings``, ``_latest_divergence_from_swings``) are built on and
+    tested against, not dead code slated for removal -- see
+    docs/tasks/backend-portfolio-load-performance-followups-followups-followups-followups-
+    followups.json's `decisions` entry."""
     swings = swing_lows(price, window=window) if kind == "bullish" else swing_highs(price, window=window)
     return divergences_from_swings(
         swings,
@@ -482,14 +497,26 @@ def latest_divergence(
     has any qualifying divergence.
 
     Delegates its own tie-break to ``_latest_divergence_from_swings`` (computing ``price``'s
-    swing lows/highs once via ``swing_lows``/``swing_highs`` first) rather than duplicating that
-    helper's bullish-then-bearish ``max(..., key=lambda d: d.second.date)`` logic inline -- see
+    swing lows/highs first) rather than duplicating that helper's bullish-then-bearish
+    ``max(..., key=lambda d: d.second.date)`` logic inline -- see
     docs/tasks/backend-portfolio-load-performance-followups-followups-followups-followups.json's
     `decisions` entry: keeping a single source of truth for the tie-break rule means a future
     change to it can't silently desync this function from ``current_divergence``'s own
-    per-indicator result the way two independent copies previously could."""
-    lows = swing_lows(price, window=window)
-    highs = swing_highs(price, window=window)
+    per-indicator result the way two independent copies previously could.
+
+    Computes ``lows``/``highs`` via a SINGLE ``find_swing_points(price, window=window)`` call,
+    partitioned by ``kind``, rather than one ``swing_lows`` call plus one ``swing_highs`` call --
+    each of those is itself just ``find_swing_points`` plus a ``kind`` filter (see
+    ``app.signals.swing_points``), so calling both independently would rerun the full
+    ``O(history_length)`` swing-point scan on the exact same ``price``/``window`` pair twice for
+    no reason, the same redundancy ``build_divergence_swing_cache`` and ``current_divergence``
+    already avoid for their own both-sides-needed call sites (see
+    docs/tasks/backend-swing-point-detector-followups.json's `decisions` entry and
+    ``current_divergence``'s own docstring) -- see this task's `decisions` entry for why this
+    call site gets the same fix now."""
+    all_swings = find_swing_points(price, window=window)
+    lows = [p for p in all_swings if p.kind == "low"]
+    highs = [p for p in all_swings if p.kind == "high"]
     return _latest_divergence_from_swings(
         lows,
         highs,
@@ -536,10 +563,10 @@ def _latest_divergence_from_swings(
     """The single source of truth for "the most recent qualifying divergence for one indicator,
     given already-computed PRICE swing points" (``lows`` for the bullish scan, ``highs`` for the
     bearish one) -- both ``latest_divergence`` (which computes ``lows``/``highs`` itself via one
-    ``swing_lows``/``swing_highs`` call each) and ``current_divergence`` (which shares ONE
-    ``find_swing_points`` pass, partitioned into ``lows``/``highs``, across all three indicators
-    it checks) delegate here rather than each independently re-implementing the bullish-vs-
-    bearish tie-break -- see docs/tasks/backend-portfolio-load-performance-followups-followups-
+    ``find_swing_points`` pass, partitioned into ``lows``/``highs``) and ``current_divergence``
+    (which shares that same ONE ``find_swing_points`` pass, partitioned the same way, across all
+    three indicators it checks) delegate here rather than each independently re-implementing the
+    bullish-vs-bearish tie-break -- see docs/tasks/backend-portfolio-load-performance-followups-followups-
     followups-followups.json's `decisions` entry for why this was refactored out of
     ``latest_divergence``'s own body (previously a byte-for-byte duplicate of the logic below,
     a maintenance hazard: a future change to the tie-break rule applied to only one of the two
