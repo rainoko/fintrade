@@ -1,3 +1,5 @@
+import threading
+
 import pandas as pd
 import yfinance as yf
 from yfinance.exceptions import YFRateLimitError
@@ -18,6 +20,90 @@ _MIN_WEEKLY_BARS = 26
 # yfinance's raw column names -> the DataProvider protocol's contract
 # (app/data/base.py: "Columns: open, high, low, close, volume").
 _COLUMN_MAP = {"Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"}
+
+# Per-request timeout budget (seconds) for every outbound HTTP call this provider makes
+# through yfinance -- see docs/tasks/backend-data-provider-timeouts.json's `decisions` entry
+# for the full trade-off. `.history()` (used by `_fetch`) accepts a `timeout=` kwarg directly;
+# `.calendar`/`.info`/`.insider_transactions` (used by `get_extended_data`) don't expose an
+# equivalent per-call kwarg in the installed yfinance version, so `_clamp_session_timeout`
+# below enforces the same cap at the underlying HTTP session instead. Matches
+# `StooqProvider`'s existing `timeout=10` (stooq_provider.py's `_fetch_csv`) for a consistent
+# per-request budget across both data sources.
+_REQUEST_TIMEOUT_SECONDS = 10.0
+
+_session_clamp_lock = threading.Lock()
+
+
+def _clamp_session_timeout(session: object) -> None:
+    """Cap every request `session` makes at `_REQUEST_TIMEOUT_SECONDS`, in place.
+
+    yfinance's `YfData` (the object that actually issues every HTTP request) is a
+    process-wide singleton holding one shared session, built with yfinance's own internal
+    default (30s -- `yfinance/data.py`'s `get`/`get_raw_json`/`post`) unless overridden. But
+    `Ticker.calendar`/`.info`/`.insider_transactions` (used by `get_extended_data` below) give
+    callers no way to override that default per call, unlike `.history()`'s own `timeout=`
+    kwarg (see `_fetch`) -- confirmed by reading the installed yfinance package's own
+    `scrapers/quote.py`/`ticker.py`: those three are plain properties with no `timeout=`
+    parameter of their own. Three sequential 30s-capped property fetches inside one
+    `get_extended_data` call is exactly the ~90s stack this task's own incident report
+    describes, so this closes that gap by capping the shared session directly instead.
+
+    Deliberately does *not* build a brand-new from-scratch session (e.g. a bare
+    `requests.Session()`) to enforce this: yfinance prefers `curl_cffi` for Yahoo-compatible
+    TLS/browser fingerprinting (`yfinance._http.new_session`) specifically to reduce the risk
+    of exactly the rate-limiting/blocking this task exists to mitigate, and replacing the
+    session wholesale would silently drop that fingerprinting. This instead reaches into the
+    session yfinance already built for itself (`Ticker._data._session`) and wraps its
+    `.request` method in place, so the same curl_cffi (or plain-`requests`-fallback) session
+    keeps handling everything else about the request.
+
+    Best-effort: if yfinance's internal attribute shape ever changes, this silently no-ops
+    (via `getattr`/`AttributeError`, never raised) rather than breaking every fetch --
+    `.history()`'s own inline `timeout=` still applies either way, so `get_daily_ohlcv`/
+    `get_weekly_ohlcv` keep their protection even if this particular clamp can't attach.
+
+    Idempotent (checked via a marker attribute) and lock-guarded so two concurrent callers --
+    e.g. `app.api.routers.stocks.get_analysis`'s concurrent daily/weekly/extended fetch, see
+    this task's `decisions` entry -- can't race to double-wrap the one process-wide session.
+    """
+    if getattr(session, "_fintrade_timeout_clamped", False):
+        return
+    with _session_clamp_lock:
+        if getattr(session, "_fintrade_timeout_clamped", False):
+            return
+        try:
+            original_request = session.request  # type: ignore[attr-defined]
+        except AttributeError:
+            return
+
+        def _request_with_timeout(method: object, url: object, *args: object, **kwargs: object) -> object:
+            requested = kwargs.get("timeout")
+            kwargs["timeout"] = (
+                _REQUEST_TIMEOUT_SECONDS
+                if requested is None
+                else min(float(requested), _REQUEST_TIMEOUT_SECONDS)  # type: ignore[arg-type]
+            )
+            return original_request(method, url, *args, **kwargs)
+
+        try:
+            session.request = _request_with_timeout  # type: ignore[attr-defined]
+            session._fintrade_timeout_clamped = True  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 - best-effort, see docstring above
+            pass
+
+
+def _new_ticker(ticker: str) -> yf.Ticker:
+    """`yf.Ticker(ticker)`, with `_clamp_session_timeout` applied to its underlying session.
+
+    Both `YFinanceProvider._fetch` and `get_extended_data` construct their `yf.Ticker` through
+    this helper rather than calling `yf.Ticker(...)` directly, so the clamp is applied
+    consistently everywhere this provider talks to yfinance.
+    """
+    yf_ticker = yf.Ticker(ticker)
+    session = getattr(getattr(yf_ticker, "_data", None), "_session", None)
+    if session is not None:
+        _clamp_session_timeout(session)
+    return yf_ticker
 
 
 class YFinanceProvider(DataProvider):
@@ -68,7 +154,7 @@ class YFinanceProvider(DataProvider):
         rather than returning a half-populated result.
         """
         try:
-            yf_ticker = yf.Ticker(ticker)
+            yf_ticker = _new_ticker(ticker)
             calendar = yf_ticker.calendar or {}
             info = yf_ticker.info or {}
             insider_df = yf_ticker.insider_transactions
@@ -103,7 +189,9 @@ class YFinanceProvider(DataProvider):
         param, the SQLite cache) is that caller's job, not this adapter's.
         """
         try:
-            raw = yf.Ticker(ticker).history(period="max", interval=interval)
+            raw = _new_ticker(ticker).history(
+                period="max", interval=interval, timeout=_REQUEST_TIMEOUT_SECONDS
+            )
         except YFRateLimitError as exc:
             raise DataProviderUnavailableError(f"yfinance rate-limited: {exc}") from exc
         except Exception as exc:  # noqa: BLE001 - yfinance's own errors are broad/undocumented

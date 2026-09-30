@@ -20,6 +20,7 @@ tests instead focus on this route's own job -- wiring the provider fetch, `analy
 `AnalysisResponse` mapping together, plus the 404/422/503 error mapping.
 """
 
+import time
 from datetime import UTC, date, datetime, timedelta
 
 import pandas as pd
@@ -599,6 +600,53 @@ class TestGetAnalysis:
         response = _get_analysis(provider)
 
         assert response.status_code == 503
+
+
+class _SlowStubProvider(_StubProvider):
+    """Same as `_StubProvider`, but each of the three fetches sleeps briefly before
+    returning -- lets a test assert the fetches actually overlap (concurrent) rather than run
+    back-to-back (sequential), without a live network call or an actual multi-second timeout
+    (docs/architecture/Testing.md). See backend-data-provider-timeouts's `decisions` entry."""
+
+    def __init__(self, *, sleep_seconds: float, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._sleep_seconds = sleep_seconds
+
+    def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
+        time.sleep(self._sleep_seconds)
+        return super().get_daily_ohlcv(ticker)
+
+    def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
+        time.sleep(self._sleep_seconds)
+        return super().get_weekly_ohlcv(ticker)
+
+    def get_extended_data(self, ticker: str) -> ExtendedData:
+        time.sleep(self._sleep_seconds)
+        return super().get_extended_data(ticker)
+
+
+class TestConcurrentFetch:
+    """Confirms `get_analysis`'s daily/weekly/extended-data fetch actually overlaps rather
+    than running sequentially -- see this function's own docstring and this task's
+    `decisions` entry (docs/tasks/backend-data-provider-timeouts.json)."""
+
+    def test_daily_weekly_and_extended_data_are_fetched_concurrently(self) -> None:
+        sleep_seconds = 0.3
+        provider = _SlowStubProvider(
+            sleep_seconds=sleep_seconds,
+            daily={"AAPL": _hold_daily_ohlcv()},
+            weekly={"AAPL": _hold_weekly_ohlcv()},
+        )
+
+        start = time.monotonic()
+        response = _get_analysis(provider)
+        elapsed = time.monotonic() - start
+
+        assert response.status_code == 200
+        # Sequential would take >= 3 * sleep_seconds (~0.9s); concurrent takes roughly one
+        # sleep_seconds plus overhead. The threshold is generous (2x one sleep) to stay robust
+        # under CI scheduling jitter while still catching a regression back to sequential.
+        assert elapsed < sleep_seconds * 2
 
 
 class TestExtendedData:

@@ -3,7 +3,7 @@
   "title": "Add explicit request timeouts to the yfinance/Stooq market-data provider calls",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "docs/Analyse.md#9-data-sources-free",
@@ -16,25 +16,50 @@
   "checklist": [
     {
       "step": "Add an explicit, reasoned timeout to every outbound yfinance HTTP call in YFinanceProvider (yfinance's Ticker.history()/other calls accept a timeout= kwarg passed through to the underlying request -- confirmed present in the installed yfinance package's own data.py, default 30s per call today if unset). Decide and record (decisions entry) the chosen value, trading off failing fast under a real outage against not killing a legitimately-slow-but-working fetch.",
-      "done": false
+      "done": true
     },
     {
       "step": "Check whether StooqProvider's own HTTP fetch (_fetch_csv) has an explicit timeout today; add one with the same reasoning if not.",
-      "done": false
+      "done": true
     },
     {
       "step": "Research and decide (decisions entry) whether GET /api/stocks/{ticker}/analysis's sequential daily -> weekly -> extended-data fetch (app/api/routers/stocks.py's get_analysis) should become concurrent, mirroring the ThreadPoolExecutor pattern this codebase already uses elsewhere for the same reason (app.api.day_trader_signal.compute_day_trader_signals_concurrently, app.portfolio.pricing's per-position concurrent fetch) -- so a slow provider adds its cost once per ticker rather than up to three times.",
-      "done": false
+      "done": true
     },
     {
       "step": "Verify a provider timeout surfaces through the existing DataProviderUnavailableError -> 503 path (docs/architecture/API.md), not as an unhandled exception -- this app's already-documented graceful-degradation contract for the data layer.",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests: a mocked slow/hanging provider call that exceeds the new timeout, asserting it fails fast with the expected DataProviderUnavailableError rather than hanging -- no live network calls, per docs/architecture/Testing.md.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-30T05:30:51Z",
+      "recorded_by": "task-worker",
+      "decision": "Chose a 10-second per-request timeout for every outbound yfinance HTTP call (both `Ticker.history()`'s own `timeout=` kwarg in `YFinanceProvider._fetch`, and a session-level clamp -- see the next decision -- for `get_extended_data`'s `.calendar`/`.info`/`.insider_transactions`), matching `StooqProvider`'s pre-existing `timeout=10` (stooq_provider.py's `_fetch_csv`).",
+      "rationale": "10s gives both providers the same per-request budget, so a degraded source fails at a predictable, consistent latency regardless of which one is being called. Rejected 30s (yfinance's own current unset-default for `.info`/`.calendar`/`.insider_transactions`, per `yfinance/data.py`'s `get`/`get_raw_json`): that's exactly the value that, times the three sequential get_extended_data property fetches plus the daily/weekly `.history()` calls, produced this task's own ~90s+ incident -- keeping it would leave the root cause unfixed. Rejected a much tighter value (e.g. 3-5s): Yahoo's chart/quote endpoints can legitimately take a few seconds under ordinary (non-degraded) load, especially for the `.info`/`calendar` quote-summary endpoints, which are heavier queries than the plain OHLCV chart endpoint; a too-tight cap would turn normal peak-hour latency into spurious 503s, trading one reliability problem for another. 10s is generous enough to absorb that while still bounding the worst case to a small, fixed multiple of itself instead of an effectively unbounded stack."
+    },
+    {
+      "timestamp": "2026-09-30T05:30:51Z",
+      "recorded_by": "task-worker",
+      "decision": "Implemented the yfinance timeout via two mechanisms: (1) pass `timeout=` directly on the `.history()` call (`_fetch`), and (2) a `_clamp_session_timeout` helper that wraps the underlying `YfData` singleton session's `.request()` method in place, reached via `Ticker._data._session` (private attributes), to cap `.calendar`/`.info`/`.insider_transactions` as well -- rather than building an app-owned `requests.Session()` and passing it to `yf.Ticker(ticker, session=...)`.",
+      "rationale": "Investigated the installed yfinance package (1.7.0) directly: `.history()` accepts a `timeout=` kwarg (default already 10s in this version, contrary to the task description's blanket '30s per call' framing, which turned out to describe `yfinance/data.py`'s lower-level `get`/`get_raw_json`/`post` default rather than every call site) and passes it through to the actual HTTP request. But `Ticker.calendar`/`.info`/`.insider_transactions` (used by `get_extended_data`) are plain properties with no `timeout=` parameter at all in this version -- confirmed by reading `yfinance/scrapers/quote.py`/`ticker.py` -- so there is no public per-call override for them; they fall through to `data.py`'s 30s default today, and three of those calls stacking is the single biggest contributor to the ~90s incident this task exists to fix. A session-level clamp is the only way to bound them. Rejected building a fresh app-owned session and injecting it via `yf.Ticker(ticker, session=my_session)`: yfinance's `YfData` (the object that actually issues every request) is a process-wide singleton, so the *first* `yf.Ticker(...)` call in the process determines its permanent session -- if that first call ever passed a bare `requests.Session()`, it would replace yfinance's own curl_cffi-backed TLS/browser-fingerprinting session (`yfinance._http.new_session`, preferred specifically because it reduces Yahoo rate-limiting/blocking risk) for the rest of the process, making the exact 429/blocking problem this task is fixing *worse*. Reaching into the session yfinance already built for itself and wrapping `.request()` in place preserves that fingerprinting while still bounding every request. Accepted the cost of touching private attributes (`Ticker._data`, `YfData._session`) for this: `_clamp_session_timeout` and `_new_ticker` are both defensive (`getattr`/`AttributeError`-guarded, silently no-op rather than raise) so a future yfinance internals change degrades this specific extended-data protection rather than breaking every fetch -- `.history()`'s own inline `timeout=` is unaffected either way."
+    },
+    {
+      "timestamp": "2026-09-30T05:30:51Z",
+      "recorded_by": "task-worker",
+      "decision": "Confirmed `StooqProvider._fetch_csv`'s existing `urllib.request.urlopen(url, timeout=10)` (stooq_provider.py:110) is adequate as-is; no code change made to StooqProvider.",
+      "rationale": "10s matches the yfinance-side timeout chosen above, giving both data sources the same per-request budget. `urllib.request.urlopen`'s timeout already raises `socket.timeout`/`URLError` on expiry, which `_fetch_daily`'s existing broad `except Exception` already converts to `DataProviderUnavailableError` -- no additional error-handling change needed on the Stooq side."
+    },
+    {
+      "timestamp": "2026-09-30T05:30:51Z",
+      "recorded_by": "task-worker",
+      "decision": "Converted GET /api/stocks/{ticker}/analysis's daily/weekly/extended-data fetch from sequential to concurrent, via `ThreadPoolExecutor(max_workers=3)` in `get_analysis` (app/api/routers/stocks.py), resolving `.result()` in the same daily -> weekly -> extended order as the previous sequential calls.",
+      "rationale": "None of the three fetches depends on either of the others, so running them concurrently means a slow/degraded provider now costs its ~10s timeout budget once per ticker instead of up to three times -- directly addressing the compounding-latency mechanism (three sequential ~30s-capable calls stacking toward ~90s) that produced this task's own incident. Mirrors the already-established, already-reviewed `ThreadPoolExecutor` pattern this same file's `get_indicator_history` uses for its own daily+weekly concurrent fetch (backend-indicator-history-performance), and the pattern `app.api.day_trader_signal.compute_day_trader_signals_concurrently`/`app.portfolio.pricing` use for N-ticker fan-out. Resolving `.result()` in daily-then-weekly-then-extended order (rather than, say, whichever completes first) preserves the exact pre-existing error-priority behavior (a daily failure -> 404/422/503 takes priority over a weekly/extended one) so no existing error-mapping test needed to change. Verified safe against `CachedDataProvider`'s SQLite-backed cache layer without any cache-layer change: `get_extended_data` already takes the same `self._lock` `get_daily_ohlcv`/`get_weekly_ohlcv` do (app/data/cache.py), which was already documented and reviewed as safe for exactly this kind of concurrent-caller addition when the daily+weekly pair was made concurrent for backend-indicator-history-performance."
+    }
+  ],
   "questions": []
 }

@@ -10,6 +10,7 @@ DataFrame shaped like yfinance's own `Ticker.history()` return value" rather
 than raw Yahoo Chart API JSON.
 """
 
+import threading
 from datetime import date
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -24,7 +25,12 @@ from app.data.exceptions import (
     InsufficientHistoryError,
     TickerNotFoundError,
 )
-from app.data.yfinance_provider import YFinanceProvider
+from app.data.yfinance_provider import (
+    _REQUEST_TIMEOUT_SECONDS,
+    YFinanceProvider,
+    _clamp_session_timeout,
+    _new_ticker,
+)
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent / "fixtures" / "yfinance"
 
@@ -70,7 +76,9 @@ class TestGetDailyOhlcv:
         YFinanceProvider().get_daily_ohlcv("AAPL")
 
         mock_ticker_cls.assert_called_once_with("AAPL")
-        mock_ticker.history.assert_called_once_with(period="max", interval="1d")
+        mock_ticker.history.assert_called_once_with(
+            period="max", interval="1d", timeout=_REQUEST_TIMEOUT_SECONDS
+        )
 
     def test_unknown_ticker_raises_ticker_not_found(self, mocker) -> None:
         raw = _load_fixture("unknown_empty")
@@ -99,6 +107,29 @@ class TestGetDailyOhlcv:
         with pytest.raises(DataProviderUnavailableError):
             YFinanceProvider().get_daily_ohlcv("AAPL")
 
+    def test_timeout_raises_data_provider_unavailable_not_hanging(self, mocker) -> None:
+        """A mocked provider call that exceeds the configured timeout (simulated via a
+        `TimeoutError` raised synchronously rather than an actual multi-second wait, per
+        docs/architecture/Testing.md's no-live-network-calls rule) must fail fast with
+        `DataProviderUnavailableError`, not propagate as an unhandled exception."""
+        mock_ticker = MagicMock()
+        mock_ticker.history.side_effect = TimeoutError("Read timed out")
+        mocker.patch("app.data.yfinance_provider.yf.Ticker", return_value=mock_ticker)
+
+        with pytest.raises(DataProviderUnavailableError):
+            YFinanceProvider().get_daily_ohlcv("AAPL")
+
+    def test_history_is_called_with_the_configured_timeout(self, mocker) -> None:
+        raw = _load_fixture("aapl_daily")
+        mock_ticker = MagicMock()
+        mock_ticker.history.return_value = raw
+        mocker.patch("app.data.yfinance_provider.yf.Ticker", return_value=mock_ticker)
+
+        YFinanceProvider().get_daily_ohlcv("AAPL")
+
+        _, kwargs = mock_ticker.history.call_args
+        assert kwargs["timeout"] == _REQUEST_TIMEOUT_SECONDS
+
     def test_tz_naive_response_is_passed_through_unchanged(self, mocker) -> None:
         """Not every yfinance response is guaranteed tz-aware (fixtures, or a
         future yfinance version) -- the tz-strip step must be a no-op rather
@@ -126,7 +157,9 @@ class TestGetWeeklyOhlcv:
         result = YFinanceProvider().get_weekly_ohlcv("AAPL")
 
         mock_ticker_cls.assert_called_once_with("AAPL")
-        mock_ticker.history.assert_called_once_with(period="max", interval="1wk")
+        mock_ticker.history.assert_called_once_with(
+            period="max", interval="1wk", timeout=_REQUEST_TIMEOUT_SECONDS
+        )
         assert list(result.columns) == ["open", "high", "low", "close", "volume"]
         assert len(result) == len(raw) == 60
 
@@ -341,3 +374,150 @@ class TestGetExtendedData:
 
         with pytest.raises(DataProviderUnavailableError):
             YFinanceProvider().get_extended_data("AAPL")
+
+    def test_timeout_on_calendar_property_raises_data_provider_unavailable(self, mocker) -> None:
+        """`.calendar`/`.info`/`.insider_transactions` don't accept a per-call `timeout=`
+        kwarg (unlike `.history()`) -- this simulates the underlying session-level timeout
+        clamp firing (see `_clamp_session_timeout`) by having the property access itself
+        raise synchronously, per docs/architecture/Testing.md's no-live-network-calls rule.
+        A hand-rolled fake (rather than `MagicMock`) is used so the raising `calendar`
+        property doesn't leak onto the shared `MagicMock` class used by every other test."""
+
+        class _RaisingCalendarTicker:
+            @property
+            def calendar(self) -> dict:
+                raise TimeoutError("Read timed out")
+
+        mocker.patch("app.data.yfinance_provider.yf.Ticker", return_value=_RaisingCalendarTicker())
+
+        with pytest.raises(DataProviderUnavailableError):
+            YFinanceProvider().get_extended_data("AAPL")
+
+
+class _FakeSession:
+    """A hand-rolled stand-in for yfinance's underlying `curl_cffi`/`requests` session --
+    deliberately not a `MagicMock`, since `MagicMock` auto-vivifies attribute access (so
+    `getattr(mock, "_fintrade_timeout_clamped", False)` would never see the real default),
+    which would make `_clamp_session_timeout`'s idempotency check untestable and let a
+    broken clamp pass silently."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def request(self, method: str, url: str, **kwargs: object) -> str:
+        self.calls.append({"method": method, "url": url, **kwargs})
+        return "ok"
+
+
+class TestClampSessionTimeout:
+    """Directly exercises `_clamp_session_timeout` -- the only mechanism that caps
+    `.calendar`/`.info`/`.insider_transactions`, which (unlike `.history()`) accept no
+    `timeout=` kwarg of their own. Each test is written to fail under a plausible mutation
+    (swapped `min`/`max`, a missing default, a removed idempotency guard, or a raise instead
+    of a silent no-op) per this task's "genuinely discriminating" requirement."""
+
+    def test_missing_timeout_defaults_to_the_configured_cap(self) -> None:
+        session = _FakeSession()
+
+        _clamp_session_timeout(session)
+        session.request("GET", "https://example.com")
+
+        assert session.calls[0]["timeout"] == _REQUEST_TIMEOUT_SECONDS
+
+    def test_a_larger_requested_timeout_is_clamped_down_to_the_cap(self) -> None:
+        session = _FakeSession()
+
+        _clamp_session_timeout(session)
+        session.request("GET", "https://example.com", timeout=999)
+
+        assert session.calls[0]["timeout"] == _REQUEST_TIMEOUT_SECONDS
+
+    def test_a_smaller_requested_timeout_is_left_untouched(self) -> None:
+        session = _FakeSession()
+
+        _clamp_session_timeout(session)
+        session.request("GET", "https://example.com", timeout=2)
+
+        assert session.calls[0]["timeout"] == 2
+
+    def test_other_arguments_pass_through_unchanged(self) -> None:
+        session = _FakeSession()
+
+        _clamp_session_timeout(session)
+        session.request("GET", "https://example.com", params={"a": 1}, timeout=1)
+
+        assert session.calls[0]["params"] == {"a": 1}
+
+    def test_is_idempotent_and_does_not_double_wrap(self) -> None:
+        session = _FakeSession()
+
+        _clamp_session_timeout(session)
+        wrapped_once = session.request
+        _clamp_session_timeout(session)
+
+        assert session.request is wrapped_once
+
+    def test_missing_request_attribute_is_a_silent_no_op(self) -> None:
+        class _NoRequestAttribute:
+            pass
+
+        session = _NoRequestAttribute()
+
+        _clamp_session_timeout(session)  # must not raise
+
+        assert not hasattr(session, "_fintrade_timeout_clamped")
+
+    def test_concurrent_callers_do_not_double_wrap_the_same_session(self) -> None:
+        """`app.api.routers.stocks.get_analysis`'s concurrent daily/weekly/extended fetch can
+        call `_new_ticker` -> `_clamp_session_timeout` from more than one thread against the
+        same process-wide `YfData` session at once -- a `threading.Barrier` forces both
+        threads past the unlocked fast-path check together, so at least one must hit the
+        lock's own re-check (the race this task's `decisions` entry documents the lock for)."""
+        session = _FakeSession()
+        barrier = threading.Barrier(2)
+
+        def _clamp_after_barrier() -> None:
+            barrier.wait()
+            _clamp_session_timeout(session)
+
+        threads = [threading.Thread(target=_clamp_after_barrier) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        wrapped_request = session.request
+        session.request("GET", "https://example.com", timeout=999)
+
+        assert session.calls[0]["timeout"] == _REQUEST_TIMEOUT_SECONDS
+        # Only ever wrapped once, however the two threads interleaved: re-clamping now is a
+        # no-op, matching the single-threaded idempotency test above.
+        _clamp_session_timeout(session)
+        assert session.request is wrapped_request
+
+
+class TestNewTicker:
+    def test_applies_the_timeout_clamp_to_the_tickers_underlying_session(self, mocker) -> None:
+        session = _FakeSession()
+        mock_ticker = MagicMock()
+        mock_ticker._data._session = session
+        mocker.patch("app.data.yfinance_provider.yf.Ticker", return_value=mock_ticker)
+
+        _new_ticker("AAPL")
+        session.request("GET", "https://example.com", timeout=999)
+
+        assert session.calls[0]["timeout"] == _REQUEST_TIMEOUT_SECONDS
+
+    def test_missing_data_attribute_does_not_raise(self, mocker) -> None:
+        """A ticker stand-in with no `_data` attribute at all (e.g. a future yfinance
+        version's internals) must not crash `_new_ticker` -- see `_clamp_session_timeout`'s
+        own docstring for why this degrades silently instead."""
+
+        class _NoDataTicker:
+            pass
+
+        mocker.patch("app.data.yfinance_provider.yf.Ticker", return_value=_NoDataTicker())
+
+        result = _new_ticker("AAPL")
+
+        assert isinstance(result, _NoDataTicker)

@@ -430,12 +430,18 @@ def get_analysis(
     `backend-profit-target` task's `decisions` entry for why this app's long-only protective-
     stop formula rules out a symmetric SELL-side reward:risk ratio.
 
-    `extended_data` (earnings/dividend dates, short interest, insider transactions -- see
-    `ExtendedDataOut`'s own field descriptions) is fetched in the same try/except as
-    `daily_ohlcv`/`weekly_ohlcv` above, so a `DataProviderUnavailableError` from it maps to the
-    same 503 -- in practice this only happens if *both* the primary and fallback providers fail
-    on this specific call, since the fallback (Stooq) provider always succeeds with an
-    explicit "unsupported" result rather than raising (see `app.data.stooq_provider.
+    `daily_ohlcv`/`weekly_ohlcv`/`extended_data` are fetched concurrently (not sequentially)
+    since none of the three depends on either of the others -- backend-data-provider-timeouts,
+    mirroring `get_indicator_history`'s own daily+weekly concurrent fetch below
+    (backend-indicator-history-performance) -- but `.result()` is still resolved in
+    daily -> weekly -> extended order, so the raised failure matches this endpoint's previous
+    sequential-fetch error priority exactly (a failing daily fetch takes priority over a
+    failing weekly/extended one, since sequentially the daily fetch would have failed first
+    and the later fetches would never even have started). A `DataProviderUnavailableError`
+    from `extended_data`'s fetch maps to the same 503 as `daily_ohlcv`/`weekly_ohlcv` -- in
+    practice this only happens if *both* the primary and fallback providers fail on this
+    specific call, since the fallback (Stooq) provider always succeeds with an explicit
+    "unsupported" result rather than raising (see `app.data.stooq_provider.
     StooqProvider.get_extended_data`'s own docstring and this task's `decisions` entry).
 
     `insider_clusters` (`app.signals.insider_clusters.detect_insider_clusters`, Elder ch. 37
@@ -465,9 +471,22 @@ def get_analysis(
     hard-coded weekly/daily split to a follow-up (docs/architecture/Backend.md §10)."""
     ticker = ticker.upper()
     try:
-        daily_ohlcv = provider.get_daily_ohlcv(ticker)
-        weekly_ohlcv = provider.get_weekly_ohlcv(ticker)
-        extended = provider.get_extended_data(ticker)
+        # Fetched concurrently (daily, weekly, extended data each cost their own request
+        # budget -- see `app.data.yfinance_provider._REQUEST_TIMEOUT_SECONDS`), same
+        # `ThreadPoolExecutor` pattern `get_indicator_history` below already uses for its own
+        # daily+weekly fetch (backend-indicator-history-performance) -- so a slow/degraded
+        # provider now costs its timeout once per ticker here too, rather than up to three
+        # times over. `.result()` is still resolved in daily -> weekly -> extended order so a
+        # daily-fetch failure takes priority over a weekly/extended one, matching this
+        # function's previous sequential error priority exactly (see this task's `decisions`
+        # entry, docs/tasks/backend-data-provider-timeouts.json).
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            daily_future = executor.submit(provider.get_daily_ohlcv, ticker)
+            weekly_future = executor.submit(provider.get_weekly_ohlcv, ticker)
+            extended_future = executor.submit(provider.get_extended_data, ticker)
+            daily_ohlcv = daily_future.result()
+            weekly_ohlcv = weekly_future.result()
+            extended = extended_future.result()
     except TickerNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except InsufficientHistoryError as exc:
