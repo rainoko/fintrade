@@ -41,5 +41,11 @@
       "rationale": "`swing_lows`/`swing_highs` are each just `find_swing_points` plus a `kind` filter (app.signals.swing_points), so calling both independently reruns the identical O(history_length) scan over the identical `price`/`window` pair twice for no behavioral difference -- verified the two approaches are equivalent by inspecting `swing_points.py` directly. The parent task's own ancestor decision (docs/tasks/done/backend-swing-point-detector-followups.json) deliberately scoped this fix to only `build_divergence_swing_cache` at the time, the one call site judged to need it then; this task's own checklist item explicitly flagged `latest_divergence` as the same pattern recurring and this task is already touching this exact function/file for two other checklist items, so 'next time this module is touched for a reason that would naturally include it' (the prior finding's own phrasing) applies now rather than deferring further. Rejected leaving it merely documented-but-unfixed: the fix is small, behavior-preserving (confirmed by the existing test suite, all of which still passes), and removes a real if narrow inefficiency rather than just restating it for a third time in the task history."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-portfolio-load-performance-followups-followups-followups-followups-followups",
+    "pr_number": 366,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/366",
+    "pushed_at": "2026-09-30T09:45:16Z"
+  }
 }
