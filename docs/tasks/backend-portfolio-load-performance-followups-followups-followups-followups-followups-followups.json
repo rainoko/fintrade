@@ -27,5 +27,11 @@
       "rationale": "The task description's own review finding already established via grep that find_divergences has zero production call sites, so the second paragraph's factual claim is correct and shouldn't be softened. The first paragraph's endpoint mention was always meant as illustrative advisory guidance about a call *pattern* ('fine for a single whole-history pass') rather than a literal citation of a real caller, so hedging it to a generic hypothetical preserves that intent while removing the false implication that the analysis endpoint actually calls this function. Considered and rejected: deleting the first paragraph's example entirely (loses useful illustrative context for future readers) and rewording the second paragraph instead (would weaken an accurate, already-reviewer-confirmed statement to accommodate an inaccurate one)."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-portfolio-load-performance-followups-followups-followups-followups-followups-followups",
+    "pr_number": 367,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/367",
+    "pushed_at": "2026-09-30T10:00:28Z"
+  }
 }
