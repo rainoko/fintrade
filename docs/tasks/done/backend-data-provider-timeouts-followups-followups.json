@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from backend-data-provider-timeouts-followups's PR #364 review",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-data-provider-timeouts-followups"],
   "references": [
     "docs/tasks/backend-data-provider-timeouts-followups.json",
@@ -32,5 +32,12 @@
     "pr_number": 365,
     "pr_url": "https://github.com/rainoko/fintrade/pull/365",
     "pushed_at": "2026-09-30T09:29:40Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-30T09:34:30Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/365",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "No-code-change PR resolving a single non-blocking finding via a documented decisions entry. Independently re-verified every cited fact rather than taking the decision text at face value: `app/api/day_trader_signal.py`'s `_MAX_CONCURRENT_TICKER_FETCHES = 8` and `app/portfolio/pricing.py`'s `_MAX_CONCURRENT_PRICE_FETCHES = 8` both confirmed (grep); `get_extended_data` (backend/app/data/yfinance_provider.py) confirmed to open no DB session in its inner ThreadPoolExecutor -- it only reads yfinance Ticker.calendar/.info/.insider_transactions against the process-wide YfData singleton; `_REQUEST_TIMEOUT_SECONDS = 10.0` confirmed as the worst-case bound cited; the 'already load-tested' DB-connection-pool claim traces to a real prior load test (backend-data-provider-timeouts-followups's checklist item 5 / decisions entry: 10-12 concurrent requests, 30-36 simultaneous connection demands vs the 15-connection QueuePool cap, graceful degradation, independently re-verified by pr-decision on PR #364) rather than being invented for this PR; even the specific 'min(32, cpu_count+4) = 28 on this 24-core host' arithmetic checks out (`nproc` = 24, computed value = 28). The decision itself is substantive, not a restatement of 'left as-is': it works actual peak-thread-count math, cites concrete codebase precedent, and considers and rejects two specific alternative code changes (context-aware max_workers reduction, collapsing the two pools) with real reasons each would add coupling for no measurable benefit. Ran the full backend suite as a baseline sanity check even though no application code changed: 1491 passed, 100% line/branch coverage on `app/` (backend/.venv/bin/pytest --cov=app --cov-report=term-missing --cov-fail-under=90). Frontend vitest suite also re-run as a baseline (unaffected by this backend-only PR): 99.65%/98.99%/99.64%/99.74% statements/branches/functions/lines, all above the 90% gate. Static analysis clean on both sides: ruff, mypy, eslint, tsc -b --noEmit, and scripts/check_profit_target_wording.py all pass with no findings. scripts/validate_tasks.py passes (349 task files, no invariant violations). Diff scoped to exactly the two task-board JSON files (backend-data-provider-timeouts-followups-followups.json, index.json) -- no application code, no API/schema surface touched, so backend/openapi.json regeneration correctly not needed. No frontend/UI surface in this PR, so the browser-walkthrough and e2e-suite steps don't apply -- noting that explicitly rather than silently skipping. A separate code-review skill pass (medium effort) independently reached the same conclusion with zero findings. No new non-blocking findings identified beyond what the task's own decisions entry already surfaces; no follow-up task created for this review."
   }
 }
