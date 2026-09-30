@@ -3,7 +3,7 @@
   "title": "Clearer in-progress feedback on the IBKR preload dialog during delete-then-import",
   "area": "frontend/portfolio",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "docs/architecture/Frontend.md",
@@ -14,21 +14,40 @@
   "checklist": [
     {
       "step": "Add a clear, hard-to-miss in-progress treatment over the dialog's content area (position tables + conflict list) while `preloadMutation.isPending` -- e.g. an MUI `Skeleton` overlay/replacement for the tables, or a dimmed/disabled visual state with a centered spinner and status text (\"Deleting selected positions...\" -> \"Importing...\" if the two phases are distinguishable, or a single generic in-progress message otherwise). Check `components/common/` for any existing skeleton/loading-overlay pattern to reuse before inventing a new one (Frontend.md §3's placement rule applies to whatever you build).",
-      "done": false
+      "done": true
     },
     {
       "step": "Disable the conflict-row 'Delete existing?' checkboxes (and any other interactive control in the dialog body besides Cancel, which should stay `disabled` as it already is) while `preloadMutation.isPending`, so the UI doesn't invite input it will silently ignore.",
-      "done": false
+      "done": true
     },
     {
       "step": "Confirm (or fix, if genuinely broken) that the Portfolio page's underlying positions data visibly refreshes promptly once the preload mutation settles -- read `useIbkrPortfolioPreload`'s `onSettled` invalidation logic directly rather than assuming it still works after any recent changes, and do a real check (browser walkthrough or an integration-level test) that a newly-imported position actually appears in the page behind the dialog after clicking 'Done', not just that the query cache was technically invalidated.",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests (vitest/Testing Library/MSW, no live network calls): the loading treatment's visibility gated on `preloadMutation.isPending`, the checkboxes' disabled state during the mutation, and (if a gap was found and fixed in checklist item 3) a regression test for the refresh behavior.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-30T08:33:59Z",
+      "recorded_by": "task-worker",
+      "decision": "The in-progress treatment is a dimmed content area (opacity 0.35 on the existing tables/confirmation-text Stack) covered by an absolutely-positioned semi-transparent overlay `Box` (role=\"status\", aria-live=\"polite\") containing a centered MUI `CircularProgress` plus one generic status line (\"Deleting selected positions and importing from IBKR…\") -- not an MUI `Skeleton` replacement of the tables. Kept inline in `IbkrPreloadDialog.tsx` as a one-off rather than promoted to a new `components/common/` component.",
+      "rationale": "The user has already reviewed exactly what these tables show (which tickers, which conflicts, which checkboxes they chose) immediately before clicking Confirm -- dimming-and-overlaying keeps that context visible (reinforcing 'yes, the thing you just asked for is happening') rather than replacing it with content-shaped grey placeholder bars the way `Skeleton` would, which reads more naturally for 'new data is arriving' (the `frontend-watchlist-add-skeleton` precedent) than for 'your just-confirmed action is being applied'. `components/common/` was checked first per the checklist item's own instruction: `LoadingState` is a whole-section replacement spinner (already used elsewhere in this same file for the initial preview fetch), not a dim/overlay-over-existing-content pattern, and no such overlay component exists anywhere in the codebase yet (grepped for `position: 'absolute'`/`Backdrop`/`overlay` usage) -- so this is a first use, same situation `frontend-watchlist-add-skeleton` was in for its own first-use `Skeleton` pattern, which explicitly kept that one-off inline rather than generalizing prematurely; this task follows the same reasoning and revisits promotion to `common/` only if a second use site appears. A single generic status message (not a two-phase \"Deleting...\" -> \"Importing...\" sequence) was used because the two phases genuinely aren't observable from `IbkrPreloadDialog`: `useIbkrPortfolioPreload`'s `mutationFn` runs the sequential deletes and the final `preloadIbkrPortfolio()` call inside one `useMutation`, exposing only a single `isPending` boolean with no intermediate phase state -- inventing a fake phase transition (e.g. a local timer) would be dishonest about what's actually verifiable rather than genuinely informative."
+    },
+    {
+      "timestamp": "2026-09-30T08:33:59Z",
+      "recorded_by": "task-worker",
+      "decision": "Each conflict-row `Checkbox` gets an explicit `disabled={preloadMutation.isPending}` prop, in addition to (not instead of) the dimmed/overlaid visual treatment from the previous decision.",
+      "rationale": "The overlay makes the checkboxes visually read as non-interactive, but a real MUI `Checkbox` underneath remains focusable/clickable by default unless actually `disabled` -- an explicit `disabled` prop is both the accessible signal (assistive tech announces it, not just a CSS opacity change) and the only reliable way to test the 'doesn't invite input it will silently ignore' requirement from this checklist item without relying on brittle pointer-events/CSS assertions in jsdom."
+    },
+    {
+      "timestamp": "2026-09-30T08:33:59Z",
+      "recorded_by": "task-worker",
+      "decision": "No code change was needed for the 'does the Portfolio page actually refresh' half of the reported complaint -- it already works correctly. Verified by reading `useIbkrPortfolioPreload`'s `onSettled` (invalidates `portfolioKeys.all`, which is the exact `queryKey` `usePortfolio()` uses, not merely a prefix match) and by re-running the existing `PortfolioPage.test.tsx` integration test `'preloads NVDA end to end and shows it in the refreshed positions table'`, which passes and genuinely exercises: opening the dialog, confirming an import, clicking Done, and asserting the newly-imported ticker appears in the real `Positions` table afterward.",
+      "rationale": "The task description itself flagged this as possibly 'just a perception problem solved entirely by better in-progress feedback, not a real staleness bug' -- that's exactly what was found. Since a passing, genuinely end-to-end test already covers this exact scenario, no new regression test was added for it (the checklist's own fourth item only calls for a new regression test 'if a gap was found and fixed'); a real interactive browser walkthrough was not additionally performed on top of that existing automated coverage since the integration test already renders real React components against a mocked API boundary and asserts on the actual DOM the user would see, which is what a manual walkthrough would otherwise confirm."
+    }
+  ],
   "questions": []
 }

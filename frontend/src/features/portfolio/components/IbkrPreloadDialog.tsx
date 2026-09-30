@@ -1,11 +1,14 @@
+import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Checkbox from '@mui/material/Checkbox'
+import CircularProgress from '@mui/material/CircularProgress'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'
 import DialogTitle from '@mui/material/DialogTitle'
 import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
+import { alpha } from '@mui/material/styles'
 import Table from '@mui/material/Table'
 import TableBody from '@mui/material/TableBody'
 import TableCell from '@mui/material/TableCell'
@@ -87,6 +90,20 @@ interface ConflictRow {
  * (`DataTable`, `EmptyState`, `LoadingState`, `ErrorState`,
  * `UnavailableState`) — so there's no new Storybook story to add either. See
  * this task's `decisions` entry.
+ *
+ * While `preloadMutation` is in flight (frontend-ibkr-preload-loading-feedback),
+ * the review content below (both tables + the confirmation copy) is dimmed
+ * and covered by a centered spinner + status overlay, and every conflict-row
+ * checkbox is explicitly `disabled` — otherwise a user could keep toggling a
+ * checkbox mid-mutation with no effect and no visual cue that the delete-then-
+ * import sequence (several real round trips for a multi-position preload,
+ * not instantaneous) was even running, which is exactly the reported "maybe
+ * page just not refreshing" complaint. The overlay uses one generic status
+ * message rather than a per-phase one (e.g. "Deleting..." then
+ * "Importing...") because the two phases aren't observable from here: both
+ * the sequential deletes and the final preload call happen inside a single
+ * `useIbkrPortfolioPreload` mutation function with no intermediate state
+ * exposed to this component. See this task's `decisions` entry.
  */
 export default function IbkrPreloadDialog({
   open,
@@ -245,94 +262,125 @@ export default function IbkrPreloadDialog({
                 <EmptyState message="No IBKR positions are available to preload right now." />
               )}
               {previewQuery.data && isAvailable && !hasNoPositions && (
-                <>
-                  {preloadMutation.isError && (
-                    <Stack spacing={1}>
-                      <ErrorState error={preloadMutation.error} />
-                      <Typography variant="body2" color="text.secondary">
-                        Any positions already deleted before this failure remain deleted —
-                        check the positions table before retrying.
-                      </Typography>
-                    </Stack>
-                  )}
-                  <Typography variant="subtitle1">
-                    New positions to import ({nonConflicting.length})
-                  </Typography>
-                  <DataTable
-                    columns={nonConflictingColumns}
-                    rows={nonConflicting}
-                    getRowKey={(row) => row.conid}
-                    emptyMessage="No new IBKR positions to import right now."
-                    ariaLabel="Non-conflicting IBKR positions"
-                  />
-                  <Typography variant="subtitle1">
-                    Conflicting tickers ({conflictRows.length})
-                  </Typography>
-                  {conflictRows.length === 0 ? (
-                    <EmptyState message="No conflicts — every fetched IBKR position can be imported directly." />
-                  ) : (
-                    <TableContainer component={Paper} variant="outlined">
-                      <Table aria-label="Conflicting IBKR positions">
-                        <TableHead>
-                          <TableRow>
-                            <TableCell>Delete existing?</TableCell>
-                            <TableCell>Ticker</TableCell>
-                            <TableCell align="right">Existing (local)</TableCell>
-                            <TableCell align="right">Incoming (IBKR)</TableCell>
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {conflictRows.map((row) => (
-                            <TableRow key={row.ibkr.conid}>
-                              <TableCell>
-                                {row.local ? (
-                                  <Checkbox
-                                    checked={selectedDeleteIds.has(row.local.id)}
-                                    onChange={() =>
-                                      row.local && toggleSelected(row.local.id)
-                                    }
-                                    slotProps={{
-                                      input: {
-                                        // Includes the IBKR `conid` (not just
-                                        // the ticker) so two conflicting rows
-                                        // that happen to share a ticker --
-                                        // the same rare within-fetch
-                                        // duplicate case `importCount` above
-                                        // accounts for -- still get distinct
-                                        // labels rather than colliding.
-                                        'aria-label': `Delete existing ${row.ibkr.ticker} position (IBKR conid ${row.ibkr.conid})`,
-                                      },
-                                    }}
-                                  />
-                                ) : (
-                                  '—'
-                                )}
-                              </TableCell>
-                              <TableCell>{row.ibkr.ticker}</TableCell>
-                              <TableCell align="right">
-                                {row.local
-                                  ? `${row.local.quantity} @ ${formatCurrency(row.local.avg_cost_basis)}`
-                                  : 'Not found locally'}
-                              </TableCell>
-                              <TableCell align="right">
-                                {row.ibkr.quantity} @{' '}
-                                {formatNullableCurrency(row.ibkr.avg_cost)}
-                              </TableCell>
+                <Box sx={{ position: 'relative' }}>
+                  <Stack
+                    spacing={2}
+                    sx={{
+                      opacity: preloadMutation.isPending ? 0.35 : 1,
+                      transition: 'opacity 0.15s ease',
+                    }}
+                  >
+                    {preloadMutation.isError && (
+                      <Stack spacing={1}>
+                        <ErrorState error={preloadMutation.error} />
+                        <Typography variant="body2" color="text.secondary">
+                          Any positions already deleted before this failure remain
+                          deleted — check the positions table before retrying.
+                        </Typography>
+                      </Stack>
+                    )}
+                    <Typography variant="subtitle1">
+                      New positions to import ({nonConflicting.length})
+                    </Typography>
+                    <DataTable
+                      columns={nonConflictingColumns}
+                      rows={nonConflicting}
+                      getRowKey={(row) => row.conid}
+                      emptyMessage="No new IBKR positions to import right now."
+                      ariaLabel="Non-conflicting IBKR positions"
+                    />
+                    <Typography variant="subtitle1">
+                      Conflicting tickers ({conflictRows.length})
+                    </Typography>
+                    {conflictRows.length === 0 ? (
+                      <EmptyState message="No conflicts — every fetched IBKR position can be imported directly." />
+                    ) : (
+                      <TableContainer component={Paper} variant="outlined">
+                        <Table aria-label="Conflicting IBKR positions">
+                          <TableHead>
+                            <TableRow>
+                              <TableCell>Delete existing?</TableCell>
+                              <TableCell>Ticker</TableCell>
+                              <TableCell align="right">Existing (local)</TableCell>
+                              <TableCell align="right">Incoming (IBKR)</TableCell>
                             </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </TableContainer>
+                          </TableHead>
+                          <TableBody>
+                            {conflictRows.map((row) => (
+                              <TableRow key={row.ibkr.conid}>
+                                <TableCell>
+                                  {row.local ? (
+                                    <Checkbox
+                                      checked={selectedDeleteIds.has(row.local.id)}
+                                      disabled={preloadMutation.isPending}
+                                      onChange={() =>
+                                        row.local && toggleSelected(row.local.id)
+                                      }
+                                      slotProps={{
+                                        input: {
+                                          // Includes the IBKR `conid` (not
+                                          // just the ticker) so two
+                                          // conflicting rows that happen to
+                                          // share a ticker -- the same rare
+                                          // within-fetch duplicate case
+                                          // `importCount` above accounts for
+                                          // -- still get distinct labels
+                                          // rather than colliding.
+                                          'aria-label': `Delete existing ${row.ibkr.ticker} position (IBKR conid ${row.ibkr.conid})`,
+                                        },
+                                      }}
+                                    />
+                                  ) : (
+                                    '—'
+                                  )}
+                                </TableCell>
+                                <TableCell>{row.ibkr.ticker}</TableCell>
+                                <TableCell align="right">
+                                  {row.local
+                                    ? `${row.local.quantity} @ ${formatCurrency(row.local.avg_cost_basis)}`
+                                    : 'Not found locally'}
+                                </TableCell>
+                                <TableCell align="right">
+                                  {row.ibkr.quantity} @{' '}
+                                  {formatNullableCurrency(row.ibkr.avg_cost)}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    )}
+                    <Typography variant="body2" color="text.secondary">
+                      Confirming will delete {selectedDeleteIds.size} selected existing
+                      position
+                      {selectedDeleteIds.size === 1 ? '' : 's'}, then import{' '}
+                      {importCount} IBKR position{importCount === 1 ? '' : 's'}. A
+                      conflicting position you don't select stays exactly as it is — it
+                      is never merged or updated.
+                    </Typography>
+                  </Stack>
+                  {preloadMutation.isPending && (
+                    <Box
+                      role="status"
+                      aria-live="polite"
+                      sx={{
+                        position: 'absolute',
+                        inset: 0,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 1.5,
+                        bgcolor: (theme) => alpha(theme.palette.background.paper, 0.75),
+                      }}
+                    >
+                      <CircularProgress aria-label="Deleting and importing" />
+                      <Typography variant="body2" color="text.secondary">
+                        Deleting selected positions and importing from IBKR…
+                      </Typography>
+                    </Box>
                   )}
-                  <Typography variant="body2" color="text.secondary">
-                    Confirming will delete {selectedDeleteIds.size} selected existing
-                    position
-                    {selectedDeleteIds.size === 1 ? '' : 's'}, then import {importCount}{' '}
-                    IBKR position{importCount === 1 ? '' : 's'}. A conflicting position
-                    you don't select stays exactly as it is — it is never merged or
-                    updated.
-                  </Typography>
-                </>
+                </Box>
               )}
             </Stack>
           </DialogContent>
