@@ -3,7 +3,7 @@
   "title": "Follow-ups from backend-data-provider-timeouts's PR #360 review",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-data-provider-timeouts"],
   "references": [
     "docs/tasks/backend-data-provider-timeouts.json",
@@ -68,5 +68,18 @@
     "pr_number": 364,
     "pr_url": "https://github.com/rainoko/fintrade/pull/364",
     "pushed_at": "2026-09-30T09:09:38Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-30T09:18:56Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/364",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Nested ThreadPoolExecutor thread fan-out: get_analysis's own extended-data leg now calls into get_extended_data, which this PR made concurrent in its own right (a second, nested ThreadPoolExecutor(max_workers=3)). One GET /api/stocks/{ticker}/analysis request can now transiently spin up up to 6 worker threads (3 outer + 3 inner) instead of 3. Not a correctness bug -- the two pools are independent with no shared state/ordering between them, no deadlock risk -- but worth tracking alongside the already-tracked per-leg DB-connection-pool footprint finding if usage patterns ever combine to matter at scale. Non-blocking; filed as docs/tasks/backend-data-provider-timeouts-followups-followups.json.",
+        "file": "backend/app/data/yfinance_provider.py",
+        "line": 168
+      }
+    ],
+    "notes": "Full review: backend suite re-run clean (1491 passed, 100% line/branch coverage, matching the PR's own claim), ruff and mypy (scoped per pyproject.toml's files=[\"app\"], per static-verify) both clean, scripts/check_profit_target_wording.py clean, backend/openapi.json regenerated with zero diff (no route/schema touched, correctly not committed). Dispatched the code-review skill against the diff independently -- returned zero findings after an 8-angle pass including tracing the yfinance 1.7.0 source to confirm .calendar/.info/.insider_transactions touch independent internal cache objects (no shared-mutable-state race across the three concurrent legs). Reproduced the concurrency/mutation-testing claims by hand rather than trusting the self-report, per this task's own instructions: (1) reverted get_extended_data fully to sequential fetches -- test_calendar_info_and_insider_transactions_are_fetched_concurrently correctly failed ('calendar and info did not overlap'); (2) reverted only the fail-fast shutdown(wait=False, cancel_futures=True) to the with-ThreadPoolExecutor(...) (wait=True) form -- test_fast_calendar_failure_returns_promptly_despite_slow_other_properties correctly failed (elapsed ~1.0s vs the <0.5s assertion); (3) removed _clamp_session_timeout's inner post-lock re-check -- test_second_racer_sees_already_clamped_state_after_acquiring_the_lock correctly failed; (4) removed the except Exception: pass around the attribute-assignment step -- test_attribute_assignment_failure_is_a_silent_no_op correctly failed with the AttributeError propagating. All four reverts were restored immediately after each confirmation and the tree verified clean (git diff --stat empty) before moving to the next. This covers both new/hardened tests in the integration suite and the two coverage-closing unit tests in yfinance_provider.py's own test file. All four decisions entries are genuine, specific, and substantive -- not boilerplate. Item 3 (deferring the 4-call-site ThreadPoolExecutor consolidation) and item 5 (reconfirming the DB connection-pool footprint with no code change) are both reasonable, well-argued judgment calls rather than corner-cutting: item 3's rationale correctly distinguishes get_analysis's fail-fast/scoped-session shape from the other three call sites' full-wait shape, and item 5 explicitly considered and rejected two concrete alternatives (explicit pool sizing, a lighter-weight per-leg resource) with reasoning tied to the parent PR's own empirical load test rather than just asserting it's fine. No API/schema surface touched -- openapi.json regeneration correctly produces zero diff. No frontend/UI surface in this PR (a backend data-provider concurrency fix plus tests) -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) both explicitly skipped as not applicable. index.json's state mirror was correct at review time (testing). No stale pr_decision field was present to clear."
   }
 }
