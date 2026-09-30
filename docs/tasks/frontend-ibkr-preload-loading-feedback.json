@@ -3,7 +3,7 @@
   "title": "Clearer in-progress feedback on the IBKR preload dialog during delete-then-import",
   "area": "frontend/portfolio",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "docs/architecture/Frontend.md",
@@ -49,5 +49,11 @@
       "rationale": "The task description itself flagged this as possibly 'just a perception problem solved entirely by better in-progress feedback, not a real staleness bug' -- that's exactly what was found. Since a passing, genuinely end-to-end test already covers this exact scenario, no new regression test was added for it (the checklist's own fourth item only calls for a new regression test 'if a gap was found and fixed'); a real interactive browser walkthrough was not additionally performed on top of that existing automated coverage since the integration test already renders real React components against a mocked API boundary and asserts on the actual DOM the user would see, which is what a manual walkthrough would otherwise confirm."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-ibkr-preload-loading-feedback",
+    "pr_number": 363,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/363",
+    "pushed_at": "2026-09-30T08:35:24Z"
+  }
 }
