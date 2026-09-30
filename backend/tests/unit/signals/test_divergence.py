@@ -88,8 +88,10 @@ _FIXTURE_A_MACD_HISTOGRAM_NO_CROSS = pd.Series(
 # FIXTURE_A's bearish mirror (a new HIGHER high at idx 30 = 130 vs idx 10's 100, a SHALLOWER
 # peak in the indicator, crossing below zero in between) -- qualifies only on the bearish/highs
 # side, used by TestCurrentDivergenceSharedSwingPass tests that specifically need a
-# `current_divergence` result via the shared-highs branch (every other `current_divergence` test
-# in this file exercises the bullish/lows side only).
+# `current_divergence` result via the shared-highs branch (every other *single-candidate*
+# `current_divergence` test in this file exercises the bullish/lows side only -- FIXTURE_C below
+# also produces a bearish `current_divergence` result, but via its own multi-candidate
+# bullish-vs-bearish tie-break, a different code path than this single-candidate fixture).
 _FIXTURE_B_PRICE = pd.Series(
     [float(v) for v in range(50, 101, 5)]  # idx 0-10: 50,...,100
     + [float(v) for v in range(95, 49, -5)]  # idx 11-20: 95,...,50
@@ -508,8 +510,10 @@ class TestCurrentDivergenceSharedSwingPass:
     def test_current_divergence_picks_up_a_bearish_divergence_via_shared_highs(self) -> None:
         """The shared swing-point pass must correctly split into BOTH lows and highs -- this
         fixture only qualifies on the bearish (highs) side, isolating that branch specifically
-        (every other `current_divergence` test in this file exercises the bullish/lows side
-        only)."""
+        (every other *single-candidate* `current_divergence` test in this file exercises the
+        bullish/lows side only -- `test_current_divergence_agrees_with_latest_divergence_on_a_
+        two_candidate_fixture` below also produces a bearish result, but via FIXTURE_C's
+        multi-candidate tie-break, a different code path than this single-candidate fixture)."""
         result = current_divergence(_FIXTURE_B_PRICE, macd_histogram=_FIXTURE_B_MACD_HISTOGRAM)
 
         assert result is not None
