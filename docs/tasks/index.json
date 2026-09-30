@@ -2441,8 +2441,8 @@
       "id": "frontend-fibonacci-auto-levels-followups",
       "area": "frontend/stocks",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/frontend-fibonacci-auto-levels-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-fibonacci-auto-levels-followups.json"
     }
   ]
 }

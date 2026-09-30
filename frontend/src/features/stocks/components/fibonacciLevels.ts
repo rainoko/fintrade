@@ -118,10 +118,17 @@ export function findFibonacciSwing(bars: readonly FibonacciBar[]): FibonacciSwin
   let highBar = bars[0]
   let lowBar = bars[0]
   for (const bar of bars) {
-    if (bar.high > highBar.high) {
+    // `>=`/`<=` (not strict `>`/`<`) so that when the extreme value recurs
+    // across more than one bar, the *most recent* bar at that value wins --
+    // matching the spirit of `FibonacciSwing.direction`'s own documented
+    // same-date tie-break. A strict comparison would keep the first bar seen
+    // at a tied extreme, which can flip the computed `direction` relative to
+    // what "the more recent extreme gets 0%" is meant to produce (see this
+    // task's `decisions` entry for the worked example).
+    if (bar.high >= highBar.high) {
       highBar = bar
     }
-    if (bar.low < lowBar.low) {
+    if (bar.low <= lowBar.low) {
       lowBar = bar
     }
   }
