@@ -517,7 +517,6 @@ class IBKRProvider:
         self._require_available()
         payload = self._request("POST", "/iserver/scanner/run", json=scan_config)
         self._last_scanner_run_at = self._clock()
-        print(f"IBKRProvider.run_scanner: {len(payload)} results returned for scan_config={scan_config}")
         return _parse_scanner_results(payload)
 
     def resolve_conid(self, ticker: str) -> int | None:
