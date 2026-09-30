@@ -1,4 +1,7 @@
-from concurrent.futures import ThreadPoolExecutor
+import logging
+from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import AbstractContextManager
 from datetime import date, timedelta
 from typing import Literal, cast
 
@@ -11,7 +14,7 @@ from app.api.day_trader_signal import (
     fetch_day_trader_history_legs,
     trading_mode_setting_to_schema,
 )
-from app.api.dependencies import get_data_provider, get_ibkr_provider
+from app.api.dependencies import get_data_provider, get_data_provider_factory, get_ibkr_provider
 from app.api.indicator_history_cache import IndicatorHistoryResponseCache
 from app.api.schemas import (
     AnalysisResponse,
@@ -87,6 +90,8 @@ _RANGE_PATTERN = r"^(max|\d{1,4}[dwmy])$"
 # doesn't flag almost every actively-traded ticker's *next* quarterly report as "imminent". See
 # this task's `decisions` entry.
 _EARNINGS_WARNING_DAYS = 14
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/stocks", tags=["stocks"])
 
@@ -379,6 +384,50 @@ def _insider_cluster_to_schema(cluster: InsiderCluster) -> InsiderClusterOut:
     )
 
 
+def _fetch_via_scoped_provider[T](
+    provider_factory: Callable[[], AbstractContextManager[DataProvider]],
+    fetch: Callable[[DataProvider], T],
+) -> T:
+    """Runs `fetch` against a `DataProvider` scoped to this single call -- opened and closed
+    entirely within this call, on whatever thread actually runs it -- rather than a `DataProvider`
+    shared with any other concurrently-running call. Used by `get_analysis` below so an abandoned
+    leg's own `DataProvider`/`Session` lifecycle is fully independent of whichever other leg (or
+    the request handler itself) returns first; see `get_data_provider_factory`'s own docstring
+    for why this matters."""
+    with provider_factory() as provider:
+        return fetch(provider)
+
+
+def _log_if_abandoned_leg_failed(ticker: str, leg_name: str) -> Callable[[Future], None]:
+    """A `Future.add_done_callback` for a `get_analysis` leg that might end up abandoned (its
+    `.result()` never retrieved, because a higher-priority leg's `.result()` already raised
+    first -- see `get_analysis`'s own docstring). Without this, a real fetch failure on an
+    abandoned leg (e.g. a genuine `DataProviderUnavailableError` from a truly slow/degraded
+    provider) would otherwise be silently discarded with no log line at all, since nothing else
+    ever calls `.result()`/`.exception()` on that future again -- flagged (not reproduced, since
+    it follows directly from `concurrent.futures` semantics) on PR #360's second review round.
+    Deliberately does not re-raise or otherwise surface this to the caller: by the time this
+    callback fires, the response for this request may already have been sent for a different
+    (higher-priority) reason, so a log line is this leg's only remaining way to surface its own
+    failure."""
+
+    def _callback(future: Future) -> None:
+        if future.cancelled():
+            return
+        exc = future.exception()
+        if exc is not None:
+            logger.warning(
+                "Abandoned %s leg for %r failed after the response for this request had "
+                "already been decided by another leg: %s: %s",
+                leg_name,
+                ticker,
+                type(exc).__name__,
+                exc,
+            )
+
+    return _callback
+
+
 @router.get(
     "/{ticker}/analysis",
     response_model=AnalysisResponse,
@@ -401,7 +450,9 @@ def _insider_cluster_to_schema(cluster: InsiderCluster) -> InsiderClusterOut:
 )
 def get_analysis(
     ticker: str,
-    provider: DataProvider = Depends(get_data_provider),
+    provider_factory: Callable[[], AbstractContextManager[DataProvider]] = Depends(
+        get_data_provider_factory
+    ),
     db: Session = Depends(get_db),
     ibkr_provider: IBKRProvider | None = Depends(get_ibkr_provider),
 ) -> AnalysisResponse:
@@ -494,18 +545,68 @@ def get_analysis(
         # propagate the moment it's raised; the other two legs (already running in their own
         # worker threads by that point -- with `max_workers=3` == the number of futures
         # submitted, all three start immediately, so there is nothing left in the queue for
-        # `cancel_futures` to actually cancel) simply finish in the background and their
-        # results, if any, are discarded uncollected.
+        # `cancel_futures` to actually cancel) simply finish in the background.
+        #
+        # Each leg fetches through its *own* `DataProvider`, scoped to that single call via
+        # `provider_factory` (`app.api.dependencies.get_data_provider_factory`) --
+        # `_fetch_via_scoped_provider` -- rather than one `DataProvider` shared across all
+        # three. Sharing one (as an earlier revision of this fix did, reusing the same
+        # `Depends(get_data_provider)`-injected instance for every leg) meant every leg's
+        # cache write went through the exact same `Session` this endpoint's own
+        # `Depends(get_db)` resolves to -- so an abandoned leg still running after `.result()`
+        # raised and this handler returned could still be mid-write on that `Session` when
+        # `get_db`'s `finally: db.close()` closed it out from under it, on a different thread,
+        # with no coordination between the two (`sqlalchemy.exc.IllegalStateChangeError`,
+        # reproduced on ~30-40% of runs against the real FastAPI app + real `get_db`/
+        # `SessionLocal` machinery on PR #360's second review round -- the test suite's usual
+        # `get_data_provider` stub override doesn't exercise this, since a stub has no real
+        # `Session` to race). Each leg now opens (and, on its own completion, closes) a
+        # dedicated session nothing else will ever close, so an abandoned leg's own lifecycle
+        # is fully decoupled from both this request's own `db` and from the other two legs --
+        # there is no longer any shared session left for it to race. See
+        # `get_data_provider_factory`'s own docstring for the full rationale, and this task's
+        # `decisions` entry for why a per-leg session (rather than always waiting for every leg
+        # to finish before returning) is what actually resolves the tension between this fix's
+        # fail-fast requirement and DB-session safety.
         executor = ThreadPoolExecutor(max_workers=3)
+        # Tracks which legs' `.result()` hasn't been retrieved yet -- a leg is only ever
+        # popped out of this dict *before* `.result()` is called on it (see `_resolve` below),
+        # so if that call raises, its own name is already gone from `pending` and it won't also
+        # get logged as "abandoned" by the `finally` block below -- that would be misleading for
+        # the one leg whose failure is actually what's driving this request's own response,
+        # rather than a leg that got silently left behind.
+        pending: dict[str, Future] = {}
         try:
-            daily_future = executor.submit(provider.get_daily_ohlcv, ticker)
-            weekly_future = executor.submit(provider.get_weekly_ohlcv, ticker)
-            extended_future = executor.submit(provider.get_extended_data, ticker)
-            daily_ohlcv = daily_future.result()
-            weekly_ohlcv = weekly_future.result()
-            extended = extended_future.result()
+            daily_future = executor.submit(
+                _fetch_via_scoped_provider, provider_factory, lambda p: p.get_daily_ohlcv(ticker)
+            )
+            weekly_future = executor.submit(
+                _fetch_via_scoped_provider, provider_factory, lambda p: p.get_weekly_ohlcv(ticker)
+            )
+            extended_future = executor.submit(
+                _fetch_via_scoped_provider, provider_factory, lambda p: p.get_extended_data(ticker)
+            )
+            pending = {"daily": daily_future, "weekly": weekly_future, "extended": extended_future}
+
+            def _resolve(name: str) -> object:
+                future = pending.pop(name)
+                return future.result()
+
+            daily_ohlcv = cast(pd.DataFrame, _resolve("daily"))
+            weekly_ohlcv = cast(pd.DataFrame, _resolve("weekly"))
+            extended = cast(ExtendedData, _resolve("extended"))
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
+            # Whatever's left in `pending` at this point is a leg whose `.result()` was never
+            # retrieved at all -- a higher-priority leg's own `.result()` already raised first
+            # (see the comment above `pending`'s own declaration). Its own fetch failure (e.g. a
+            # genuine `DataProviderUnavailableError` from a truly slow/degraded provider,
+            # unrelated to whichever leg actually "won") would otherwise be silently discarded,
+            # since nothing else will ever call `.result()`/`.exception()` on it again -- flagged
+            # (not reproduced, since it follows directly from `concurrent.futures` semantics) on
+            # PR #360's second review round. This callback makes sure it's at least logged.
+            for name, future in pending.items():
+                future.add_done_callback(_log_if_abandoned_leg_failed(ticker, name))
     except TickerNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except InsufficientHistoryError as exc:
