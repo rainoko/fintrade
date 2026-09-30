@@ -12,12 +12,14 @@ from collections.abc import Iterator
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.orm import Session as SQLAlchemySession
 from sqlalchemy.orm import sessionmaker
 
 from app.api.dependencies import (
     _get_ibkr_provider_singleton,
     _reset_ibkr_provider_singleton_for_tests,
     get_data_provider,
+    get_data_provider_factory,
     get_ibkr_provider,
 )
 from app.config import get_settings
@@ -82,6 +84,72 @@ def test_get_data_provider_returns_fixture_provider_in_fixture_mode(monkeypatch)
         session.close()
         engine.dispose()
         get_settings.cache_clear()  # don't leak the monkeypatched setting into other tests
+
+
+class TestGetDataProviderFactory:
+    """`get_data_provider_factory` (app/api/dependencies.py) -- the per-call-scoped
+    `DataProvider` factory `GET /api/stocks/{ticker}/analysis` (`app.api.routers.stocks
+    .get_analysis`) uses instead of `get_data_provider`'s single shared instance, so an
+    abandoned concurrent leg's own `Session` lifecycle can never race the request's own
+    `get_db` teardown -- see that function's own docstring and docs/tasks/
+    backend-data-provider-timeouts.json's `decisions` entry (PR #360's second review round)."""
+
+    def test_live_mode_yields_a_fresh_cached_provider_with_its_own_session_each_call(self) -> None:
+        factory = get_data_provider_factory()
+
+        with factory() as first_provider:
+            assert isinstance(first_provider, CachedDataProvider)
+            assert isinstance(first_provider._primary, YFinanceProvider)
+            assert isinstance(first_provider._fallback, StooqProvider)
+            first_session = first_provider._db
+
+        with factory() as second_provider:
+            # A genuinely distinct `DataProvider`/`Session` each call -- not the same instance
+            # reused, which would reintroduce exactly the shared-session race this factory
+            # exists to avoid between two concurrently-running calls.
+            assert second_provider is not first_provider
+            assert second_provider._db is not first_session
+
+    def test_live_mode_closes_its_own_session_on_scope_exit(self, monkeypatch) -> None:
+        """The whole point of this factory over `get_data_provider`'s shared instance: each
+        scope's `Session` is closed by that same scope, on whatever thread runs it, independent
+        of the request's own `db` -- not left for something else (or nothing at all) to close
+        later. Verified by tracking real `sqlalchemy.orm.Session.close()` calls rather than by
+        probing post-close behavior directly: SQLAlchemy's `Session` deliberately tolerates
+        further use after `close()` (it silently opens a fresh transaction), so an attempted
+        query after close proves nothing either way about whether `close()` was actually called.
+        """
+        close_calls: list[SQLAlchemySession] = []
+        original_close = SQLAlchemySession.close
+
+        def _tracking_close(self: SQLAlchemySession) -> None:
+            close_calls.append(self)
+            original_close(self)
+
+        monkeypatch.setattr(SQLAlchemySession, "close", _tracking_close)
+
+        factory = get_data_provider_factory()
+        with factory() as provider:
+            opened_session = provider._db
+            assert close_calls == []  # not yet closed while still inside the `with` block
+
+        assert close_calls == [opened_session]
+
+    def test_fixture_mode_returns_the_same_fixture_provider_every_call(self, monkeypatch) -> None:
+        """Fixture mode (only ever set by the frontend e2e suite) has no real `Session` to
+        protect at all -- see `get_data_provider`'s own docstring -- so the factory can safely
+        keep handing back the same stateless instance instead of constructing a fresh one."""
+        monkeypatch.setenv("FINTRADE_DATA_PROVIDER_MODE", "fixture")
+        get_settings.cache_clear()
+
+        try:
+            factory = get_data_provider_factory()
+
+            with factory() as first_provider, factory() as second_provider:
+                assert isinstance(first_provider, FixtureDataProvider)
+                assert first_provider is second_provider
+        finally:
+            get_settings.cache_clear()
 
 
 class TestGetIbkrProvider:

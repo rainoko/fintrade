@@ -1,8 +1,11 @@
 """Integration tests for GET /api/stocks/{ticker}/analysis (app/api/routers/stocks.py).
 
-Uses a stub `DataProvider` (via a `get_data_provider` dependency override, same pattern as
-tests/integration/test_portfolio_get.py) so these tests never touch a live market data
-provider.
+Uses a stub `DataProvider` (via a `get_data_provider_factory` dependency override -- `get_analysis`
+itself depends on that factory, not the single-instance `get_data_provider` most other routers use,
+so each of its three concurrent legs can get its own independently-scoped provider; see
+`app.api.dependencies.get_data_provider_factory`'s own docstring and this task's `decisions` entry)
+so these tests never touch a live market data provider. `_provider_factory_override` below wraps a
+plain stub in a trivial no-op-close context manager, matching the shape `get_analysis` expects.
 
 `_isolated_db` below (autouse) gives every test in this module its own fresh in-memory
 `TradingModeSettingORM` table (via a `get_db` override, same StaticPool in-memory-SQLite
@@ -20,6 +23,9 @@ tests instead focus on this route's own job -- wiring the provider fetch, `analy
 `AnalysisResponse` mapping together, plus the 404/422/503 error mapping.
 """
 
+import time
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from datetime import UTC, date, datetime, timedelta
 
 import pandas as pd
@@ -29,8 +35,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.api.dependencies import get_data_provider, get_ibkr_provider
-from app.data.base import ExtendedData, InsiderTransaction
+from app.api.dependencies import get_data_provider_factory, get_ibkr_provider
+from app.data.base import DataProvider, ExtendedData, InsiderTransaction
 from app.data.exceptions import (
     DataProviderUnavailableError,
     InsufficientHistoryError,
@@ -117,8 +123,23 @@ class _StubProvider:
         return self._extended.get(ticker, _EMPTY_EXTENDED_DATA)
 
 
+def _provider_factory_override(
+    provider: DataProvider,
+) -> Callable[[], AbstractContextManager[DataProvider]]:
+    """A `get_data_provider_factory`-shaped override for a stub `provider` that has no real
+    session/resource of its own to close -- `get_analysis` calls this once per concurrent leg
+    (see `app.api.dependencies.get_data_provider_factory`'s own docstring), so it needs to be a
+    zero-arg callable returning a context manager, not a bare instance."""
+
+    @contextmanager
+    def _scope() -> Iterator[DataProvider]:
+        yield provider
+
+    return _scope
+
+
 def _make_client(provider: _StubProvider) -> TestClient:
-    app.dependency_overrides[get_data_provider] = lambda: provider
+    app.dependency_overrides[get_data_provider_factory] = lambda: _provider_factory_override(provider)
     return TestClient(app)
 
 
@@ -127,7 +148,7 @@ def _get_analysis(provider: _StubProvider, ticker: str = "AAPL"):
     try:
         return test_client.get(f"/api/stocks/{ticker}/analysis")
     finally:
-        app.dependency_overrides.pop(get_data_provider, None)
+        app.dependency_overrides.pop(get_data_provider_factory, None)
 
 
 def _buy_daily_ohlcv(uptrend_days: int = 20) -> pd.DataFrame:
@@ -599,6 +620,107 @@ class TestGetAnalysis:
         response = _get_analysis(provider)
 
         assert response.status_code == 503
+
+
+class _SlowStubProvider(_StubProvider):
+    """Same as `_StubProvider`, but each of the three fetches sleeps briefly before
+    returning -- lets a test assert the fetches actually overlap (concurrent) rather than run
+    back-to-back (sequential), without a live network call or an actual multi-second timeout
+    (docs/architecture/Testing.md). See backend-data-provider-timeouts's `decisions` entry."""
+
+    def __init__(self, *, sleep_seconds: float, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._sleep_seconds = sleep_seconds
+
+    def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
+        time.sleep(self._sleep_seconds)
+        return super().get_daily_ohlcv(ticker)
+
+    def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
+        time.sleep(self._sleep_seconds)
+        return super().get_weekly_ohlcv(ticker)
+
+    def get_extended_data(self, ticker: str) -> ExtendedData:
+        time.sleep(self._sleep_seconds)
+        return super().get_extended_data(ticker)
+
+
+class _FastFailSlowOthersStubProvider(_StubProvider):
+    """Like `_SlowStubProvider`, but only `get_weekly_ohlcv`/`get_extended_data` sleep --
+    `get_daily_ohlcv` raises immediately (no sleep) whenever `failing_daily` names the
+    ticker. Used to prove a fast daily-fetch failure returns promptly even while the other
+    two concurrent legs are still in flight -- see `TestConcurrentFetch
+    .test_fast_daily_failure_returns_promptly_despite_slow_other_legs` below and this task's
+    `decisions`/`review.comments` entries (docs/tasks/backend-data-provider-timeouts.json,
+    PR #360's first review round)."""
+
+    def __init__(self, *, sleep_seconds: float, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._sleep_seconds = sleep_seconds
+
+    def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
+        time.sleep(self._sleep_seconds)
+        return super().get_weekly_ohlcv(ticker)
+
+    def get_extended_data(self, ticker: str) -> ExtendedData:
+        time.sleep(self._sleep_seconds)
+        return super().get_extended_data(ticker)
+
+
+class TestConcurrentFetch:
+    """Confirms `get_analysis`'s daily/weekly/extended-data fetch actually overlaps rather
+    than running sequentially -- see this function's own docstring and this task's
+    `decisions` entry (docs/tasks/backend-data-provider-timeouts.json)."""
+
+    def test_daily_weekly_and_extended_data_are_fetched_concurrently(self) -> None:
+        sleep_seconds = 0.3
+        provider = _SlowStubProvider(
+            sleep_seconds=sleep_seconds,
+            daily={"AAPL": _hold_daily_ohlcv()},
+            weekly={"AAPL": _hold_weekly_ohlcv()},
+        )
+
+        start = time.monotonic()
+        response = _get_analysis(provider)
+        elapsed = time.monotonic() - start
+
+        assert response.status_code == 200
+        # Sequential would take >= 3 * sleep_seconds (~0.9s); concurrent takes roughly one
+        # sleep_seconds plus overhead. The threshold is generous (2x one sleep) to stay robust
+        # under CI scheduling jitter while still catching a regression back to sequential.
+        assert elapsed < sleep_seconds * 2
+
+    def test_fast_daily_failure_returns_promptly_despite_slow_other_legs(self) -> None:
+        """Regression test for PR #360's first review round: `get_analysis` used to manage its
+        `ThreadPoolExecutor` via `with ThreadPoolExecutor(...) as executor:`, whose `__exit__`
+        unconditionally calls `shutdown(wait=True)` -- blocking an exception raised by an
+        earlier `.result()` call from propagating out of the `with` block until every
+        submitted future (including the other two, still-slow-running legs) finished. A stub
+        provider whose daily fetch raises `TickerNotFoundError` immediately, with the weekly
+        and extended-data fetches each sleeping `sleep_seconds`, used to take roughly
+        `sleep_seconds` to return its 404 instead of near-instantly.
+
+        Mutation-tested: temporarily reverting `get_analysis`'s executor handling back to the
+        blocking `with ThreadPoolExecutor(max_workers=3) as executor:` form makes this test
+        fail (elapsed climbs to ~`sleep_seconds` instead of staying well under it); restoring
+        the fix (manual `executor.shutdown(wait=False, cancel_futures=True)` in a `finally`)
+        makes it pass again."""
+        sleep_seconds = 1.0
+        provider = _FastFailSlowOthersStubProvider(
+            sleep_seconds=sleep_seconds,
+            weekly={"AAPL": _hold_weekly_ohlcv()},
+            failing_daily={"AAPL": TickerNotFoundError("ticker 'AAPL' not found")},
+        )
+
+        start = time.monotonic()
+        response = _get_analysis(provider)
+        elapsed = time.monotonic() - start
+
+        assert response.status_code == 404
+        # The bug this guards against made this take >= sleep_seconds (waiting for the
+        # slower legs to finish before the exception could propagate). A genuinely fast
+        # failure should return in a small fraction of that.
+        assert elapsed < sleep_seconds / 2
 
 
 class TestExtendedData:
@@ -1157,7 +1279,9 @@ class TestDayTraderMode:
     def _client(
         self, db_session: Session, provider: _StubProvider, ibkr_provider: object | None
     ) -> TestClient:
-        app.dependency_overrides[get_data_provider] = lambda: provider
+        app.dependency_overrides[get_data_provider_factory] = lambda: _provider_factory_override(
+            provider
+        )
         app.dependency_overrides[get_ibkr_provider] = lambda: ibkr_provider
         return TestClient(app)
 
@@ -1172,7 +1296,7 @@ class TestDayTraderMode:
         try:
             return test_client.get(f"/api/stocks/{ticker}/analysis")
         finally:
-            app.dependency_overrides.pop(get_data_provider, None)
+            app.dependency_overrides.pop(get_data_provider_factory, None)
             app.dependency_overrides.pop(get_ibkr_provider, None)
 
     def test_fully_intraday_triple_with_all_legs_available_computes_a_real_signal(

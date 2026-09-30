@@ -9,7 +9,8 @@ inline in app/data/cache.py.
 """
 
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 
 from fastapi import Depends
 from sqlalchemy.orm import Session
@@ -22,7 +23,7 @@ from app.data.fixture_provider import FixtureDataProvider
 from app.data.ibkr_provider import IBKRProvider
 from app.data.stooq_provider import StooqProvider
 from app.data.yfinance_provider import YFinanceProvider
-from app.db.session import get_db
+from app.db.session import SessionLocal, get_db
 
 
 def get_data_provider(db: Session = Depends(get_db)) -> DataProvider:
@@ -40,10 +41,78 @@ def get_data_provider(db: Session = Depends(get_db)) -> DataProvider:
     entirely — fixture data is already free/instant to "fetch" and never
     changes, so there's nothing for the cache to usefully do, and skipping it
     keeps the e2e suite's dedicated database free of cache-table rows.
+
+    This single-shared-instance shape is safe for every caller that fully waits on every
+    concurrent fetch it starts before returning (e.g. `app.portfolio.pricing
+    .enrich_positions_with_price`, `app.api.day_trader_signal._fan_out_per_ticker`'s
+    `with ThreadPoolExecutor(...) as executor:` pattern) — the request's `db` (and the
+    `CachedDataProvider` wrapping it) is never touched again after the handler returns and
+    `get_db`'s `finally: db.close()` runs, because nothing is still running at that point. It
+    is **not** safe for a caller that can return (and let `db` close) while a concurrently
+    submitted fetch is still in flight — see `get_data_provider_factory` below for that case.
     """
     if get_settings().data_provider_mode == "fixture":
         return FixtureDataProvider()
     return CachedDataProvider(YFinanceProvider(), StooqProvider(), db)
+
+
+def get_data_provider_factory() -> Callable[[], AbstractContextManager[DataProvider]]:
+    """A `DataProvider`-scope factory for a caller that may abandon an in-flight fetch --
+    i.e. return control to FastAPI (letting the request's own `db` session close, per
+    `get_db`) while a concurrently submitted fetch against a *different* `DataProvider` call
+    is still running in its own thread. Used by `GET /api/stocks/{ticker}/analysis`
+    (`app.api.routers.stocks.get_analysis`, see its own docstring and this task's `decisions`
+    entry) for its fail-fast concurrent daily/weekly/extended-data fetch.
+
+    Returns a callable that, each time it's called, produces a context manager yielding a
+    fresh `DataProvider` and closing whatever it opened on `__exit__` -- entirely independent
+    of the request's own `Depends(get_db)` session and of every other `DataProvider` this same
+    factory has produced. Concretely (non-fixture mode): each call opens its own
+    `SessionLocal()` and wraps it in a fresh `CachedDataProvider`, closing that session itself
+    once the caller's own `with` block exits -- regardless of what thread that happens on, or
+    whether the request handler that triggered the call has already returned.
+
+    This is the actual fix for the DB-session race PR #360's second review round reproduced
+    (`sqlalchemy.exc.IllegalStateChangeError`, real `FastAPI` + `TestClient` + real
+    `get_db`/`SessionLocal`, ~30-40% of runs): the earlier `executor.shutdown(wait=False,
+    cancel_futures=True)` fix let an abandoned weekly/extended leg keep running in the
+    background after the response was returned, and that leg wrote through `CachedDataProvider`
+    sharing the exact same `Session` `get_db`'s `finally: db.close()` was about to close on the
+    request-handling thread -- a live `Session` touched from two threads at once with no
+    coordination between `CachedDataProvider._lock` (per-instance, unaware of `get_db`'s
+    teardown) and `get_db` itself (unaware of that lock). Since each `DataProvider` this
+    factory produces owns a session nothing else will ever close, there is no longer any
+    shared session for an abandoned leg to race -- it simply finishes (or fails) entirely on
+    its own, on its own connection, whenever it happens to finish, with nothing else depending
+    on that timing. See `app.data.cache.CachedDataProvider`'s own docstring for why this
+    per-call-session shape isn't used for `get_data_provider` itself instead: several existing
+    callers (`enrich_positions_with_price`, `tests/integration/test_portfolio_pricing_session
+    .py`) deliberately rely on the *shared*-session shape there (mid-loop cache commits
+    reusing already-loaded ORM rows off the same session without re-`SELECT`ing them,
+    `expire_on_commit=False`) -- switching that shared dependency to a per-call session would
+    silently defeat that, for callers that don't actually have this factory's problem (they
+    already fully wait on their own concurrent fetches before returning).
+    """
+    if get_settings().data_provider_mode == "fixture":
+        fixture_provider = FixtureDataProvider()
+
+        @contextmanager
+        def _fixture_scope() -> Iterator[DataProvider]:
+            # No DB session at all in fixture mode (see `get_data_provider`'s own docstring) --
+            # nothing for an abandoned leg to race, so the same stateless instance is reused.
+            yield fixture_provider
+
+        return _fixture_scope
+
+    @contextmanager
+    def _live_scope() -> Iterator[DataProvider]:
+        db = SessionLocal()
+        try:
+            yield CachedDataProvider(YFinanceProvider(), StooqProvider(), db)
+        finally:
+            db.close()
+
+    return _live_scope
 
 
 _ibkr_provider_singleton: IBKRProvider | None = None

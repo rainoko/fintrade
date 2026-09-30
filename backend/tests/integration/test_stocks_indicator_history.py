@@ -18,6 +18,8 @@ the two concerns from interfering.
 """
 
 import threading
+from collections.abc import Callable
+from contextlib import AbstractContextManager, contextmanager
 from datetime import UTC, datetime, timedelta
 
 import pandas as pd
@@ -27,8 +29,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.api.dependencies import get_data_provider, get_ibkr_provider
-from app.data.base import ExtendedData
+from app.api.dependencies import get_data_provider, get_data_provider_factory, get_ibkr_provider
+from app.data.base import DataProvider, ExtendedData
 from app.data.exceptions import (
     DataProviderUnavailableError,
     InsufficientHistoryError,
@@ -128,11 +130,36 @@ def _get_indicator_history(provider: _StubProvider, ticker: str = "AAPL", **para
 
 
 def _get_analysis(provider: _StubProvider, ticker: str = "AAPL"):
+    """Unlike `_get_indicator_history` above, `GET /api/stocks/{ticker}/analysis` depends on
+    `get_data_provider_factory` (a per-concurrent-leg scope factory), not the single-shared-
+    instance `get_data_provider` -- see `app.api.dependencies.get_data_provider_factory`'s own
+    docstring and docs/tasks/backend-data-provider-timeouts.json's `decisions` entry. Both
+    overrides are set here since this helper is only ever used for this file's own
+    cross-endpoint (`/indicators` vs `/analysis`) consistency checks, not because `/analysis`
+    itself still reads `get_data_provider`."""
     test_client = _make_client(provider)
+    app.dependency_overrides[get_data_provider_factory] = lambda: _provider_factory_override(
+        provider
+    )
     try:
         return test_client.get(f"/api/stocks/{ticker}/analysis")
     finally:
         app.dependency_overrides.pop(get_data_provider, None)
+        app.dependency_overrides.pop(get_data_provider_factory, None)
+
+
+def _provider_factory_override(
+    provider: DataProvider,
+) -> Callable[[], AbstractContextManager[DataProvider]]:
+    """Mirrors tests/integration/test_stocks_analysis.py's own helper of the same name -- a
+    `get_data_provider_factory`-shaped override wrapping a plain stub that has no real
+    session/resource of its own to close."""
+
+    @contextmanager
+    def _scope():
+        yield provider
+
+    return _scope
 
 
 def _buy_daily_ohlcv() -> pd.DataFrame:
