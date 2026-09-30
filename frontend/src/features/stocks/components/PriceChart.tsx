@@ -282,13 +282,19 @@ const TIDE_REGION_FILL_ALPHA = '14' // ~8%
  * computations can't drift" pattern `selectDisplayedZones`/
  * `mostRecentFalseBreakoutZone` already establish, per this task's own
  * context note on the PR #152 round-2 data-source-mismatch bug.
+ *
+ * A thin, type-narrowed wrapper around `fibonacciLevels.ts`'s generic
+ * `selectVisibleBars` (same `[firstDate, lastDate]`-inclusive filter) rather
+ * than its own re-implementation of that filter -- see
+ * `frontend-fibonacci-auto-levels-followups`'s checklist for why this used
+ * to duplicate the logic instead of sharing it.
  */
 function selectVisibleIndicatorPoints(
   points: readonly IndicatorHistoryPoint[],
   firstDate: string,
   lastDate: string,
 ): IndicatorHistoryPoint[] {
-  return points.filter((point) => point.date >= firstDate && point.date <= lastDate)
+  return selectVisibleBars(points, firstDate, lastDate)
 }
 
 interface TideRegionSegment {

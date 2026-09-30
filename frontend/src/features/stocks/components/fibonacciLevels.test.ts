@@ -69,6 +69,52 @@ describe('findFibonacciSwing', () => {
     ]
     expect(findFibonacciSwing(tiedBars)?.direction).toBe('up')
   })
+
+  it('keeps the MOST RECENT bar (not the first) when the swing high recurs across distinct bars, and the tie-break flips `direction` relative to keeping the first one (frontend-fibonacci-auto-levels-followups)', () => {
+    // day3's high (100) ties day1's high (100). A strict `>` comparison
+    // would keep day1 as the swing-high bar (the bug this test guards
+    // against); the fix keeps day3 (the most recent). The swing low is
+    // day2. With day1 as the (buggy) high bar, lowBar.date (day2) <
+    // highBar.date (day1) is false, giving 'down'; with day3 as the
+    // (fixed) high bar, lowBar.date (day2) < highBar.date (day3) is true,
+    // giving 'up' -- so this case demonstrates the tie-break actually
+    // flipping the computed direction, not just the recorded date.
+    const tiedHighBars: FibonacciBar[] = [
+      { date: '2026-08-01', high: 100, low: 95 },
+      { date: '2026-08-02', high: 90, low: 80 },
+      { date: '2026-08-03', high: 100, low: 92 },
+      { date: '2026-08-04', high: 85, low: 85 },
+    ]
+    expect(findFibonacciSwing(tiedHighBars)).toEqual({
+      highPrice: 100,
+      highDate: '2026-08-03',
+      lowPrice: 80,
+      lowDate: '2026-08-02',
+      direction: 'up',
+    })
+  })
+
+  it('keeps the MOST RECENT bar (not the first) when the swing low recurs across distinct bars (mirror image of the tied-high case)', () => {
+    // day3's low (80) ties day1's low (80). A strict `<` comparison would
+    // keep day1 as the swing-low bar; the fix keeps day3. The swing high is
+    // day2. With day1 as the (buggy) low bar, lowBar.date (day1) <
+    // highBar.date (day2) is true, giving 'up'; with day3 as the (fixed)
+    // low bar, lowBar.date (day3) < highBar.date (day2) is false, giving
+    // 'down' -- again a genuine direction flip, not just a date change.
+    const tiedLowBars: FibonacciBar[] = [
+      { date: '2026-08-01', high: 80, low: 80 },
+      { date: '2026-08-02', high: 110, low: 90 },
+      { date: '2026-08-03', high: 85, low: 80 },
+      { date: '2026-08-04', high: 75, low: 95 },
+    ]
+    expect(findFibonacciSwing(tiedLowBars)).toEqual({
+      highPrice: 110,
+      highDate: '2026-08-02',
+      lowPrice: 80,
+      lowDate: '2026-08-03',
+      direction: 'down',
+    })
+  })
 })
 
 describe('computeFibonacciLevels', () => {

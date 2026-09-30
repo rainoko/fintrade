@@ -8,6 +8,7 @@ import type {
   ProfitTargetOut,
   SupportResistanceZone,
 } from '../../../api/stocks'
+import type { FibonacciSwing } from './fibonacciLevels'
 import {
   accumulationDistributionHelp,
   adxHelp,
@@ -24,6 +25,7 @@ import {
   ema26Help,
   exDividendDateHelp,
   falseBreakoutHelp,
+  fibonacciHelp,
   fundamentalDataUnavailableHelp,
   getConfidenceComponentHelp,
   impulseHelp,
@@ -1510,6 +1512,62 @@ describe('metricHelpContent', () => {
       expect(augIndex).toBeGreaterThanOrEqual(0)
       expect(augIndex).toBeLessThan(junIndex)
       expect(junIndex).toBeLessThan(aprIndex)
+    })
+  })
+
+  describe('fibonacciHelp.interpretValue', () => {
+    const upSwing: FibonacciSwing = {
+      highPrice: 120,
+      highDate: '2026-08-04',
+      lowPrice: 90,
+      lowDate: '2026-08-03',
+      direction: 'up',
+    }
+    const downSwing: FibonacciSwing = {
+      highPrice: 120,
+      highDate: '2026-08-01',
+      lowPrice: 90,
+      lowDate: '2026-08-03',
+      direction: 'down',
+    }
+
+    it('reports "fewer than 2 bars" when there is no swing and fewer than 2 bars are visible', () => {
+      expect(fibonacciHelp.interpretValue(null, 1)).toBe(
+        'Currently unavailable -- fewer than 2 bars are visible in the current chart view.',
+      )
+      expect(fibonacciHelp.interpretValue(null, 0)).toBe(
+        'Currently unavailable -- fewer than 2 bars are visible in the current chart view.',
+      )
+    })
+
+    it('reports "flat range" when there is no swing but at least 2 bars are visible', () => {
+      expect(fibonacciHelp.interpretValue(null, 2)).toBe(
+        'Currently unavailable -- every bar in the current view shares the exact same high/low, so there’s no price spread to draw retracement levels across.',
+      )
+    })
+
+    it('describes an uptrend swing (low came before the high) with pullback/support framing and every computed level', () => {
+      const message = fibonacciHelp.interpretValue(upSwing, 5)
+      expect(message).toContain('swing low 90.00 (2026-08-03)')
+      expect(message).toContain('swing high 120.00 (2026-08-04)')
+      expect(message).toContain(
+        'an uptrend swing (the low on 2026-08-03 came before the high on 2026-08-04) -- levels below the high read as potential pullback/support levels',
+      )
+      expect(message).toContain('0% 120.00')
+      expect(message).toContain('23.6% 112.92')
+      expect(message).toContain('100% 90.00')
+    })
+
+    it('describes a downtrend swing (high came before the low) with bounce/resistance framing and every computed level', () => {
+      const message = fibonacciHelp.interpretValue(downSwing, 3)
+      expect(message).toContain('swing low 90.00 (2026-08-03)')
+      expect(message).toContain('swing high 120.00 (2026-08-01)')
+      expect(message).toContain(
+        'a downtrend swing (the high on 2026-08-01 came before the low on 2026-08-03) -- levels above the low read as potential bounce/resistance levels',
+      )
+      expect(message).toContain('0% 90.00')
+      expect(message).toContain('23.6% 97.08')
+      expect(message).toContain('100% 120.00')
     })
   })
 
