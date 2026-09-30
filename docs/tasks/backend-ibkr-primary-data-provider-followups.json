@@ -1,0 +1,26 @@
+{
+  "id": "backend-ibkr-primary-data-provider-followups",
+  "title": "Follow-ups from backend-ibkr-primary-data-provider's PR #368 review",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-ibkr-primary-data-provider"],
+  "references": [
+    "docs/tasks/backend-ibkr-primary-data-provider.json",
+    "https://github.com/rainoko/fintrade/pull/368",
+    ".claude/agents/task-worker.md"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's PR #368 review of backend-ibkr-primary-data-provider (accepted -- that PR only records a genuine live-gateway research blocker as a `questions` entry and moves the task to `waiting_input`, no application code touched). Both items below are process/efficiency observations, not correctness bugs, and didn't block that PR's acceptance.",
+  "checklist": [
+    {
+      "step": "PR #368 opened and pushed a branch/PR but never recorded a `git` block (branch/pr_number/pr_url/pushed_at) on backend-ibkr-primary-data-provider.json, unlike every other task-worker PR in this repo's history. `.claude/agents/task-worker.md` step 8 requires recording `git.*` when a PR is opened, but that instruction lives under the 'checklist complete, tests pass' completion path (step 8/9) -- step 6's separate 'hit a blocker, go to waiting_input' exit path doesn't explicitly say to record `git.*` even though it still results in an opened PR. Consider (a) backfilling the missing `git` block on backend-ibkr-primary-data-provider.json now that PR #368's number/URL/branch are known, and (b) clarifying task-worker.md step 6 to also require recording `git.*` whenever it does open a PR, for consistency with step 8.",
+      "done": false
+    },
+    {
+      "step": "Checklist items 2-4 on backend-ibkr-primary-data-provider.json (conid-caching decision, connection-check caching/degradation decision, and recording the DataProvider-protocol-reversal decision) are design judgment calls that don't actually depend on the live-gateway research blocker in item 1 -- they could have been decided and recorded in the same pass that raised the item-1 question, per CLAUDE.md's decision-memory convention (a worker decides and records what it can, rather than stalling everything on the one item that's genuinely blocked). Deferring all of them meant leaving decidable work on the table; when a human eventually answers the item-1 question and the task resumes, the next worker session will need to make these three decisions from scratch instead of picking them up already recorded. Not acted on for this review since it's a process/efficiency observation about how the blocker was raised, not a defect in what was recorded -- worth keeping in mind for whichever session resumes this task.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
