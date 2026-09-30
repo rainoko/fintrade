@@ -3,7 +3,7 @@
   "title": "Stock Detail price chart: auto-calculated Fibonacci retracement levels for the currently visible range, recalculated on zoom/pan",
   "area": "frontend/stocks",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "docs/Analyse.md",
@@ -13,29 +13,72 @@
   "checklist": [
     {
       "step": "Research standard Fibonacci retracement conventions (which ratio levels are standard, how 'automatic'/'auto-fib' tools in other charting platforms typically pick their anchor swing high/low from a visible range) and decide the exact algorithm this feature will use. Record the decision and rationale (including alternatives considered) as a `decisions` entry.",
-      "done": false
+      "done": true
     },
     {
       "step": "Determine the currently-visible bar range on `PriceChart.tsx`'s lightweight-charts instance (the library exposes a visible-time-range API on its time scale) and compute the swing high/low + Fibonacci levels from the bars within that range, using the algorithm decided above.",
-      "done": false
+      "done": true
     },
     {
       "step": "Render the computed levels as horizontal price lines/labels on the price chart, styled distinctly from the existing support/resistance zone bands (so a user can tell the two apart) but consistent with this component's existing overlay conventions (colors, legend entry if one is warranted -- check how the support/resistance zone legend is built for the pattern to follow).",
-      "done": false
+      "done": true
     },
     {
       "step": "Subscribe to the chart's visible-range-change event (zoom/pan) and recalculate + redraw the levels when it fires, debounced appropriately so a drag/zoom gesture doesn't recompute on every intermediate frame.",
-      "done": false
+      "done": true
     },
     {
       "step": "Handle degenerate cases gracefully: fewer than 2 visible bars, a flat range with no meaningful high/low spread, and the chart's own loading/error states (mirror how the existing support/resistance effect already guards `finiteBars.length < 2`).",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests (vitest/Testing Library, no live network calls): the Fibonacci-level calculation itself (hand-computed reference values, matching this codebase's `add-indicator`-style convention for verifying numeric calculations), the visible-range recalculation trigger, and the degenerate-case guards. Storybook coverage if any new piece lands in `components/common/` (unlikely here, given this is chart-library-specific rendering logic tightly coupled to `PriceChart.tsx`, but check per Frontend.md §3's placement rule).",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-30T07:29:32Z",
+      "recorded_by": "task-worker",
+      "decision": "Swing high/low selection algorithm: the absolute highest `high` and lowest `low` among whatever bars are currently visible on the chart's time scale -- not a more sophisticated local-extrema/pivot detector (e.g. reusing `backend-swing-point-detector`'s algorithm for a different purpose). Direction (which end gets the 0% label) is decided by which extreme is chronologically more recent: if the high is more recent, 0% is placed at the high and 100% at the low (an uptrend swing, levels below the high read as potential pullback/support levels); if the low is more recent, the mirror image (0% at the low, 100% at the high). A tie (both extremes on the same bar/date) defaults to the uptrend orientation.",
+      "rationale": "Researched TradingView's built-in 'Auto Fib Retracement' study -- the closest mainstream precedent for 'Fibonacci levels calculated automatically from the visible range, recalculated on pan/zoom', matching this task's own framing almost exactly -- which documents finding the visible range's own highest-high/lowest-low pair, not running a separate pivot/fractal detector first, and orienting the retracement so the MORE RECENT extreme gets the 0% label (the level price is expected to retrace back FROM). Rejected the local-extrema/pivot alternative: it would need its own tunable parameters (lookback window, minimum swing size) with no textual basis in this task's description or docs/Analyse.md for what those should be, whereas 'highest high / lowest low in view' has exactly one unambiguous answer for any given visible range and matches the task's own literal wording ('calculated automatically to current view'). Confirmed directly (not assumed) that docs/Analyse.md never mentions Fibonacci retracements at all -- Elder's Triple Screen methodology doesn't prescribe this, so it's a purely additive charting convention layered on top, same spirit as the existing support/resistance zone overlay."
+    },
+    {
+      "timestamp": "2026-09-30T07:29:32Z",
+      "recorded_by": "task-worker",
+      "decision": "Ratio set: the 7 standard retracement levels 0%, 23.6%, 38.2%, 50%, 61.8%, 78.6%, 100% -- exactly what the task description itself lists, and what TradingView/most mainstream charting platforms default to for a *retracement* (not extension) tool. Extension levels beyond 100% (127.2%, 161.8%, ...) are deliberately NOT included.",
+      "rationale": "The task's own title/description scope this feature to retracement levels specifically ('Fibonacci retracement levels'); adding extensions would be new, unrequested scope beyond what a retracement tool conventionally draws, and the task's own research-first checklist item didn't ask for them. 50% isn't itself a true Fibonacci ratio but is included because every mainstream charting tool includes it alongside the true ratios (23.6%/38.2%/61.8%/78.6%) -- omitting it would be the one surprising deviation from convention, not a simplification."
+    },
+    {
+      "timestamp": "2026-09-30T07:29:32Z",
+      "recorded_by": "task-worker",
+      "decision": "Rendering: each of the 7 levels is drawn via `series.createPriceLine(...)` (the same primitive `PriceChart.tsx`'s existing false-breakout-stop-price and Kangaroo-Tail-suggested-stop lines already use), styled with a new dotted `LineStyle.Dotted` and a new dedicated theme color (`theme.palette.fibonacci.main`, `#455a64`, a neutral blue-grey verified >=15 ΔE76 -- this codebase's own perceptual-distinctness floor, theme.test.ts -- from every other color already used on this chart), rather than a second `LineSeries`/`AreaSeries` via `chart.addSeries`.",
+      "rationale": "A Fibonacci level is a single flat price for the whole visible pane -- exactly what `createPriceLine` already draws natively, with no need for a 2-point data array spanning the visible range the way a `LineSeries`-based horizontal line would need (see `buildZoneRenderData`'s own `BaselineSeries`-vs-two-`AreaSeries` precedent in this same file for the same kind of 'pick the primitive that natively does what's needed' reasoning). A dedicated color (rather than reusing e.g. `warning.main`/`info.main`) keeps this overlay visually distinguishable from every existing directional/semantic color on the chart (BUY/SELL/HOLD, false breakout, divergence, Kangaroo Tail, channel/value-zone) -- appropriate since a Fibonacci retracement, unlike those, is a pure geometric drawing aid with no directional signal meaning of its own. `createPriceLine` was also the technique with the smallest blast radius on the large pre-existing `PriceChart.test.tsx` suite: it only touches `createPriceLineMock`/`removePriceLineMock`-based assertions (~9 sites, all updated), versus `chart.addSeries` which is asserted on with exact `toHaveBeenCalledTimes(N)` totals in ~19 places across that file that would all need re-counting."
+    },
+    {
+      "timestamp": "2026-09-30T07:29:32Z",
+      "recorded_by": "task-worker",
+      "decision": "Recalculation trigger + debounce: subscribe to `chart.timeScale().subscribeVisibleTimeRangeChange(...)`, with a 150ms debounce (a single `setTimeout`, cleared and reset on every event) before actually recomputing/redrawing. The very first computation, at mount/data-change time, runs immediately (not debounced), reading `chart.timeScale().getVisibleRange()` with a fallback to the full fetched bar range when it reports `null` (the state right after `fitContent()`, before any range-change event has ever fired).",
+      "rationale": "150ms is short enough that the redraw still feels immediate once a zoom/pan gesture settles, but comfortably longer than the interval between events during an active drag (the library fires this event continuously while dragging/scrolling). No existing precedent for a debounce constant elsewhere in this codebase to match, so this was picked directly rather than derived from one -- a reviewer who wants a different value should treat this as the one easiest-to-revisit number in this change."
+    },
+    {
+      "timestamp": "2026-09-30T07:29:32Z",
+      "recorded_by": "task-worker",
+      "decision": "Legend: added a 'Fibonacci Retracement' legend row + `common/MetricHelp` affordance (a new `fibonacciHelp` entry in `metricHelpContent.ts`), always shown once there are bars at all (gated on `historyQuery.isSuccess && hasBars` alone, not on any other query) -- the currently-computed swing (or `null` for a degenerate view) is lifted into `useState` purely so the legend's explanation text can describe the exact same swing actually drawn on screen right now, including after a zoom/pan recalculation.",
+      "rationale": "This overlay is interval-agnostic and reads only OHLC bars (same gating posture as the support/resistance zone legend, not the daily-only channel/value-zone legend), and 'is there currently a meaningful swing to show' always has an answer for any view with >=2 bars, so the row is always shown rather than conditioned on a specific qualifying event the way the divergence/Kangaroo-Tail rows are. State (rather than a plain effect-local closure variable) is only needed for the legend text, not the price-line drawing itself -- the price lines are drawn and cleaned up entirely within the effect's own closure."
+    },
+    {
+      "timestamp": "2026-09-30T07:29:32Z",
+      "recorded_by": "task-worker",
+      "decision": "Placement: the pure calculation module (`findFibonacciSwing`/`computeFibonacciLevels`/`selectVisibleBars`/`formatFibonacciRatioLabel`) lives at `frontend/src/features/stocks/components/fibonacciLevels.ts`, colocated with `PriceChart.tsx` (not `utils/`), matching `divergenceClick.ts`'s existing placement in this same directory.",
+      "rationale": "Frontend.md §3's utils/-vs-features placement test turns on whether the code references a feature's domain concepts. This module's `FibonacciBar` type is `Pick<HistoryResponse['bars'][number], ...>` -- a stock-domain OHLCV bar shape, not a domain-agnostic primitive -- so it fits the same 'feature-colocated helper' bucket as `divergenceClick.ts` (which similarly operates on `DivergenceOut`/chart click params) rather than `utils/chart.ts` (whose exports, e.g. `isFiniteNumber`/`timeToDateString`/`bringSeriesToFront`, are genuinely domain-agnostic -- no reference to what an OHLCV bar or a stock ticker is)."
+    },
+    {
+      "timestamp": "2026-09-30T07:29:32Z",
+      "recorded_by": "task-worker",
+      "decision": "This feature does not violate Frontend.md's 'the frontend does not recompute Elder's indicators in TypeScript' rule (§5), despite computing something client-side from raw OHLCV bars.",
+      "rationale": "That rule is scoped to *Elder's own indicators* (the ones docs/Analyse.md defines and the backend already computes for the Triple Screen system) -- its rationale is 'don't duplicate the backend's indicator math in a second language with no test-cross-checking'. A Fibonacci retracement is not one of Elder's indicators at all (confirmed directly against docs/Analyse.md, which never mentions Fibonacci) and the backend has no equivalent computation to duplicate or drift from -- it's a simple, standalone geometric calculation (max/min + linear interpolation) over data the frontend already has, the same category of purely-visual client-side aid this task's own description frames it as (analogous to the existing support/resistance zone overlay's client-side rendering logic, though that overlay's underlying zone *detection* is itself backend-computed, unlike this one)."
+    }
+  ],
   "questions": []
 }

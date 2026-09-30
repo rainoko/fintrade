@@ -1,5 +1,6 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { LineStyle } from 'lightweight-charts'
 import { http, HttpResponse } from 'msw'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
@@ -95,6 +96,40 @@ const createSeriesMarkersMock = vi.fn((_series: unknown, markers: unknown) => {
 // own top comment already gives for mocking the whole module).
 const subscribeClickMock = vi.fn()
 const unsubscribeClickMock = vi.fn()
+// Fibonacci auto-retracement levels (frontend-fibonacci-auto-levels):
+// `getVisibleRange`/`subscribeVisibleTimeRangeChange`/
+// `unsubscribeVisibleTimeRangeChange` mocks on the shared `timeScale()`
+// object every chart instance returns (see `createChartMock` below) --
+// `mockVisibleRange` is the value `getVisibleRange()` currently reports
+// (`null` by default, the same "no range event has fired yet" state the
+// real library starts in), and `triggerVisibleTimeRangeChange` simulates the
+// chart firing that event (a user zoom/pan gesture) by invoking every
+// currently-subscribed handler, mirroring `subscribeClickMock`'s own
+// "capture the handler, invoke it directly" pattern above (jsdom has no real
+// canvas/scroll-wheel for an actual zoom/pan gesture to trigger this
+// through).
+let mockVisibleRange: { from: string; to: string } | null = null
+const getVisibleRangeMock = vi.fn(() => mockVisibleRange)
+const subscribeVisibleTimeRangeChangeMock = vi.fn()
+const unsubscribeVisibleTimeRangeChangeMock = vi.fn()
+const visibleRangeChangeHandlers = new Set<(range: unknown) => void>()
+
+function setMockVisibleRange(range: { from: string; to: string } | null) {
+  mockVisibleRange = range
+}
+
+function triggerVisibleTimeRangeChange() {
+  visibleRangeChangeHandlers.forEach((handler) => handler(mockVisibleRange))
+}
+
+// One `createPriceLine` call per `FIBONACCI_RATIOS` entry
+// (fibonacciLevels.ts) -- the Fibonacci overlay effect runs unconditionally
+// whenever `historyQuery.data` has >=2 non-flat bars (unlike the false-
+// breakout/Kangaroo-Tail stop lines, it doesn't depend on `analysisQuery` at
+// all), so every fixture below with >=2 bars of real price spread (which is
+// all of them) contributes exactly this many `createPriceLineMock` calls in
+// addition to whatever the test's own zone/tail assertions expect.
+const FIBONACCI_PRICE_LINE_COUNT = 7
 // Tide background shading (frontend-tide-region-chart-shading) configures
 // its own dedicated, invisible price scale via
 // `series.priceScale().applyOptions(...)` (called on one of the three
@@ -153,7 +188,18 @@ const createChartMock = vi.fn(() => {
       }
     },
     panes: () => [{ getSeries: () => [...paneSeries] }],
-    timeScale: () => ({ fitContent: fitContentMock }),
+    timeScale: () => ({
+      fitContent: fitContentMock,
+      getVisibleRange: getVisibleRangeMock,
+      subscribeVisibleTimeRangeChange: (handler: (range: unknown) => void) => {
+        visibleRangeChangeHandlers.add(handler)
+        subscribeVisibleTimeRangeChangeMock(handler)
+      },
+      unsubscribeVisibleTimeRangeChange: (handler: (range: unknown) => void) => {
+        visibleRangeChangeHandlers.delete(handler)
+        unsubscribeVisibleTimeRangeChangeMock(handler)
+      },
+    }),
     subscribeClick: (handler: unknown) => subscribeClickMock(handler),
     unsubscribeClick: (handler: unknown) => unsubscribeClickMock(handler),
     remove: () => {
@@ -386,6 +432,38 @@ const twoBars: HistoryResponse = {
   ],
 }
 
+// Fibonacci auto-retracement levels (frontend-fibonacci-auto-levels): 3 bars
+// so a simulated zoom (`setMockVisibleRange`) can narrow the visible window
+// to just the last 2 (2026-09-02/03), whose own highest-high/lowest-low pair
+// (231.7 @ 09-03, 227.5 @ 09-02) differs from the full 3-bar range's own --
+// exercising a genuine recalculation, not just a re-render with the same
+// swing. 2026-09-01's own high/low (228.0/225.0) sit outside that pair
+// either way, so it's excluded from the zoomed-in swing regardless of
+// whether the windowing itself works -- what actually proves the
+// recalculation ran is the *changed* 0%/100% price line values asserted in
+// the test itself.
+const threeBarsForFibonacciZoom: HistoryResponse = {
+  ticker: 'AAPL',
+  interval: 'daily',
+  bars: [
+    { date: '2026-09-01', open: 226.0, high: 228.0, low: 225.0, close: 227.0, volume: 40000000 },
+    { date: '2026-09-02', open: 228.9, high: 230.1, low: 227.5, close: 229.7, volume: 48012000 },
+    { date: '2026-09-03', open: 229.7, high: 231.7, low: 229.0, close: 230.5, volume: 45000000 },
+  ],
+}
+
+// A perfectly flat range -- every bar shares the exact same high/low -- for
+// `findFibonacciSwing`'s own degenerate-case guard (fibonacciLevels.ts):
+// there's no price spread at all to draw retracement levels across.
+const flatBarsForFibonacci: HistoryResponse = {
+  ticker: 'AAPL',
+  interval: 'daily',
+  bars: [
+    { date: '2026-09-01', open: 100, high: 100, low: 100, close: 100, volume: 1000000 },
+    { date: '2026-09-02', open: 100, high: 100, low: 100, close: 100, volume: 1000000 },
+  ],
+}
+
 // Post-review fix (PR #158, blocking finding): the divergence overlay is
 // now windowed to the currently visible bar range (see
 // `divergenceClick.ts#isDivergenceInRange`), so a test exercising the
@@ -472,6 +550,11 @@ describe('PriceChart', () => {
     removePriceLineMock.mockClear()
     subscribeClickMock.mockClear()
     unsubscribeClickMock.mockClear()
+    mockVisibleRange = null
+    getVisibleRangeMock.mockClear()
+    subscribeVisibleTimeRangeChangeMock.mockClear()
+    unsubscribeVisibleTimeRangeChangeMock.mockClear()
+    visibleRangeChangeHandlers.clear()
     mockIndicators(indicatorPoints)
   })
 
@@ -1635,7 +1718,11 @@ describe('PriceChart', () => {
         text: 'False breakout',
       })
 
-      await waitFor(() => expect(createPriceLineMock).toHaveBeenCalledTimes(1))
+      // +1 for the false-breakout stop line, alongside the Fibonacci
+      // overlay's own unconditional 7 (see `FIBONACCI_PRICE_LINE_COUNT`).
+      await waitFor(() =>
+        expect(createPriceLineMock).toHaveBeenCalledTimes(FIBONACCI_PRICE_LINE_COUNT + 1),
+      )
       expect(createPriceLineMock).toHaveBeenCalledWith(
         expect.objectContaining({ price: 238.5, title: 'False-breakout stop' }),
       )
@@ -1666,7 +1753,9 @@ describe('PriceChart', () => {
       // second createSeriesMarkers call for a false breakout whose
       // reentry_date (2025-01-15) predates every visible bar.
       expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1)
-      expect(createPriceLineMock).not.toHaveBeenCalled()
+      // No false-breakout stop line -- but the Fibonacci overlay's own 7
+      // levels still draw unconditionally (see `FIBONACCI_PRICE_LINE_COUNT`).
+      expect(createPriceLineMock).toHaveBeenCalledTimes(FIBONACCI_PRICE_LINE_COUNT)
     })
 
     it("still shows the False Breakout legend (noting it is not in the current range) and caveats the MetricHelp text when the most recent breakout's reentry_date falls outside the currently visible bar range (followup fix, checklist item 1)", async () => {
@@ -2077,7 +2166,11 @@ describe('PriceChart', () => {
 
       renderWithProviders(<PriceChart ticker="AAPL" />, { queryClient })
 
-      await waitFor(() => expect(createPriceLineMock).toHaveBeenCalledTimes(1))
+      // +1 for the false-breakout stop line, alongside the Fibonacci
+      // overlay's own unconditional 7 (see `FIBONACCI_PRICE_LINE_COUNT`).
+      await waitFor(() =>
+        expect(createPriceLineMock).toHaveBeenCalledTimes(FIBONACCI_PRICE_LINE_COUNT + 1),
+      )
       expect(createChartMock).toHaveBeenCalledTimes(1)
 
       mockAnalysis([buildZone({ upper: 210.0, lower: 205.0 })])
@@ -2100,9 +2193,15 @@ describe('PriceChart', () => {
       // the new ones were added (the new zone has no false breakout, so no
       // second `createPriceLine` call follows).
       expect(removeSeriesMock).toHaveBeenCalledTimes(1)
+      // Only the false-breakout price line was removed -- the Fibonacci
+      // overlay's own effect never re-runs here (it depends on
+      // `historyQuery.data`/`theme` only, neither of which changed).
       expect(removePriceLineMock).toHaveBeenCalledTimes(1)
       expect(detachMarkersMock).toHaveBeenCalledTimes(1)
-      expect(createPriceLineMock).toHaveBeenCalledTimes(1)
+      // Still the original 7 Fibonacci levels + 1 false-breakout stop line --
+      // no second `createPriceLine` call, since the new zone has no false
+      // breakout of its own.
+      expect(createPriceLineMock).toHaveBeenCalledTimes(FIBONACCI_PRICE_LINE_COUNT + 1)
     })
   })
 
@@ -2550,7 +2649,11 @@ describe('PriceChart', () => {
         },
       ])
 
-      await waitFor(() => expect(createPriceLineMock).toHaveBeenCalledTimes(1))
+      // +1 for the Kangaroo Tail stop line, alongside the Fibonacci
+      // overlay's own unconditional 7 (see `FIBONACCI_PRICE_LINE_COUNT`).
+      await waitFor(() =>
+        expect(createPriceLineMock).toHaveBeenCalledTimes(FIBONACCI_PRICE_LINE_COUNT + 1),
+      )
       expect(createPriceLineMock).toHaveBeenCalledWith(
         expect.objectContaining({ price: 226.83, title: 'Kangaroo Tail stop' }),
       )
@@ -2605,7 +2708,11 @@ describe('PriceChart', () => {
           (markers as { shape: string }[]).some((marker) => marker.shape === 'square'),
       )
       expect(kangarooTailMarkersCall).toBeUndefined()
-      expect(createPriceLineMock).not.toHaveBeenCalled()
+      // No Kangaroo Tail stop line -- but the Fibonacci overlay's own 7
+      // levels still draw unconditionally (see `FIBONACCI_PRICE_LINE_COUNT`).
+      await waitFor(() =>
+        expect(createPriceLineMock).toHaveBeenCalledTimes(FIBONACCI_PRICE_LINE_COUNT),
+      )
     })
 
     it("shows the Kangaroo Tail legend with MetricHelp content using this tail's own actual numbers (range vs. average, open/close vs. the extreme, suggested stop)", async () => {
@@ -2640,7 +2747,11 @@ describe('PriceChart', () => {
 
       renderWithProviders(<PriceChart ticker="AAPL" />, { queryClient })
 
-      await waitFor(() => expect(createPriceLineMock).toHaveBeenCalledTimes(1))
+      // +1 for the Kangaroo Tail stop line, alongside the Fibonacci
+      // overlay's own unconditional 7 (see `FIBONACCI_PRICE_LINE_COUNT`).
+      await waitFor(() =>
+        expect(createPriceLineMock).toHaveBeenCalledTimes(FIBONACCI_PRICE_LINE_COUNT + 1),
+      )
       expect(createPriceLineMock).toHaveBeenCalledWith(
         expect.objectContaining({ price: 226.83, title: 'Kangaroo Tail stop' }),
       )
@@ -2684,7 +2795,11 @@ describe('PriceChart', () => {
           (markers as { shape: string }[]).some((marker) => marker.shape === 'square'),
       )
       expect(kangarooTailMarkersCall).toBeUndefined()
-      expect(createPriceLineMock).not.toHaveBeenCalled()
+      // No Kangaroo Tail stop line -- but the Fibonacci overlay's own 7
+      // levels still draw unconditionally (see `FIBONACCI_PRICE_LINE_COUNT`).
+      await waitFor(() =>
+        expect(createPriceLineMock).toHaveBeenCalledTimes(FIBONACCI_PRICE_LINE_COUNT),
+      )
     })
 
     it('still shows the Kangaroo Tail legend (noting it is not in the current range) when the tail date falls outside the currently visible bar range', async () => {
@@ -2703,6 +2818,217 @@ describe('PriceChart', () => {
         screen.getByText(/Bearish \(upward-pointing\) Kangaroo Tail/),
       ).toBeInTheDocument()
       expect(screen.getByText(/isn't marked on the chart right now/)).toBeInTheDocument()
+    })
+  })
+
+  describe('Fibonacci auto-retracement levels (frontend-fibonacci-auto-levels)', () => {
+    // Hand-computed against `twoBars` (2026-09-01: high 229.4/low 226.8;
+    // 2026-09-02: high 230.1/low 227.5): highest high 230.1 (2026-09-02, the
+    // more recent bar), lowest low 226.8 (2026-09-01) -- an uptrend swing
+    // (see fibonacciLevels.test.ts for the underlying calculation's own
+    // reference-value tests), so 0% = 230.1, 100% = 226.8, range = 3.3.
+    const expectedTwoBarsLevels = [
+      { ratio: '0%', price: 230.1 },
+      { ratio: '23.6%', price: 229.32 },
+      { ratio: '38.2%', price: 228.84 },
+      { ratio: '50%', price: 228.45 },
+      { ratio: '61.8%', price: 228.06 },
+      { ratio: '78.6%', price: 227.51 },
+      { ratio: '100%', price: 226.8 },
+    ]
+
+    it('draws 7 dotted price lines at the standard retracement levels, computed from the full visible range on initial render', async () => {
+      mockHistory(twoBars)
+      mockAnalysis([])
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(createPriceLineMock).toHaveBeenCalledTimes(FIBONACCI_PRICE_LINE_COUNT),
+      )
+      expectedTwoBarsLevels.forEach(({ ratio, price }) => {
+        expect(createPriceLineMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            price,
+            title: `Fib ${ratio}`,
+            lineStyle: LineStyle.Dotted,
+            axisLabelVisible: true,
+          }),
+        )
+      })
+    })
+
+    it('shows the Fibonacci Retracement legend describing the current swing and every level', async () => {
+      const user = userEvent.setup()
+      mockHistory(twoBars)
+      mockAnalysis([])
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(screen.getByText('Fibonacci Retracement')).toBeInTheDocument(),
+      )
+      await user.click(screen.getByRole('button', { name: 'Fibonacci Retracement help' }))
+
+      expect(
+        screen.getByText(/swing low 226\.80 \(2026-09-01\) to the swing high 230\.10 \(2026-09-02\)/),
+      ).toBeInTheDocument()
+      expect(screen.getByText(/an uptrend swing/)).toBeInTheDocument()
+      expect(screen.getByText(/61.8% 228.06/)).toBeInTheDocument()
+    })
+
+    it('recalculates the levels (debounced) from the narrower bar range after a simulated zoom/pan', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      try {
+        mockHistory(threeBarsForFibonacciZoom)
+        mockAnalysis([])
+
+        renderWithProviders(<PriceChart ticker="AAPL" />)
+
+        await vi.waitFor(() =>
+          expect(createPriceLineMock).toHaveBeenCalledTimes(FIBONACCI_PRICE_LINE_COUNT),
+        )
+        createPriceLineMock.mockClear()
+        removePriceLineMock.mockClear()
+
+        // Zoom into just the last 2 bars (2026-09-02/2026-09-03): highest
+        // high 231.7 (2026-09-03), lowest low 227.5 (2026-09-02) -- a
+        // different swing than the full 3-bar range above.
+        setMockVisibleRange({ from: '2026-09-02', to: '2026-09-03' })
+        triggerVisibleTimeRangeChange()
+
+        // Not yet -- still debounced.
+        expect(createPriceLineMock).not.toHaveBeenCalled()
+
+        await vi.advanceTimersByTimeAsync(200)
+
+        expect(removePriceLineMock).toHaveBeenCalledTimes(FIBONACCI_PRICE_LINE_COUNT)
+        expect(createPriceLineMock).toHaveBeenCalledTimes(FIBONACCI_PRICE_LINE_COUNT)
+        expect(createPriceLineMock).toHaveBeenCalledWith(
+          expect.objectContaining({ price: 231.7, title: 'Fib 0%' }),
+        )
+        expect(createPriceLineMock).toHaveBeenCalledWith(
+          expect.objectContaining({ price: 227.5, title: 'Fib 100%' }),
+        )
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('coalesces several rapid visible-range-change events into a single recalculation', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      try {
+        mockHistory(threeBarsForFibonacciZoom)
+        mockAnalysis([])
+
+        renderWithProviders(<PriceChart ticker="AAPL" />)
+
+        await vi.waitFor(() =>
+          expect(createPriceLineMock).toHaveBeenCalledTimes(FIBONACCI_PRICE_LINE_COUNT),
+        )
+        createPriceLineMock.mockClear()
+        removePriceLineMock.mockClear()
+
+        // Three events in quick succession (simulating an in-progress drag),
+        // each well within the debounce window of the last.
+        setMockVisibleRange({ from: '2026-09-01', to: '2026-09-02' })
+        triggerVisibleTimeRangeChange()
+        await vi.advanceTimersByTimeAsync(50)
+        setMockVisibleRange({ from: '2026-09-02', to: '2026-09-03' })
+        triggerVisibleTimeRangeChange()
+        await vi.advanceTimersByTimeAsync(50)
+        setMockVisibleRange({ from: '2026-09-01', to: '2026-09-03' })
+        triggerVisibleTimeRangeChange()
+
+        await vi.advanceTimersByTimeAsync(200)
+
+        // Exactly one recalculation, using the LAST range only.
+        expect(removePriceLineMock).toHaveBeenCalledTimes(FIBONACCI_PRICE_LINE_COUNT)
+        expect(createPriceLineMock).toHaveBeenCalledTimes(FIBONACCI_PRICE_LINE_COUNT)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('clears the price lines and shows the "fewer than 2 bars visible" legend caveat when the visible range narrows to a single bar', async () => {
+      // `delay: null` disables user-event's own internal real-timer waits,
+      // so this click plays safely alongside `vi.useFakeTimers()` below.
+      const user = userEvent.setup({ delay: null })
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      try {
+        mockHistory(threeBarsForFibonacciZoom)
+        mockAnalysis([])
+
+        renderWithProviders(<PriceChart ticker="AAPL" />)
+
+        await vi.waitFor(() =>
+          expect(createPriceLineMock).toHaveBeenCalledTimes(FIBONACCI_PRICE_LINE_COUNT),
+        )
+        createPriceLineMock.mockClear()
+        removePriceLineMock.mockClear()
+
+        setMockVisibleRange({ from: '2026-09-02', to: '2026-09-02' })
+        triggerVisibleTimeRangeChange()
+        await vi.advanceTimersByTimeAsync(200)
+
+        expect(removePriceLineMock).toHaveBeenCalledTimes(FIBONACCI_PRICE_LINE_COUNT)
+        expect(createPriceLineMock).not.toHaveBeenCalled()
+
+        await user.click(screen.getByRole('button', { name: 'Fibonacci Retracement help' }))
+        expect(
+          screen.getByText(/fewer than 2 bars are visible in the current chart view/),
+        ).toBeInTheDocument()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('draws nothing and caveats the legend for a flat range (every visible bar shares the same high/low)', async () => {
+      const user = userEvent.setup()
+      mockHistory(flatBarsForFibonacci)
+      mockAnalysis([])
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument(),
+      )
+      // No Fibonacci price lines at all for a perfectly flat range.
+      expect(createPriceLineMock).not.toHaveBeenCalled()
+
+      await user.click(
+        await screen.findByRole('button', { name: 'Fibonacci Retracement help' }),
+      )
+      expect(
+        screen.getByText(/every bar in the current view shares the exact same high\/low/),
+      ).toBeInTheDocument()
+    })
+
+    it('unsubscribes from the visible-range-change event on unmount', async () => {
+      mockHistory(twoBars)
+      mockAnalysis([])
+
+      const { unmount } = renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(createPriceLineMock).toHaveBeenCalledTimes(FIBONACCI_PRICE_LINE_COUNT),
+      )
+      expect(subscribeVisibleTimeRangeChangeMock).toHaveBeenCalledTimes(1)
+
+      unmount()
+
+      // The debounce timer/event subscription are always cleaned up...
+      expect(unsubscribeVisibleTimeRangeChangeMock).toHaveBeenCalledTimes(1)
+      // ...but `removePriceLine` itself is NOT called here: on a full
+      // unmount, the candlestick effect's own cleanup (declared first, so it
+      // runs first -- see that effect's own comment on cleanup ordering)
+      // already calls `chart.remove()` and nulls `chartRef`/`seriesRef`
+      // before this effect's cleanup runs, so its
+      // `chartRef.current !== chart` guard correctly skips a redundant
+      // `removePriceLine` call on an already-disposed chart -- the same
+      // guard, and the same behavior, every other price-line-drawing effect
+      // on this chart (false breakout, Kangaroo Tail) already has.
+      expect(removePriceLineMock).not.toHaveBeenCalled()
     })
   })
 })

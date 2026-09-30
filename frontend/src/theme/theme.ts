@@ -32,6 +32,9 @@ declare module '@mui/material/styles' {
     kangarooTail: {
       main: string
     }
+    fibonacci: {
+      main: string
+    }
   }
 
   interface PaletteOptions {
@@ -54,6 +57,9 @@ declare module '@mui/material/styles' {
       winter: string
     }
     kangarooTail?: {
+      main: string
+    }
+    fibonacci?: {
       main: string
     }
   }
@@ -195,6 +201,27 @@ export const theme = createTheme({
     // found while verifying this.
     kangarooTail: {
       main: '#ad1457',
+    },
+    // Fibonacci auto-retracement levels (PriceChart.tsx,
+    // frontend-fibonacci-auto-levels) -- a neutral blue-grey ("slate")
+    // deliberately picked to read as a plain geometric reference grid, not
+    // another trading signal: every other color already on this chart
+    // carries some directional/semantic meaning (buy/sell/hold, a false
+    // breakout, a divergence, a Kangaroo Tail, the channel/value-zone), but
+    // a Fibonacci retracement is purely a visual drawing aid layered over
+    // price (this task's own description: "additive, purely visual charting
+    // aid", not part of Elder's Triple Screen methodology at all -- see
+    // docs/Analyse.md, which never mentions Fibonacci). Verified >=15 ΔE76
+    // (theme.test.ts's own perceptual-distinctness floor) from every color
+    // already used on `PriceChart.tsx` -- `primary`/`secondary` (EMA13/
+    // EMA26), `signal.buy`/`sell`/`hold`, `divergence.main`,
+    // `kangarooTail.main`, `warning.main` (false breakouts), `info.main`
+    // (channel/value-zone) -- closest neighbor is `season.winter` at ~30.6
+    // ΔE76, double the floor, so there's no near-collision risk even though
+    // this color was picked for its neutral read rather than run through
+    // the palette-wide sweep the way a new signal color would be.
+    fibonacci: {
+      main: '#455a64',
     },
   },
   typography: {

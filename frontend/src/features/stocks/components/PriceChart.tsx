@@ -40,6 +40,7 @@ import {
   bringSeriesToFront,
   createBaseChart,
   isFiniteNumber,
+  timeToDateString,
 } from '../../../utils/chart'
 import {
   clickedDivergenceExtreme,
@@ -47,9 +48,17 @@ import {
   isDivergenceInRange,
 } from './divergenceClick'
 import {
+  computeFibonacciLevels,
+  findFibonacciSwing,
+  formatFibonacciRatioLabel,
+  selectVisibleBars,
+  type FibonacciSwing,
+} from './fibonacciLevels'
+import {
   channelHelp,
   divergenceHelp,
   falseBreakoutHelp,
+  fibonacciHelp,
   kangarooTailHelp,
   mostRecentFalseBreakoutZone,
   supportResistanceZoneHelp,
@@ -101,6 +110,17 @@ const RANGE_OPTIONS: ReadonlyArray<{ label: string; value: string }> = [
 export const DEFAULT_RANGE = '1y'
 export const DEFAULT_INTERVAL: HistoryInterval = 'daily'
 const CHART_HEIGHT = 320
+
+// Fibonacci auto-retracement levels (frontend-fibonacci-auto-levels): how
+// long to wait, after the LAST `subscribeVisibleTimeRangeChange` event, before
+// actually recomputing and redrawing the levels — the chart's own time-scale
+// fires this event continuously while the user drags/scrolls (potentially
+// many times per second), and recomputing/redrawing 7 price lines on every
+// single intermediate frame would both waste work and visually flicker.
+// 150ms is short enough that the redraw still feels immediate once a
+// zoom/pan gesture settles, but comfortably longer than the interval between
+// events during an active drag.
+const FIBONACCI_RECALC_DEBOUNCE_MS = 150
 
 /**
  * `GET /api/stocks/{ticker}/history` legitimately returns `null` for
@@ -866,6 +886,22 @@ function buildKangarooTailMarker(tail: KangarooTailOut, color: string): SeriesMa
  * explains the shading and reports what fraction of the currently visible
  * bars were each trend, computed from the exact same windowed points the
  * shading itself draws from (`selectVisibleIndicatorPoints`).
+ *
+ * Also draws 7 dotted Fibonacci retracement price lines
+ * (frontend-fibonacci-auto-levels) at the standard 0%/23.6%/38.2%/50%/
+ * 61.8%/78.6%/100% ratios between the swing high/low among whichever bars
+ * are CURRENTLY VISIBLE on the chart's own time scale — unlike every other
+ * overlay above, this is computed purely client-side from `/history`'s own
+ * OHLCV bars, with no `/indicators`/`/analysis` dependency at all (Elder's
+ * Triple Screen methodology doesn't include Fibonacci retracements — see
+ * this task's `decisions` entry) — and is the only overlay that actually
+ * recalculates itself as the user zooms/pans, via
+ * `chart.timeScale().subscribeVisibleTimeRangeChange`, debounced. See
+ * `fibonacciLevels.ts` for the swing-selection algorithm/level math and this
+ * task's `decisions` entry for the research it's grounded in;
+ * `fibonacciHelp`'s `MetricHelp` legend affordance explains the current
+ * swing/levels using this same "reads the exact same value that's actually
+ * drawn" pattern as every other legend row on this chart.
  */
 export default function PriceChart({
   ticker,
@@ -901,6 +937,21 @@ export default function PriceChart({
     top: number
     left: number
   } | null>(null)
+  // Fibonacci auto-retracement levels (frontend-fibonacci-auto-levels): the
+  // swing high/low the levels currently drawn on the chart were computed
+  // from (or `null` for a degenerate view -- fewer than 2 visible bars, or a
+  // perfectly flat range), kept in state (rather than a plain effect-local
+  // variable, unlike the price lines themselves) purely so the legend below
+  // can describe the SAME swing that's actually on screen right now,
+  // including after a zoom/pan recalculation -- the price-line drawing
+  // itself doesn't need this to be React state, only the legend text does.
+  const [fibonacciSwing, setFibonacciSwing] = useState<FibonacciSwing | null>(null)
+  // Bar count behind that same swing computation (or the attempted one, when
+  // `fibonacciSwing` is `null`) -- `fibonacciHelp.interpretValue` needs this
+  // to tell apart its two different "unavailable" cases (too few visible
+  // bars vs. a flat range) without recomputing the swing itself a second time
+  // in the render body.
+  const [fibonacciVisibleBarsCount, setFibonacciVisibleBarsCount] = useState(0)
 
   const historyQuery = useStockHistory(ticker, { range, interval })
   // Exclude any bar with a null/non-finite OHLC value (a still-forming
@@ -1666,6 +1717,124 @@ export default function PriceChart({
     }
   }, [historyQuery.data, analysisQuery.data, theme])
 
+  // Fibonacci auto-retracement levels (frontend-fibonacci-auto-levels): 7
+  // dashed price lines (see `FIBONACCI_RATIOS`) at levels computed from the
+  // swing high/low among whichever bars are CURRENTLY VISIBLE on the chart's
+  // time scale -- not the full fetched `historyQuery.data` range the way
+  // every other overlay effect above windows itself (see
+  // `selectVisibleIndicatorPoints`'s own doc comment for that convention) --
+  // per this task's own requirement that the levels be calculated from the
+  // visible range and recalculated on zoom/pan, not from a fixed lookback
+  // window. A SEPARATE effect from every overlay above (same "deliberately
+  // separate, differently-gated effects on the same chart" convention this
+  // component already uses), gated on `historyQuery.data` alone -- this
+  // overlay is a pure geometric calculation over OHLC bars the chart already
+  // has, unrelated to `/indicators`/`/analysis` (Elder's own methodology
+  // doesn't include Fibonacci at all -- see `fibonacciHelp`'s own doc
+  // comment -- so there's no Elder-specific data source to depend on here).
+  //
+  // `series.createPriceLine` (not a second `LineSeries`/`AreaSeries` via
+  // `chart.addSeries`) -- a Fibonacci level is a single flat price for the
+  // whole pane, exactly what `createPriceLine` already draws natively (same
+  // primitive the false-breakout/Kangaroo-Tail stop lines above use), with
+  // no need for a 2-point data array spanning the visible range the way a
+  // `LineSeries`-based horizontal line would.
+  useEffect(() => {
+    const chart = chartRef.current
+    const series = seriesRef.current
+    const data = historyQuery.data
+    if (!chart || !series || !data) {
+      return
+    }
+    const finiteBars = data.bars.filter(hasFiniteOhlc)
+    if (finiteBars.length === 0) {
+      return
+    }
+
+    const color = theme.palette.fibonacci.main
+    // Mutable across `drawLevels` calls within this one effect run (a plain
+    // closure variable, not a ref -- unlike `chartRef`/`seriesRef`, nothing
+    // outside this effect ever needs to read it, so there's no reason to
+    // reach for `useRef` here).
+    let currentPriceLines: IPriceLine[] = []
+
+    // A `const`-bound closure, not a hoisted `function` declaration --
+    // TypeScript doesn't carry the `if (!chart || !series || !data) return`
+    // narrowing above into a hoisted function declaration (it conservatively
+    // assumes one could theoretically run before the narrowing check), but
+    // does for a `const`-bound closure defined after it (same reasoning the
+    // divergence-overlay effect's own `handleClick` comment above already
+    // documents for this exact pattern).
+    const drawLevels = () => {
+      currentPriceLines.forEach((priceLine) => series.removePriceLine(priceLine))
+      currentPriceLines = []
+
+      // `getVisibleRange()` reports `null` before the chart has ever fired a
+      // range event of its own (e.g. this very first call, right after
+      // `chart.timeScale().fitContent()` in the candlestick effect above,
+      // which doesn't itself trigger a range-change event in every version
+      // of the library) -- falling back to the full `finiteBars` range in
+      // that case is correct, not just a safe default: `fitContent()` means
+      // every fetched bar genuinely IS the currently visible range at that
+      // point.
+      const visibleRange = chart.timeScale().getVisibleRange()
+      const visibleBars = visibleRange
+        ? selectVisibleBars(
+            finiteBars,
+            timeToDateString(visibleRange.from),
+            timeToDateString(visibleRange.to),
+          )
+        : finiteBars
+
+      const swing = findFibonacciSwing(visibleBars)
+      setFibonacciSwing(swing)
+      setFibonacciVisibleBarsCount(visibleBars.length)
+      if (!swing) {
+        return
+      }
+
+      currentPriceLines = computeFibonacciLevels(swing).map((level) =>
+        series.createPriceLine({
+          price: level.price,
+          color,
+          lineWidth: 1,
+          lineStyle: LineStyle.Dotted,
+          axisLabelVisible: true,
+          title: `Fib ${formatFibonacciRatioLabel(level.ratio)}`,
+        }),
+      )
+    }
+
+    // Initial computation runs immediately (not debounced) -- there's no
+    // rapid-fire sequence of events to coalesce yet at mount/data-change
+    // time, only the debounced recalculations below (in response to an
+    // actual user zoom/pan gesture) benefit from waiting.
+    drawLevels()
+
+    let debounceTimer: ReturnType<typeof setTimeout> | undefined
+    const handleVisibleRangeChange = () => {
+      if (debounceTimer !== undefined) {
+        clearTimeout(debounceTimer)
+      }
+      debounceTimer = setTimeout(drawLevels, FIBONACCI_RECALC_DEBOUNCE_MS)
+    }
+    chart.timeScale().subscribeVisibleTimeRangeChange(handleVisibleRangeChange)
+
+    return () => {
+      if (debounceTimer !== undefined) {
+        clearTimeout(debounceTimer)
+      }
+      chart.timeScale().unsubscribeVisibleTimeRangeChange(handleVisibleRangeChange)
+      // See the signal-overlay effect's own cleanup guard above: skip
+      // touching the series if the candlestick effect already disposed this
+      // chart/series.
+      if (chartRef.current !== chart || seriesRef.current !== series) {
+        return
+      }
+      currentPriceLines.forEach((priceLine) => series.removePriceLine(priceLine))
+    }
+  }, [historyQuery.data, theme])
+
   function handleRangeChange(_event: ReactMouseEvent<HTMLElement>, value: string | null) {
     if (value !== null) {
       setRange(value)
@@ -2093,6 +2262,43 @@ export default function PriceChart({
               kangarooTail,
               kangarooTailBar,
               kangarooTailInVisibleRange,
+            )}
+          />
+        </Stack>
+      )}
+
+      {/*
+        Fibonacci auto-retracement legend + MetricHelp affordance
+        (frontend-fibonacci-auto-levels). Gated on `historyQuery.isSuccess &&
+        hasBars` alone -- unlike the channel/value-zone legend above, NOT on
+        `overlayEnabled`/`indicatorsQuery` (this overlay reads only OHLC
+        bars, interval-agnostic, same as the support/resistance zone legend)
+        -- and unlike every other legend row on this chart, always visible
+        once there are bars at all (not conditioned on "is there currently a
+        qualifying event", since there's always SOME swing high/low to show
+        for 2+ visible bars, and `fibonacciHelp.interpretValue` itself
+        explains the two degenerate cases when there isn't one right now).
+      */}
+      {historyQuery.isSuccess && hasBars && (
+        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+          <Box
+            sx={{
+              width: 14,
+              height: 0,
+              borderTop: '2px dotted',
+              borderColor: 'fibonacci.main',
+            }}
+          />
+          <Typography variant="caption" color="text.secondary">
+            Fibonacci Retracement
+          </Typography>
+          <MetricHelp
+            metricLabel={fibonacciHelp.metricLabel}
+            definition={fibonacciHelp.definition}
+            elderContext={fibonacciHelp.elderContext}
+            valueInterpretation={fibonacciHelp.interpretValue(
+              fibonacciSwing,
+              fibonacciVisibleBarsCount,
             )}
           />
         </Stack>
