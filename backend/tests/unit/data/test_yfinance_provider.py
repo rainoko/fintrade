@@ -11,8 +11,10 @@ than raw Yahoo Chart API JSON.
 """
 
 import threading
+import time
 from datetime import date
 from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -375,6 +377,96 @@ class TestGetExtendedData:
         with pytest.raises(DataProviderUnavailableError):
             YFinanceProvider().get_extended_data("AAPL")
 
+    def test_calendar_info_and_insider_transactions_are_fetched_concurrently(self, mocker) -> None:
+        """`get_extended_data`'s three property fetches run concurrently, not sequentially --
+        bounding its own worst case to roughly one `_REQUEST_TIMEOUT_SECONDS` budget instead
+        of up to three, mirroring `app.api.routers.stocks.get_analysis`'s own concurrent
+        daily/weekly/extended-data fetch one level up (backend-data-provider-timeouts). Proven
+        via directly recorded start/end timestamps and a pairwise-overlap assertion --
+        deterministic proof of concurrency rather than an aggregate wall-clock-duration
+        threshold (see docs/tasks/backend-data-provider-timeouts-followups.json's `decisions`
+        entry for why the latter style was avoided here)."""
+        sleep_seconds = 0.2
+        intervals: dict[str, tuple[float, float]] = {}
+        lock = threading.Lock()
+
+        def _record(name: str, value: object) -> object:
+            start = time.monotonic()
+            time.sleep(sleep_seconds)
+            with lock:
+                intervals[name] = (start, time.monotonic())
+            return value
+
+        class _SlowTicker:
+            @property
+            def calendar(self) -> dict:
+                return cast(dict, _record("calendar", {}))
+
+            @property
+            def info(self) -> dict:
+                return cast(dict, _record("info", {}))
+
+            @property
+            def insider_transactions(self) -> pd.DataFrame:
+                return cast(pd.DataFrame, _record("insider_transactions", pd.DataFrame()))
+
+        mocker.patch("app.data.yfinance_provider.yf.Ticker", return_value=_SlowTicker())
+
+        YFinanceProvider().get_extended_data("AAPL")
+
+        assert set(intervals) == {"calendar", "info", "insider_transactions"}
+        names = list(intervals)
+        for i in range(len(names)):
+            for j in range(i + 1, len(names)):
+                start_i, end_i = intervals[names[i]]
+                start_j, end_j = intervals[names[j]]
+                assert start_i < end_j and start_j < end_i, (
+                    f"{names[i]} and {names[j]} did not overlap: {intervals}"
+                )
+
+    def test_fast_calendar_failure_returns_promptly_despite_slow_other_properties(
+        self, mocker
+    ) -> None:
+        """Regression test mirroring `app.api.routers.stocks`'s `TestConcurrentFetch
+        .test_fast_daily_failure_returns_promptly_despite_slow_other_legs`: `get_extended_data`
+        manages its `ThreadPoolExecutor` manually (`shutdown(wait=False, cancel_futures=True)`
+        in a `finally`), not via `with ThreadPoolExecutor(...) as executor:` -- whose `__exit__`
+        would otherwise block an exception raised by an earlier `.result()` call from
+        propagating until the other two (still-slow) property fetches finish too. A `.calendar`
+        that raises immediately, with `.info`/`.insider_transactions` each sleeping
+        `sleep_seconds`, must still fail near-instantly rather than waiting for the slower
+        two."""
+        sleep_seconds = 1.0
+
+        class _FastFailSlowOthersTicker:
+            @property
+            def calendar(self) -> dict:
+                raise TimeoutError("Read timed out")
+
+            @property
+            def info(self) -> dict:
+                time.sleep(sleep_seconds)
+                return {}
+
+            @property
+            def insider_transactions(self) -> pd.DataFrame:
+                time.sleep(sleep_seconds)
+                return pd.DataFrame()
+
+        mocker.patch(
+            "app.data.yfinance_provider.yf.Ticker", return_value=_FastFailSlowOthersTicker()
+        )
+
+        start = time.monotonic()
+        with pytest.raises(DataProviderUnavailableError):
+            YFinanceProvider().get_extended_data("AAPL")
+        elapsed = time.monotonic() - start
+
+        # The bug this guards against made this take >= sleep_seconds (waiting for the two
+        # slower property fetches to finish before the exception could propagate). A
+        # genuinely fast failure should return in a small fraction of that.
+        assert elapsed < sleep_seconds / 2
+
     def test_timeout_on_calendar_property_raises_data_provider_unavailable(self, mocker) -> None:
         """`.calendar`/`.info`/`.insider_transactions` don't accept a per-call `timeout=`
         kwarg (unlike `.history()`) -- this simulates the underlying session-level timeout
@@ -494,6 +586,63 @@ class TestClampSessionTimeout:
         # no-op, matching the single-threaded idempotency test above.
         _clamp_session_timeout(session)
         assert session.request is wrapped_request
+
+    def test_second_racer_sees_already_clamped_state_after_acquiring_the_lock(self, mocker) -> None:
+        """Directly exercises the inner (post-lock) re-check at the top of the `with
+        _session_clamp_lock:` block: a real thread race could have the outer (unlocked) check
+        observe `False`, then by the time this call actually acquires the lock, a concurrent
+        caller has already finished clamping the same session -- so the inner check must see
+        `True` and return early without re-wrapping `.request` a second time. Simulated
+        deterministically (no real thread scheduling to get lucky/unlucky with) by
+        monkeypatching the module's lock so entering it marks the session as already-clamped,
+        exactly the interleaving a genuine race could produce between this function's outer
+        check and its lock acquisition."""
+
+        class _MarkClampedOnEnterLock:
+            def __enter__(self) -> "_MarkClampedOnEnterLock":
+                session._fintrade_timeout_clamped = True  # type: ignore[attr-defined]
+                return self
+
+            def __exit__(self, *exc_info: object) -> bool:
+                return False
+
+        session = _FakeSession()
+        mocker.patch(
+            "app.data.yfinance_provider._session_clamp_lock", _MarkClampedOnEnterLock()
+        )
+        original_request = session.request
+
+        _clamp_session_timeout(session)
+
+        # Returned via the inner re-check (line after acquiring the lock) rather than falling
+        # through to re-wrap `.request` -- confirmed by `.request` still being `session`'s own
+        # bound method (bound methods aren't cached, so `is` would spuriously fail even when
+        # unchanged -- `==` compares the underlying function and instance instead), not
+        # `_request_with_timeout`.
+        assert session.request == original_request
+
+    def test_attribute_assignment_failure_is_a_silent_no_op(self) -> None:
+        """The final attribute-assignment step (wrapping `.request` and setting the
+        idempotency marker) is itself wrapped in a bare `except Exception: pass` -- some
+        session-like object could accept reading `.request` but reject arbitrary attribute
+        assignment (e.g. a read-only property, `__slots__`) without this whole best-effort
+        clamp attempt raising and breaking the caller's otherwise-unrelated fetch. A session
+        whose `.request` is a genuine bound method (readable, matching this function's own
+        `original_request = session.request` read) but whose `__setattr__` rejects every
+        assignment simulates that."""
+
+        class _ReadOnlyAttributesSession:
+            def request(self, method: str, url: str, **kwargs: object) -> str:
+                return "ok"
+
+            def __setattr__(self, name: str, value: object) -> None:
+                raise AttributeError(f"{name} is read-only")
+
+        session = _ReadOnlyAttributesSession()
+
+        _clamp_session_timeout(session)  # must not raise
+
+        assert not hasattr(session, "_fintrade_timeout_clamped")
 
 
 class TestNewTicker:

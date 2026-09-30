@@ -1,4 +1,5 @@
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 import yfinance as yf
@@ -152,12 +153,35 @@ class YFinanceProvider(DataProvider):
         interest, docs/ideas.md's own "yfinance's own data can be incomplete for smaller
         tickers" caveat) -- distinct from the provider-level failure above, which raises
         rather than returning a half-populated result.
+
+        The three underlying property fetches (`.calendar`/`.info`/`.insider_transactions`)
+        are fetched concurrently, not sequentially: none of the three depends on either of
+        the others, so a slow/degraded session (each still capped at
+        `_REQUEST_TIMEOUT_SECONDS` via `_clamp_session_timeout`) now costs its timeout budget
+        once per call here instead of up to three times over -- the same "sequential calls
+        stacking" mechanism `app.api.routers.stocks.get_analysis`'s own daily/weekly/extended
+        concurrent fetch addresses one level up (backend-data-provider-timeouts), just applied
+        one level down. See docs/tasks/backend-data-provider-timeouts-followups.json's
+        `decisions` entry for why this doesn't need that same call site's per-leg-scoped-
+        `DataProvider`/`Session` pattern: unlike `get_analysis`, nothing here owns a `Session`
+        an abandoned leg could race against, so a plain fail-fast `ThreadPoolExecutor` (manual
+        `shutdown(wait=False, cancel_futures=True)`, not the `with ThreadPoolExecutor(...) as
+        executor:` form -- see that same call site's own comment for why the context-manager
+        form's implicit `shutdown(wait=True)` would delay a fast failure by however long the
+        slowest of the other two legs takes) is sufficient on its own.
         """
         try:
             yf_ticker = _new_ticker(ticker)
-            calendar = yf_ticker.calendar or {}
-            info = yf_ticker.info or {}
-            insider_df = yf_ticker.insider_transactions
+            executor = ThreadPoolExecutor(max_workers=3)
+            try:
+                calendar_future = executor.submit(lambda: yf_ticker.calendar or {})
+                info_future = executor.submit(lambda: yf_ticker.info or {})
+                insider_future = executor.submit(lambda: yf_ticker.insider_transactions)
+                calendar = calendar_future.result()
+                info = info_future.result()
+                insider_df = insider_future.result()
+            finally:
+                executor.shutdown(wait=False, cancel_futures=True)
         except YFRateLimitError as exc:
             raise DataProviderUnavailableError(f"yfinance rate-limited: {exc}") from exc
         except Exception as exc:  # noqa: BLE001 - yfinance's own errors are broad/undocumented

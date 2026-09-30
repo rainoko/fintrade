@@ -23,6 +23,7 @@ tests instead focus on this route's own job -- wiring the provider fetch, `analy
 `AnalysisResponse` mapping together, plus the 404/422/503 error mapping.
 """
 
+import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
@@ -626,22 +627,38 @@ class _SlowStubProvider(_StubProvider):
     """Same as `_StubProvider`, but each of the three fetches sleeps briefly before
     returning -- lets a test assert the fetches actually overlap (concurrent) rather than run
     back-to-back (sequential), without a live network call or an actual multi-second timeout
-    (docs/architecture/Testing.md). See backend-data-provider-timeouts's `decisions` entry."""
+    (docs/architecture/Testing.md). See backend-data-provider-timeouts's `decisions` entry.
+
+    `call_intervals` records each fetch's own `(start, end)` wall-clock timestamps
+    (`time.monotonic()`), keyed by leg name -- used by `TestConcurrentFetch
+    .test_daily_weekly_and_extended_data_actually_overlap` to assert overlap directly (a
+    deterministic proof of concurrency) rather than relying solely on an aggregate elapsed-time
+    threshold, per docs/tasks/backend-data-provider-timeouts-followups.json's `decisions`
+    entry. Guarded by `_lock` since all three legs run on separate threads and can write to
+    this dict concurrently."""
 
     def __init__(self, *, sleep_seconds: float, **kwargs) -> None:
         super().__init__(**kwargs)
         self._sleep_seconds = sleep_seconds
+        self.call_intervals: dict[str, tuple[float, float]] = {}
+        self._lock = threading.Lock()
+
+    def _record(self, name: str) -> None:
+        start = time.monotonic()
+        time.sleep(self._sleep_seconds)
+        with self._lock:
+            self.call_intervals[name] = (start, time.monotonic())
 
     def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
-        time.sleep(self._sleep_seconds)
+        self._record("daily")
         return super().get_daily_ohlcv(ticker)
 
     def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
-        time.sleep(self._sleep_seconds)
+        self._record("weekly")
         return super().get_weekly_ohlcv(ticker)
 
     def get_extended_data(self, ticker: str) -> ExtendedData:
-        time.sleep(self._sleep_seconds)
+        self._record("extended")
         return super().get_extended_data(ticker)
 
 
@@ -689,6 +706,38 @@ class TestConcurrentFetch:
         # sleep_seconds plus overhead. The threshold is generous (2x one sleep) to stay robust
         # under CI scheduling jitter while still catching a regression back to sequential.
         assert elapsed < sleep_seconds * 2
+
+    def test_daily_weekly_and_extended_data_actually_overlap(self) -> None:
+        """Hardens the aggregate-elapsed-time assertion above with a deterministic,
+        threshold-free proof of concurrency: each leg's own recorded `(start, end)` interval
+        (`_SlowStubProvider.call_intervals`) must pairwise overlap with the other two. This
+        directly verifies the property being tested (the three fetches actually ran at
+        overlapping times) rather than inferring it from a total-duration multiplier that could
+        in principle pass or fail for reasons unrelated to overlap (e.g. general scheduling
+        overhead inflating every leg's own duration equally) -- see docs/tasks/
+        backend-data-provider-timeouts-followups.json's `decisions` entry for why both this
+        test and the aggregate-threshold one above are kept rather than one replacing the
+        other."""
+        sleep_seconds = 0.3
+        provider = _SlowStubProvider(
+            sleep_seconds=sleep_seconds,
+            daily={"AAPL": _hold_daily_ohlcv()},
+            weekly={"AAPL": _hold_weekly_ohlcv()},
+        )
+
+        response = _get_analysis(provider)
+
+        assert response.status_code == 200
+        intervals = provider.call_intervals
+        assert set(intervals) == {"daily", "weekly", "extended"}
+        names = list(intervals)
+        for i in range(len(names)):
+            for j in range(i + 1, len(names)):
+                start_i, end_i = intervals[names[i]]
+                start_j, end_j = intervals[names[j]]
+                assert start_i < end_j and start_j < end_i, (
+                    f"{names[i]} and {names[j]} did not overlap: {intervals}"
+                )
 
     def test_fast_daily_failure_returns_promptly_despite_slow_other_legs(self) -> None:
         """Regression test for PR #360's first review round: `get_analysis` used to manage its
