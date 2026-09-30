@@ -479,30 +479,27 @@ def latest_divergence(
 ) -> Divergence | None:
     """The single most recent qualifying divergence (bullish or bearish, whichever's ``second``
     extreme date is more recent) for one indicator against ``price``. ``None`` if neither side
-    has any qualifying divergence."""
-    candidates = find_divergences(
+    has any qualifying divergence.
+
+    Delegates its own tie-break to ``_latest_divergence_from_swings`` (computing ``price``'s
+    swing lows/highs once via ``swing_lows``/``swing_highs`` first) rather than duplicating that
+    helper's bullish-then-bearish ``max(..., key=lambda d: d.second.date)`` logic inline -- see
+    docs/tasks/backend-portfolio-load-performance-followups-followups-followups-followups.json's
+    `decisions` entry: keeping a single source of truth for the tie-break rule means a future
+    change to it can't silently desync this function from ``current_divergence``'s own
+    per-indicator result the way two independent copies previously could."""
+    lows = swing_lows(price, window=window)
+    highs = swing_highs(price, window=window)
+    return _latest_divergence_from_swings(
+        lows,
+        highs,
         price,
         indicator,
         indicator_name=indicator_name,
-        kind="bullish",
-        window=window,
         min_bars_apart=min_bars_apart,
         max_bars_apart=max_bars_apart,
         max_second_extreme_depth_ratio=max_second_extreme_depth_ratio,
     )
-    candidates += find_divergences(
-        price,
-        indicator,
-        indicator_name=indicator_name,
-        kind="bearish",
-        window=window,
-        min_bars_apart=min_bars_apart,
-        max_bars_apart=max_bars_apart,
-        max_second_extreme_depth_ratio=max_second_extreme_depth_ratio,
-    )
-    if not candidates:
-        return None
-    return max(candidates, key=lambda d: d.second.date)
 
 
 # Tie-break order when more than one indicator's `latest_divergence` shares the exact same
@@ -536,20 +533,25 @@ def _latest_divergence_from_swings(
     max_bars_apart: int,
     max_second_extreme_depth_ratio: float,
 ) -> Divergence | None:
-    """The ``latest_divergence`` result for one indicator, but from already-computed PRICE
-    swing points (``lows`` for the bullish scan, ``highs`` for the bearish one) instead of
-    ``latest_divergence``'s own ``find_divergences`` calls, each of which independently reruns
-    ``find_swing_points`` on ``price`` from scratch. ``current_divergence`` uses this to share
-    ONE swing-point pass across all three indicators it checks, instead of the 3 indicators x 2
-    kinds = 6 redundant full-history swing-point scans ``latest_divergence`` would otherwise
-    perform on the exact same ``price`` series (docs/tasks/backend-portfolio-load-performance-
-    followups-followups-followups.json's `decisions` entry has the measured cost this fixes,
-    ~0.72s/ticker on an AAPL-scale history).
+    """The single source of truth for "the most recent qualifying divergence for one indicator,
+    given already-computed PRICE swing points" (``lows`` for the bullish scan, ``highs`` for the
+    bearish one) -- both ``latest_divergence`` (which computes ``lows``/``highs`` itself via one
+    ``swing_lows``/``swing_highs`` call each) and ``current_divergence`` (which shares ONE
+    ``find_swing_points`` pass, partitioned into ``lows``/``highs``, across all three indicators
+    it checks) delegate here rather than each independently re-implementing the bullish-vs-
+    bearish tie-break -- see docs/tasks/backend-portfolio-load-performance-followups-followups-
+    followups-followups.json's `decisions` entry for why this was refactored out of
+    ``latest_divergence``'s own body (previously a byte-for-byte duplicate of the logic below,
+    a maintenance hazard: a future change to the tie-break rule applied to only one of the two
+    copies would have silently desynced ``latest_divergence`` from ``current_divergence``'s
+    per-indicator result). ``current_divergence`` using this helper is also what lets it avoid
+    the 3 indicators x 2 kinds = 6 redundant full-history swing-point scans a naive per-indicator
+    ``latest_divergence`` call each would otherwise perform on the exact same ``price`` series
+    (docs/tasks/backend-portfolio-load-performance-followups-followups-followups.json's
+    `decisions` entry has the measured cost this fixes, ~0.72s/ticker on an AAPL-scale history).
 
-    Mirrors ``latest_divergence``'s own tie-break exactly (``max`` by ``second.date``, bullish
-    candidates appended before bearish so a tied date favors bullish, matching the order
-    ``latest_divergence`` itself builds its own two-``find_divergences``-call candidate list
-    in) rather than reusing ``_pick_most_recent`` (a subtly different function -- built for
+    Tie-break: ``max`` by ``second.date``, bullish candidates appended before bearish so a tied
+    date favors bullish -- NOT ``_pick_most_recent`` (a subtly different function, built for
     picking across multiple *indicators*, whose tie-break additionally keys off
     ``_INDICATOR_PRIORITY``, which is irrelevant here since every candidate below shares the
     same ``indicator_name``)."""
@@ -609,10 +611,26 @@ def current_divergence(
     Written as three explicit (not looped-over) indicator checks -- rather than iterating a
     ``(name, series)`` tuple list -- so each ``indicator_name`` argument stays a precise string
     literal for static type-checking, instead of widening to plain ``str`` across a
-    heterogeneous loop."""
-    all_swings = find_swing_points(price, window=window)
-    lows = [p for p in all_swings if p.kind == "low"]
-    highs = [p for p in all_swings if p.kind == "high"]
+    heterogeneous loop.
+
+    The ``find_swing_points`` call itself is guarded behind "is at least one indicator actually
+    supplied" rather than run unconditionally up front: with zero indicators, ``candidates``
+    would end up empty regardless of what ``lows``/``highs`` contain, so computing them at all
+    would be pure waste -- and, worse, would silently narrow this function's own documented
+    contract for an invalid ``window`` (e.g. ``0``) with zero indicators supplied: pre-dating
+    this module's swing-sharing optimization, that combination returned ``None`` (no indicator
+    branch ever ran, so ``find_swing_points`` was never reached to raise on the bad ``window``);
+    an unconditional call here would instead raise ``ValueError`` for a caller that supplied no
+    indicators at all. Not reachable from this app's own call site today (``app.signals.engine``
+    always supplies all three indicators with the default, valid ``window``), but worth getting
+    right for the public function's own contract regardless -- see docs/tasks/backend-portfolio-
+    load-performance-followups-followups-followups-followups.json's `decisions` entry."""
+    lows: list[SwingPoint] = []
+    highs: list[SwingPoint] = []
+    if macd_histogram is not None or stochastic is not None or rsi is not None:
+        all_swings = find_swing_points(price, window=window)
+        lows = [p for p in all_swings if p.kind == "low"]
+        highs = [p for p in all_swings if p.kind == "high"]
 
     candidates: list[Divergence] = []
     if macd_histogram is not None:

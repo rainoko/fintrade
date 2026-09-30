@@ -85,6 +85,53 @@ _FIXTURE_A_MACD_HISTOGRAM_NO_CROSS = pd.Series(
     + [0.0] * 10
 )
 
+# FIXTURE_A's bearish mirror (a new HIGHER high at idx 30 = 130 vs idx 10's 100, a SHALLOWER
+# peak in the indicator, crossing below zero in between) -- qualifies only on the bearish/highs
+# side, used by TestCurrentDivergenceSharedSwingPass tests that specifically need a
+# `current_divergence` result via the shared-highs branch (every other `current_divergence` test
+# in this file exercises the bullish/lows side only).
+_FIXTURE_B_PRICE = pd.Series(
+    [float(v) for v in range(50, 101, 5)]  # idx 0-10: 50,...,100
+    + [float(v) for v in range(95, 49, -5)]  # idx 11-20: 95,...,50
+    + [float(v) for v in range(58, 131, 8)]  # idx 21-30: 58,...,130
+    + [float(v) for v in range(126, 89, -4)]  # idx 31-40: 126,...,90
+)
+
+_FIXTURE_B_MACD_HISTOGRAM = pd.Series(
+    [0.0] * 10
+    + [10.0]  # idx 10 -- first (higher) peak
+    + [6.0, 2.0, -2.0, -6.0, -8.0, -8.0, -8.0, -8.0, -8.0, -8.0]  # idx 11-20
+    + [-6.0, -4.0, -2.0, 0.0, 1.0, 2.0, 2.0, 2.0, 2.0, 3.0]  # idx 21-30 (idx 30 = 3)
+    + [0.0] * 10
+)
+
+# A single 44-bar series with BOTH a qualifying bullish divergence (swing lows at idx 10/30,
+# mirroring FIXTURE_A) AND a qualifying bearish one (swing highs at idx 20/40) for the SAME
+# indicator -- unlike every other fixture in this file, which qualifies on only one kind at a
+# time. Used to actually exercise `latest_divergence`/`_latest_divergence_from_swings`'s own
+# "whichever of bullish/bearish has the more recent `second.date` wins" selection with a genuine
+# 2-candidate list (docs/tasks/backend-portfolio-load-performance-followups-followups-followups-
+# followups.json's `decisions` entry: mutation-testing the `latest_divergence` ->
+# `_latest_divergence_from_swings` dedup found no existing test actually exercised this
+# multi-candidate selection, since every other fixture's `candidates` list has at most 1 entry).
+# Bearish's second extreme (idx 40) is chronologically after bullish's (idx 30), so the bearish
+# divergence must win.
+_FIXTURE_C_PRICE = pd.Series(
+    [float(v) for v in range(100, 49, -5)]  # idx 0-10: 100,...,50 (low at 10)
+    + [float(v) for v in range(55, 101, 5)]  # idx 11-20: 55,...,100 (high at 20)
+    + [float(v) for v in range(92, 19, -8)]  # idx 21-30: 92,...,20 (low at 30, new low vs 10)
+    + [float(v) for v in range(32, 141, 12)]  # idx 31-40: 32,...,140 (high at 40, new high vs 20)
+    + [136.0, 132.0, 128.0]  # idx 41-43: confirms idx 40 as a genuine swing high
+)
+
+_FIXTURE_C_MACD_HISTOGRAM = pd.Series(
+    [0.0] * 10
+    + [-10.0, -6.0, -2.0, 2.0, 4.0, 6.0, 7.0, 8.0, 9.0, 9.5, 10.0]  # idx 10-20 (10=-10, 20=10)
+    + [6.0, 2.0, -1.0, -2.0, -2.5, -2.7, -2.8, -2.9, -2.95, -3.0]  # idx 21-30 (30=-3)
+    + [-2.0, -1.0, 0.5, 1.0, 1.5, 2.0, 2.3, 2.6, 2.8, 3.0]  # idx 31-40 (40=3)
+    + [0.0, 0.0, 0.0]  # idx 41-43 (unused)
+)
+
 
 def _fixture_a_bullish_divergence() -> Divergence:
     """The hand-verified expected ``Divergence`` for `_FIXTURE_A_PRICE`/
@@ -346,6 +393,21 @@ class TestLatestAndCurrentDivergence:
 
         assert result == _fixture_a_bullish_divergence()
 
+    def test_latest_divergence_prefers_the_more_recent_of_bullish_and_bearish(self) -> None:
+        """FIXTURE_C qualifies on BOTH kinds for the same indicator (a bullish pair ending at
+        idx 30, a bearish pair ending at idx 40) -- the bearish one, being chronologically more
+        recent, must win. Genuinely exercises the `max(candidates, key=lambda d: d.second.date)`
+        selection with a real 2-candidate list, which every other fixture in this file (each
+        qualifying on only one kind) leaves untested."""
+        result = latest_divergence(
+            _FIXTURE_C_PRICE, _FIXTURE_C_MACD_HISTOGRAM, indicator_name="macd_histogram"
+        )
+
+        assert result is not None
+        assert result.kind == "bearish"
+        assert result.first.date == 20
+        assert result.second.date == 40
+
     def test_latest_divergence_is_none_when_nothing_qualifies(self) -> None:
         assert (
             latest_divergence(
@@ -448,25 +510,13 @@ class TestCurrentDivergenceSharedSwingPass:
         fixture only qualifies on the bearish (highs) side, isolating that branch specifically
         (every other `current_divergence` test in this file exercises the bullish/lows side
         only)."""
-        price = pd.Series(
-            [float(v) for v in range(50, 101, 5)]
-            + [float(v) for v in range(95, 49, -5)]
-            + [float(v) for v in range(58, 131, 8)]
-            + [float(v) for v in range(126, 89, -4)]
-        )
-        histogram = pd.Series(
-            [0.0] * 10
-            + [10.0]
-            + [6.0, 2.0, -2.0, -6.0, -8.0, -8.0, -8.0, -8.0, -8.0, -8.0]
-            + [-6.0, -4.0, -2.0, 0.0, 1.0, 2.0, 2.0, 2.0, 2.0, 3.0]
-            + [0.0] * 10
-        )
-
-        result = current_divergence(price, macd_histogram=histogram)
+        result = current_divergence(_FIXTURE_B_PRICE, macd_histogram=_FIXTURE_B_MACD_HISTOGRAM)
 
         assert result is not None
         assert result.kind == "bearish"
-        assert result == latest_divergence(price, histogram, indicator_name="macd_histogram")
+        assert result == latest_divergence(
+            _FIXTURE_B_PRICE, _FIXTURE_B_MACD_HISTOGRAM, indicator_name="macd_histogram"
+        )
 
     def test_current_divergence_is_not_stale_across_consecutive_calls_with_different_price(
         self,
@@ -477,22 +527,8 @@ class TestCurrentDivergenceSharedSwingPass:
         calls in the same process, alternating between a bullish-only fixture and a
         bearish-only fixture, must each reflect their OWN `price`/`indicator` inputs, not a
         previous call's."""
-        bearish_price = pd.Series(
-            [float(v) for v in range(50, 101, 5)]
-            + [float(v) for v in range(95, 49, -5)]
-            + [float(v) for v in range(58, 131, 8)]
-            + [float(v) for v in range(126, 89, -4)]
-        )
-        bearish_histogram = pd.Series(
-            [0.0] * 10
-            + [10.0]
-            + [6.0, 2.0, -2.0, -6.0, -8.0, -8.0, -8.0, -8.0, -8.0, -8.0]
-            + [-6.0, -4.0, -2.0, 0.0, 1.0, 2.0, 2.0, 2.0, 2.0, 3.0]
-            + [0.0] * 10
-        )
-
         first = current_divergence(_FIXTURE_A_PRICE, macd_histogram=_FIXTURE_A_MACD_HISTOGRAM)
-        second = current_divergence(bearish_price, macd_histogram=bearish_histogram)
+        second = current_divergence(_FIXTURE_B_PRICE, macd_histogram=_FIXTURE_B_MACD_HISTOGRAM)
         third = current_divergence(_FIXTURE_A_PRICE, macd_histogram=_FIXTURE_A_MACD_HISTOGRAM)
 
         assert first is not None and first.kind == "bullish"
@@ -513,6 +549,43 @@ class TestCurrentDivergenceSharedSwingPass:
 
         assert default_result is not None
         assert wide_window_result is None
+
+    def test_current_divergence_with_no_indicators_and_invalid_window_returns_none(self) -> None:
+        """Regression test for docs/tasks/backend-portfolio-load-performance-followups-followups-
+        followups-followups.json: `current_divergence` must not eagerly call `find_swing_points`
+        before checking whether any indicator was actually supplied. With zero indicators
+        supplied, `window=0` (invalid -- `find_swing_points` raises `ValueError` for any window
+        `< 1`) must still return `None`, matching the pre-swing-sharing-optimization contract
+        ("any subset ... a `None` series is simply skipped"), not raise."""
+        assert current_divergence(_FIXTURE_A_PRICE, window=0) is None
+
+    def test_current_divergence_agrees_with_latest_divergence_on_a_two_candidate_fixture(
+        self,
+    ) -> None:
+        """FIXTURE_C qualifies on both bullish and bearish for the same indicator -- proves the
+        shared-swing-pass path (`current_divergence`) resolves the same bullish-vs-bearish
+        selection as the independent `latest_divergence` path, not just for the single-candidate
+        fixtures every other cross-check test in this class uses."""
+        result = current_divergence(_FIXTURE_C_PRICE, macd_histogram=_FIXTURE_C_MACD_HISTOGRAM)
+
+        assert result == latest_divergence(
+            _FIXTURE_C_PRICE, _FIXTURE_C_MACD_HISTOGRAM, indicator_name="macd_histogram"
+        )
+        assert result is not None
+        assert result.kind == "bearish"
+
+    def test_current_divergence_with_no_indicators_never_calls_find_swing_points(self) -> None:
+        """Companion to the above: even with a *valid* window, zero indicators supplied must not
+        perform a wasted `find_swing_points` scan at all (0 calls, not 1) -- the guard is about
+        skipping the call entirely when there's nothing to feed it into, not just tolerating an
+        invalid window."""
+        with patch.object(
+            divergence, "find_swing_points", wraps=divergence.find_swing_points
+        ) as spy:
+            result = current_divergence(_FIXTURE_A_PRICE)
+
+        assert spy.call_count == 0
+        assert result is None
 
 
 class TestDivergenceSwingCache:
