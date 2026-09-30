@@ -2441,8 +2441,8 @@
       "id": "backend-data-provider-timeouts-followups-followups",
       "area": "backend/data",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-data-provider-timeouts-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-data-provider-timeouts-followups-followups.json"
     },
     {
       "id": "frontend-fibonacci-auto-levels-followups",
