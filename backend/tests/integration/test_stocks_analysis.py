@@ -625,6 +625,28 @@ class _SlowStubProvider(_StubProvider):
         return super().get_extended_data(ticker)
 
 
+class _FastFailSlowOthersStubProvider(_StubProvider):
+    """Like `_SlowStubProvider`, but only `get_weekly_ohlcv`/`get_extended_data` sleep --
+    `get_daily_ohlcv` raises immediately (no sleep) whenever `failing_daily` names the
+    ticker. Used to prove a fast daily-fetch failure returns promptly even while the other
+    two concurrent legs are still in flight -- see `TestConcurrentFetch
+    .test_fast_daily_failure_returns_promptly_despite_slow_other_legs` below and this task's
+    `decisions`/`review.comments` entries (docs/tasks/backend-data-provider-timeouts.json,
+    PR #360's first review round)."""
+
+    def __init__(self, *, sleep_seconds: float, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._sleep_seconds = sleep_seconds
+
+    def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
+        time.sleep(self._sleep_seconds)
+        return super().get_weekly_ohlcv(ticker)
+
+    def get_extended_data(self, ticker: str) -> ExtendedData:
+        time.sleep(self._sleep_seconds)
+        return super().get_extended_data(ticker)
+
+
 class TestConcurrentFetch:
     """Confirms `get_analysis`'s daily/weekly/extended-data fetch actually overlaps rather
     than running sequentially -- see this function's own docstring and this task's
@@ -647,6 +669,38 @@ class TestConcurrentFetch:
         # sleep_seconds plus overhead. The threshold is generous (2x one sleep) to stay robust
         # under CI scheduling jitter while still catching a regression back to sequential.
         assert elapsed < sleep_seconds * 2
+
+    def test_fast_daily_failure_returns_promptly_despite_slow_other_legs(self) -> None:
+        """Regression test for PR #360's first review round: `get_analysis` used to manage its
+        `ThreadPoolExecutor` via `with ThreadPoolExecutor(...) as executor:`, whose `__exit__`
+        unconditionally calls `shutdown(wait=True)` -- blocking an exception raised by an
+        earlier `.result()` call from propagating out of the `with` block until every
+        submitted future (including the other two, still-slow-running legs) finished. A stub
+        provider whose daily fetch raises `TickerNotFoundError` immediately, with the weekly
+        and extended-data fetches each sleeping `sleep_seconds`, used to take roughly
+        `sleep_seconds` to return its 404 instead of near-instantly.
+
+        Mutation-tested: temporarily reverting `get_analysis`'s executor handling back to the
+        blocking `with ThreadPoolExecutor(max_workers=3) as executor:` form makes this test
+        fail (elapsed climbs to ~`sleep_seconds` instead of staying well under it); restoring
+        the fix (manual `executor.shutdown(wait=False, cancel_futures=True)` in a `finally`)
+        makes it pass again."""
+        sleep_seconds = 1.0
+        provider = _FastFailSlowOthersStubProvider(
+            sleep_seconds=sleep_seconds,
+            weekly={"AAPL": _hold_weekly_ohlcv()},
+            failing_daily={"AAPL": TickerNotFoundError("ticker 'AAPL' not found")},
+        )
+
+        start = time.monotonic()
+        response = _get_analysis(provider)
+        elapsed = time.monotonic() - start
+
+        assert response.status_code == 404
+        # The bug this guards against made this take >= sleep_seconds (waiting for the
+        # slower legs to finish before the exception could propagate). A genuinely fast
+        # failure should return in a small fraction of that.
+        assert elapsed < sleep_seconds / 2
 
 
 class TestExtendedData:

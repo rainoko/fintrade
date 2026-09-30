@@ -480,13 +480,32 @@ def get_analysis(
         # daily-fetch failure takes priority over a weekly/extended one, matching this
         # function's previous sequential error priority exactly (see this task's `decisions`
         # entry, docs/tasks/backend-data-provider-timeouts.json).
-        with ThreadPoolExecutor(max_workers=3) as executor:
+        #
+        # The executor is *not* managed via `with ThreadPoolExecutor(...) as executor:` here --
+        # that context manager's `__exit__` unconditionally calls `shutdown(wait=True)`, which
+        # blocks until every submitted future finishes before an exception raised by an
+        # earlier `.result()` call can propagate out of the `with` block. That would delay a
+        # fast failure (e.g. an immediate `TickerNotFoundError` from the daily fetch) by
+        # however long the *slowest* of the other two concurrent legs takes -- defeating the
+        # whole point of this fix (see this task's `review.comments` entry from PR #360's
+        # first review round, and the mutation-tested regression test in
+        # tests/integration/test_stocks_analysis.py::TestConcurrentFetch). Managing the
+        # executor manually and shutting it down without waiting lets `.result()`'s exception
+        # propagate the moment it's raised; the other two legs (already running in their own
+        # worker threads by that point -- with `max_workers=3` == the number of futures
+        # submitted, all three start immediately, so there is nothing left in the queue for
+        # `cancel_futures` to actually cancel) simply finish in the background and their
+        # results, if any, are discarded uncollected.
+        executor = ThreadPoolExecutor(max_workers=3)
+        try:
             daily_future = executor.submit(provider.get_daily_ohlcv, ticker)
             weekly_future = executor.submit(provider.get_weekly_ohlcv, ticker)
             extended_future = executor.submit(provider.get_extended_data, ticker)
             daily_ohlcv = daily_future.result()
             weekly_ohlcv = weekly_future.result()
             extended = extended_future.result()
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
     except TickerNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except InsufficientHistoryError as exc:
