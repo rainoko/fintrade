@@ -215,4 +215,24 @@ describe('theme', () => {
     expectPerceptuallyDistinct(main, theme.palette.warning.main)
     expectPerceptuallyDistinct(main, theme.palette.info.main)
   })
+
+  it('defines a Fibonacci-retracement color distinct from every other color already used on PriceChart (frontend-fibonacci-auto-levels)', () => {
+    const { main } = theme.palette.fibonacci
+    expect(main).toMatch(/^#/)
+    const others = [
+      theme.palette.primary.main,
+      theme.palette.secondary.main,
+      theme.palette.signal.buy,
+      theme.palette.signal.sell,
+      theme.palette.signal.hold,
+      theme.palette.divergence.main,
+      theme.palette.kangarooTail.main,
+      theme.palette.warning.main,
+      theme.palette.info.main,
+    ]
+    others.forEach((other) => {
+      expect(main).not.toBe(other)
+      expectPerceptuallyDistinct(main, other)
+    })
+  })
 })

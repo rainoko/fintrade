@@ -74,7 +74,17 @@ vi.mock('lightweight-charts', () => ({
         }
       },
       panes: () => [{ getSeries: () => [...paneSeries] }],
-      timeScale: () => ({ fitContent: () => {} }),
+      // `getVisibleRange`/`subscribeVisibleTimeRangeChange`/
+      // `unsubscribeVisibleTimeRangeChange` (frontend-fibonacci-auto-levels)
+      // -- this file doesn't exercise the Fibonacci overlay's own zoom/pan
+      // recalculation (see PriceChart.test.tsx for that), it just needs
+      // `PriceChart`'s own effect to mount/unmount without throwing.
+      timeScale: () => ({
+        fitContent: () => {},
+        getVisibleRange: () => null,
+        subscribeVisibleTimeRangeChange: () => {},
+        unsubscribeVisibleTimeRangeChange: () => {},
+      }),
       remove: () => {},
       createdSeries,
     }

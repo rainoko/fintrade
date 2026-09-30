@@ -16,6 +16,11 @@ import {
   PROFIT_TARGET_DEFINITION,
   PROFIT_TARGET_ELDER_CONTEXT_SUFFIX,
 } from '../../../utils/profitTargetHelpText'
+import {
+  computeFibonacciLevels,
+  formatFibonacciRatioLabel,
+  type FibonacciSwing,
+} from './fibonacciLevels'
 import { TIDE_INSUFFICIENT_HISTORY_OR_FLAT_SLOPE_HEDGE } from './tideNeutralCause'
 
 /**
@@ -939,6 +944,35 @@ export const tideRegionHelp = {
           ? 'Bearish (red)'
           : 'Neutral (amber)'
     return `Across the ${total} bars currently shown: ${pctBullish}% Bullish, ${pctBearish}% Bearish, ${pctNeutral}% Neutral. Today's (rightmost) background is ${latestLabel}.`
+  },
+}
+
+// ---------------------------------------------------------------------------
+// Fibonacci auto-retracement levels (PriceChart.tsx,
+// frontend-fibonacci-auto-levels)
+// ---------------------------------------------------------------------------
+
+export const fibonacciHelp = {
+  metricLabel: 'Fibonacci Retracement',
+  definition:
+    'Horizontal levels at fixed percentages (0%, 23.6%, 38.2%, 50%, 61.8%, 78.6%, 100%) between the highest high and lowest low currently visible on the chart -- automatically recalculated every time the visible range changes (zoom or pan), not fixed to a lookback window.',
+  elderContext:
+    'Not part of Elder’s own Triple Screen/Impulse/confidence-scoring methodology (docs/Analyse.md never mentions Fibonacci) -- this is a widely-used, independent charting convention layered on top as a purely visual aid, the same spirit as the support/resistance zone overlay above but computed client-side from the visible bars’ own highest high/lowest low rather than fetched from a backend indicator. Traders commonly watch the 38.2%/50%/61.8% levels as likely areas for a pullback (in an uptrend) or a bounce (in a downtrend) to stall or reverse.',
+  interpretValue(swing: FibonacciSwing | null, visibleBarsCount: number): string {
+    if (!swing) {
+      if (visibleBarsCount < 2) {
+        return 'Currently unavailable -- fewer than 2 bars are visible in the current chart view.'
+      }
+      return 'Currently unavailable -- every bar in the current view shares the exact same high/low, so there’s no price spread to draw retracement levels across.'
+    }
+    const directionLabel =
+      swing.direction === 'up'
+        ? `an uptrend swing (the low on ${swing.lowDate} came before the high on ${swing.highDate}) -- levels below the high read as potential pullback/support levels`
+        : `a downtrend swing (the high on ${swing.highDate} came before the low on ${swing.lowDate}) -- levels above the low read as potential bounce/resistance levels`
+    const levelsText = computeFibonacciLevels(swing)
+      .map((level) => `${formatFibonacciRatioLabel(level.ratio)} ${level.price.toFixed(2)}`)
+      .join(', ')
+    return `Currently drawn from the swing low ${swing.lowPrice.toFixed(2)} (${swing.lowDate}) to the swing high ${swing.highPrice.toFixed(2)} (${swing.highDate}) -- ${directionLabel}. Levels: ${levelsText}.`
   },
 }
 
