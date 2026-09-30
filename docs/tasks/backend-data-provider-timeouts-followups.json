@@ -30,6 +30,10 @@
     {
       "step": "backend/app/data/yfinance_provider.py sits at 97% line / 96% branch coverage after this PR: _clamp_session_timeout's inner re-check-after-acquiring-the-lock branch (line 73) and its defensive `except Exception: pass` around the attribute assignment (lines 91-92) are not exercised by any test -- both are genuinely best-effort/defensive paths (the first is hard to hit deterministically without instrumenting the lock; the second needs a session object that allows reading .request but rejects arbitrary attribute assignment). Worth a test if a clean way to trigger these is found, but low priority given both are intentionally never-raise safety nets.",
       "done": false
+    },
+    {
+      "step": "From PR #360's third review round (round-2 fix's own PR comment): get_analysis's new get_data_provider_factory gives each of its 3 concurrent legs its own SessionLocal()-backed Session/connection, on top of the request's own Depends(get_db) session -- up to 4x this endpoint's prior per-request DB connection footprint, against an unsized QueuePool (pool_size=5/max_overflow=10 = 15 total, backend/app/db/session.py). Empirically tested at 10-12 concurrent requests (30-36 simultaneous connection demands vs the 15 cap): degrades gracefully today (connections queue, requests still complete, no OperationalError/pool TimeoutError observed) rather than failing outright, and a same-cache-row write race between legs is already handled by _upsert/_upsert_extended's pre-existing IntegrityError/OperationalError swallowing (PR #231). Worth reconsidering if this per-call-session pattern spreads to more endpoints, or if real usage ever approaches the concurrency levels where the pool's default 30s checkout timeout could actually be hit -- e.g. explicit pool sizing tied to how many concurrent per-leg sessions the app's endpoints can realistically open at once, or a lighter-weight per-leg resource than a full second Session.",
+      "done": false
     }
   ],
   "decisions": [],
