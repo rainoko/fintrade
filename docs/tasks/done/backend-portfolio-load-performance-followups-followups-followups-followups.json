@@ -1,0 +1,123 @@
+{
+  "id": "backend-portfolio-load-performance-followups-followups-followups-followups",
+  "title": "Non-blocking follow-ups from backend-portfolio-load-performance-followups-followups-followups's PR #355 review",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "done",
+  "depends_on": [
+    "backend-portfolio-load-performance-followups-followups-followups"
+  ],
+  "references": [
+    "docs/tasks/done/backend-portfolio-load-performance-followups-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/355",
+    "app/signals/divergence.py",
+    "backend/tests/unit/signals/test_divergence.py"
+  ],
+  "description": "PR #355 (backend-portfolio-load-performance-followups-followups-followups) shared one find_swing_points pass across current_divergence's 3 indicators and was accepted after independent re-verification (own hand-computed cross-indicator-tie-break scenario, 200-trial differential fuzz test, mutation test re-run, speedup reproduction, verify-elder-signal check finding no methodology drift). This tracks the review's non-blocking findings so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "PR #355 review (backgrounded code-review skill pass, high effort): `current_divergence` now calls `find_swing_points(price, window=window)` unconditionally at the top of the function, before checking whether any of macd_histogram/stochastic/rsi was actually supplied -- a genuine behavior change from pre-fix `main`, verified directly: `current_divergence(price, window=0)` with all three indicators left at their `None` default returns `None` on `main` (no indicator branch ever executes, so `find_swing_points` is never called) but raises `ValueError('window must be >= 1 (got 0)')` post-fix. Separately confirmed that even with a valid window, calling `current_divergence` with zero indicators now performs one wasted full-history `find_swing_points` scan that pre-fix never did (verified via a wraps-spy: 1 call vs 0). Not reachable today -- `app.signals.engine`'s only call site always supplies all three indicators with the default (valid) window, and no API-level parameter exposes a caller-controlled `window` for divergence -- but a real narrowing of the public function's documented contract ('any subset ... a None series is simply skipped'). Fix: guard the eager `find_swing_points` call behind `if macd_histogram is not None or stochastic is not None or rsi is not None:` (or compute the swing lists lazily on first actual need), with a regression test covering the zero-indicators-plus-invalid-window case.",
+      "done": true
+    },
+    {
+      "step": "PR #355 review (same code-review pass): `_latest_divergence_from_swings` duplicates `latest_divergence`'s own tie-break logic (bullish-then-bearish candidate list via `divergences_from_swings`, `max(..., key=lambda d: d.second.date)`) instead of `latest_divergence` delegating to the new shared-swings helper -- a maintenance hazard: a future change to the tie-break rule applied to only one of the two now-duplicated copies would silently desync `latest_divergence` and `current_divergence`'s per-indicator result, and the PR's own cross-check tests (`test_current_divergence_matches_per_indicator_latest_divergence`) wouldn't catch the drift since they only run today's already-matching logic. Worth refactoring: have `latest_divergence` itself call `swing_lows(price, window=window)`/`swing_highs(price, window=window)` once and delegate into `_latest_divergence_from_swings`, removing the duplicated tie-break code entirely.",
+      "done": true
+    },
+    {
+      "step": "PR #355 review (same code-review pass, cosmetic): the bearish-only `price`/`histogram` fixture in `tests/unit/signals/test_divergence.py` is copy-pasted verbatim between `test_current_divergence_picks_up_a_bearish_divergence_via_shared_highs` and `test_current_divergence_is_not_stale_across_consecutive_calls_with_different_price`, instead of being hoisted to a module-level `_FIXTURE_B_PRICE`/`_FIXTURE_B_MACD_HISTOGRAM` pair matching the file's existing `_FIXTURE_A_*` convention.",
+      "done": true
+    },
+    {
+      "step": "PR #355 review finding: the PR description and this task's own filing task's `decisions` entry both claim '35 pre-existing hand-computed-value tests... pass unchanged; added 7 new tests'. Independently counted: the pre-existing file had 29 tests (not 35), and the PR adds 6 new tests (the `TestCurrentDivergenceSharedSwingPass` class has 6 methods, not 7) -- 29 + 6 = 35 total, so the final total happens to be correct, but both individual figures are off by one. Documentation-accuracy nit -- worth a corrective `decisions` entry (append-only, per CLAUDE.md) on `backend-portfolio-load-performance-followups-followups-followups.json` next time it's touched.",
+      "done": true
+    },
+    {
+      "step": "PR #355 review finding: `backend-portfolio-load-performance-followups-followups-followups.json`'s own `decisions` entry claims `latest_divergence` is 'still used directly by GET /api/stocks/{ticker}/analysis's whole-history divergence display'. Verified this is inaccurate: that endpoint's divergence data flows through `app.signals.engine.analyse`'s call to `current_divergence` (the only caller of `current_divergence` in `app/`), and post-PR-#355 `current_divergence` no longer calls `latest_divergence` at all internally (it calls `_latest_divergence_from_swings` instead). `latest_divergence` now has zero callers outside its own module and the test suite -- it remains a correct, independently-tested public function, just not wired into any production code path today. Worth a corrective `decisions` entry (append-only) next time that task file is touched.",
+      "done": true
+    },
+    {
+      "step": "PR #355 review finding: the checklist-item-4 wording-tweak `decisions` entry on `backend-portfolio-load-performance-followups-followups-followups.json` (and its mirrored entry on `backend-portfolio-load-performance-followups-followups.json`) cites CLAUDE.md's narrow 'amending an existing decisions entry's text in place' carve-out as authority for editing the OTHER task's checklist-item `step` text -- but that carve-out, by its own text, is scoped specifically to correcting a stale claim inside an already-done task's `decisions` entry, not to checklist `step` text; CLAUDE.md never states this carve-out extends to checklist items. The actual edit holds up on its own terms regardless (it was independently and explicitly authorized by the filing task's own checklist item 2's 'worth a human sanity-check / wording tweak next time that task file is touched' instruction, and was executed conservatively as a non-destructive bracketed append with a fresh decisions entry) -- but the specific authority cited is a category mismatch. Worth either (a) a fresh, narrow decisions-entry correction noting the more precise authorizing source, or (b) raising to a human whether CLAUDE.md's in-place-edit carve-out should be explicitly extended to cover checklist-item text too, given this is likely to recur.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-30T04:46:18Z",
+      "recorded_by": "task-worker",
+      "decision": "Guarded `current_divergence`'s eager `find_swing_points(price, window=window)` call behind `if macd_histogram is not None or stochastic is not None or rsi is not None:` (chose the guard form the checklist item itself suggested over lazily computing swing lists on first actual need per-indicator, since a per-indicator lazy computation would reintroduce a subtler version of the exact redundancy this whole PR chain exists to remove -- e.g. macd_histogram and stochastic each independently triggering the same lazy computation on first use -- whereas the simple upfront boolean guard preserves the single-shared-computation property for every actually-reachable (>=1 indicator) call, at the cost of one trivial boolean check for the unreachable-today zero-indicator case).",
+      "rationale": "Verified both halves of the bug directly: `current_divergence(_FIXTURE_A_PRICE, window=0)` now returns `None` instead of raising (added as `test_current_divergence_with_no_indicators_and_invalid_window_returns_none`), and a `wraps`-spy on `find_swing_points` confirms zero calls (not one) for a zero-indicators call with a valid window (added as `test_current_divergence_with_no_indicators_never_calls_find_swing_points`). Ran the full `tests/unit/signals/test_divergence.py` suite (39 tests, up from 37) plus the full backend suite/coverage/static-analysis afterward -- all pass, 100% coverage maintained. Not reachable from any production call site today (confirmed via grep: `app.signals.engine`'s only call site always supplies all three indicators with the default valid window), matching this finding's own framing, so this is a contract-correctness fix, not a behavior change any current caller can observe."
+    },
+    {
+      "timestamp": "2026-09-30T04:46:18Z",
+      "recorded_by": "task-worker",
+      "decision": "Refactored `latest_divergence` to delegate to `_latest_divergence_from_swings` (computing `swing_lows(price, window=window)`/`swing_highs(price, window=window)` once, then calling the shared helper) instead of independently building its own bullish-then-bearish candidate list via two `find_divergences` calls and its own `max(..., key=lambda d: d.second.date)`. `_latest_divergence_from_swings` (used by both `latest_divergence` and `current_divergence` now) is the single remaining copy of the tie-break logic; its docstring was updated to describe itself as the shared source of truth rather than as a helper `latest_divergence` merely 'mirrors'. Left `_pick_most_recent`/`_INDICATOR_PRIORITY` (the cross-INDICATOR tie-break, a distinct concern) untouched, and did not reorder the two functions' definitions in the file (Python resolves the `latest_divergence` -> `_latest_divergence_from_swings` name reference at call time, not definition time, so the existing top-to-bottom reading order -- `latest_divergence` before the newer `_latest_divergence_from_swings` it now calls -- was kept rather than moved, to minimize the diff).",
+      "rationale": "Mutation-tested the dedup directly per this session's own verification standard: confirmed only ONE occurrence of `key=lambda d: d.second.date` remains in the module (in `_latest_divergence_from_swings` itself -- grepped to confirm `latest_divergence` no longer has its own copy), then temporarily changed that single `max(...)` to `min(...)` (reintroducing a divergent tie-break) and re-ran `tests/unit/signals/test_divergence.py`: exactly 2 tests failed -- both newly added by this task (`test_latest_divergence_prefers_the_more_recent_of_bullish_and_bearish` and `test_current_divergence_agrees_with_latest_divergence_on_a_two_candidate_fixture`), both asserting `result.kind == 'bearish'` and instead getting `'bullish'` -- then reverted the mutation and confirmed the file was byte-identical to pre-mutation and the full suite passed again (39/39). This also surfaced a genuine pre-existing coverage gap this task closes: every other fixture in the file qualifies on only ONE kind (bullish or bearish) at a time, so `_latest_divergence_from_swings`'s own `max`-by-date selection across a genuine 2-candidate (bullish AND bearish) list was never actually exercised before -- a new `_FIXTURE_C_PRICE`/`_FIXTURE_C_MACD_HISTOGRAM` pair (a single series qualifying on both kinds, with the bearish pair's `second.date` chronologically after the bullish pair's) was added specifically to give the mutation something to be caught by, and is kept as a permanent regression test beyond just this mutation-testing exercise, since it hand-verified the real selection behavior (`latest_divergence`/`current_divergence` correctly picking the more recent bearish result over the older bullish one) that had never been directly tested. Additionally ran a 300-trial randomized differential fuzz test (independent of and in addition to the hand-computed suite) comparing this refactor's `current_divergence`/`latest_divergence` against the pre-refactor implementation loaded fresh from `git show origin/main:backend/app/signals/divergence.py` -- varying series length, random-walk price, which of macd_histogram/stochastic/rsi are populated (each independently ~85% likely), and `window` (2-5): zero `dataclasses.asdict` mismatches across all 300 `current_divergence` trials and every per-indicator `latest_divergence` cross-check within them."
+    },
+    {
+      "timestamp": "2026-09-30T04:46:18Z",
+      "recorded_by": "task-worker",
+      "decision": "Hoisted the bearish-only `price`/`histogram` fixture duplicated between `test_current_divergence_picks_up_a_bearish_divergence_via_shared_highs` and `test_current_divergence_is_not_stale_across_consecutive_calls_with_different_price` to module-level `_FIXTURE_B_PRICE`/`_FIXTURE_B_MACD_HISTOGRAM` constants, matching the file's existing `_FIXTURE_A_*` naming convention, and updated both tests to reference them. Deliberately left the pre-existing, unrelated `test_bearish_divergence_is_the_mirror_case` test (which happens to construct numerically-identical `price`/`histogram` values inline, predating this PR chain) untouched -- the checklist item's own wording scopes this specifically to 'between two new tests' (the two named above), and folding in a third, older, not-reviewer-flagged test would be scope creep beyond what this finding asked for.",
+      "rationale": "Straightforward mechanical deduplication with no behavior change -- verified by re-running `tests/unit/signals/test_divergence.py` (still 39 passing, same assertions, same fixture values) after the edit."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/backend-portfolio-load-performance-followups-followups-followups-followups",
+    "pr_number": 357,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/357",
+    "pushed_at": "2026-09-30T04:50:37Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-30T05:01:12Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/357",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Rebased the PR branch (cut from a949807, one commit before main's index.json-corruption hotfix e72c4b7/#358) onto current origin/main myself to get a clean diff -- the rebase applied without conflict since this PR's own index.json corruption fix (part of commit f13c64d) is byte-identical to the hotfix's. Confirmed the resulting docs/tasks/index.json diff against origin/main is exactly this PR's own intended 2-line state bump (planned -> testing) for this task's own entry -- no leftover corruption-fix artifact and no new corruption. docs/tasks/index.json parses as valid JSON post-rebase and scripts/validate_tasks.py (345 files) is clean.",
+        "file": "docs/tasks/index.json",
+        "line": 0
+      },
+      {
+        "summary": "Item 1 (eager find_swing_points guard) independently re-verified by direct repro: on the PR branch, `current_divergence(price, window=0)` with zero indicators returns `None`; on a `git worktree` checkout of origin/main (pre-fix), the identical call raises `ValueError('window must be >= 1 (got 0)')`. Matches the claimed fix exactly.",
+        "file": "backend/app/signals/divergence.py",
+        "line": 611
+      },
+      {
+        "summary": "Item 2 (tie-break dedup) independently mutation-tested: changed `_latest_divergence_from_swings`'s `max(candidates, key=lambda d: d.second.date)` to `min(...)`, re-ran tests/unit/signals/test_divergence.py -- exactly the 2 new tests (`test_latest_divergence_prefers_the_more_recent_of_bullish_and_bearish`, `test_current_divergence_agrees_with_latest_divergence_on_a_two_candidate_fixture`) failed, all 37 others passed; reverted and confirmed a byte-identical, fully-green file (git diff empty). Separately re-verified the pre-existing-coverage-gap claim: applied the identical `max`->`min` mutation to the file's PRE-PR-#357 (i.e. post-#355) state in an origin/main worktree and re-ran the OLD 35-test file (and the full old 1464-test backend suite) -- all passed despite the broken tie-break, confirming no existing test caught it before this PR's `_FIXTURE_C_*` tests were added. Both claims hold up under independent re-verification, not just trust in the PR's own narrative.",
+        "file": "backend/app/signals/divergence.py",
+        "line": 525
+      },
+      {
+        "summary": "Item 4 (test-count correction) independently recounted: `grep -c \"    def test_\"` on the pre-#355 revision (commit 93288cf) gives 29, on the post-#355 revision (commit e423951) gives 35 -- confirming 29 pre-existing + 6 new = 35, matching the PR's correction exactly.",
+        "file": "docs/tasks/done/backend-portfolio-load-performance-followups-followups-followups.json",
+        "line": 41
+      },
+      {
+        "summary": "Item 5 (stale 'used directly by the analysis endpoint' claim) independently confirmed via grep: `latest_divergence` has zero callers in app/ outside its own module and the test suite (only `_latest_divergence_from_swings` and `current_divergence` reference it/delegate to the shared helper); `app.signals.engine.analyse` calls `current_divergence` only, which since this PR no longer calls `latest_divergence` internally either.",
+        "file": "docs/tasks/done/backend-portfolio-load-performance-followups-followups-followups.json",
+        "line": 47
+      },
+      {
+        "summary": "Items 4-6's decisions corrections diffed against each ancestor task's actual pre-PR revision (resolved via `git log --follow`, not blindly against current main, per the task's own instruction): docs/tasks/done/backend-portfolio-load-performance-followups-followups-followups.json diffed against e423951 (its last modification before this PR) shows a pure append of 3 new decisions entries with zero changes to any existing entry's text, checklist, or other fields. docs/tasks/done/backend-portfolio-load-performance-followups-followups.json diffed against the same commit e423951 shows a pure append of 1 new decisions entry, likewise with no edits to existing text. Both land on the correct ancestor task per the checklist items' own instructions. Append-only convention genuinely respected in both cases.",
+        "file": "docs/tasks/done/backend-portfolio-load-performance-followups-followups.json",
+        "line": 78
+      },
+      {
+        "summary": "Backend suite independently re-run: 1468 passed, 100% line/branch coverage (pytest --cov=app --cov-fail-under=90), matching the PR's reported numbers exactly. ruff check ., mypy, and scripts/check_profit_target_wording.py all clean. No frontend files touched by this PR, so frontend lint/tsc/coverage were not re-run. No API route/schema change, so backend/openapi.json regeneration was not required (confirmed via diff, untouched). No UI-facing surface (no frontend/API-consumer change), so the browser walkthrough (step 9) and persisted e2e suite (step 9a) are both explicitly not applicable and were skipped. No new module/dependency/layer added, so architecture-review was not run. verify-elder-signal checked: this is a pure internal refactor of current_divergence/latest_divergence's own swing-point/tie-break plumbing -- the detection algorithm (_evaluate_pair, Lovvorn filters), the cross-indicator tie-break (_pick_most_recent/_INDICATOR_PRIORITY, confirmed untouched by the diff), and divergence's documented 'detection + exposure only' scope (docs/Analyse.md Row 11) are all unchanged -- no methodology drift found. Noted per the dispatching instructions: backend/.env's FINTRADE_IBKR_ENABLED=true is untouched by this PR and reflects a recent explicit user instruction, not flagged as a problem; confirmed it isn't part of this PR's diff.",
+        "file": null,
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking: after this PR's refactor, `find_divergences` (module-level, public) now has zero callers anywhere in app/ -- only `tests/unit/signals/test_divergence.py` still calls it directly. This is a pre-existing condition this PR's refactor simply extends one level further (current_divergence never called latest_divergence even pre-#357, and latest_divergence itself already had zero production callers per this task's own item-5 finding), not a new regression, but worth a documentation pass on find_divergences's own docstring or a task decisions entry noting it's now test-only/reference surface. Filed as a checklist item on a new follow-up task rather than left only in this PR comment.",
+        "file": "backend/app/signals/divergence.py",
+        "line": 436
+      },
+      {
+        "summary": "A backgrounded code-review skill pass (high effort) found: (1) the new `_FIXTURE_B_*` module-level comment claims 'every other current_divergence test in this file exercises the bullish/lows side only', but this PR's own new `test_current_divergence_agrees_with_latest_divergence_on_a_two_candidate_fixture` also gets a bearish `current_divergence` result (via FIXTURE_C's multi-candidate tie-break) -- a documentation-accuracy nit introduced by this very diff, cosmetic. (2) `latest_divergence`'s refactored body calls `swing_lows`+`swing_highs` separately (2 full scans) rather than one partitioned `find_swing_points` call like `current_divergence`/`build_divergence_swing_cache` use -- independently confirmed this is NOT a new regression (the pre-#357 `latest_divergence` body had the identical 2-scan cost via two separate `find_divergences` calls), and that the double-scan pattern was already deliberately scoped out for other call sites specifically (not `latest_divergence`) by `docs/tasks/done/backend-swing-point-detector-followups.json`'s own decisions entry. Both non-blocking; filed as checklist items on the new follow-up task.",
+        "file": "backend/tests/unit/signals/test_divergence.py",
+        "line": 91
+      }
+    ],
+    "notes": "Rebased the PR branch onto current origin/main (clean, conflict-free -- this PR's own index.json corruption fix in commit f13c64d is byte-identical to the already-merged hotfix e72c4b7/#358) before reviewing, per the dispatching instructions, and confirmed the post-rebase index.json diff against origin/main is exactly this PR's own 2-line intended change with no leftover corruption artifact. Independently re-ran backend tests (1468 passed, 100% coverage), ruff/mypy/profit-target-wording/validate_tasks (all clean). Independently reproduced item 1's fix via a git-worktree checkout of pre-fix origin/main (confirms the ValueError->None restoration). Independently mutation-tested item 2's tie-break dedup myself (2 new tests fail on a max->min mutation, reverted cleanly) AND independently re-verified the pre-existing-coverage-gap claim by applying the same mutation to the pre-#357 (post-#355) worktree revision and confirming the OLD 35-test file plus the full OLD 1464-test backend suite both pass despite the broken tie-break. Independently recounted item 4's test totals (29 pre-existing + 6 new = 35, confirmed via git show of the exact pre/post-#355 commits) and confirmed item 5's now-zero-callers claim via grep. Diffed both ancestor done-task files against their actual last-modified commit (e423951, not blindly against current main) and confirmed both items 4-6's corrections are genuinely pure appends with no edits to existing decisions-entry text, landing on the correct ancestor task in each case. verify-elder-signal check found no methodology drift -- pure internal refactor, detection algorithm and cross-indicator tie-break both untouched. No UI surface -- browser walkthrough and e2e suite both explicitly skipped as not applicable. No blocking findings. One new non-blocking finding (find_divergences now fully dead in production, a pre-existing condition this PR's refactor extends one level further) filed as a checklist item on a new follow-up task, docs/tasks/backend-portfolio-load-performance-followups-followups-followups-followups-followups.json."
+  }
+}
