@@ -2378,8 +2378,8 @@
       "id": "frontend-fibonacci-auto-levels",
       "area": "frontend/stocks",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-fibonacci-auto-levels.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-fibonacci-auto-levels.json"
     },
     {
       "id": "backend-portfolio-load-performance-followups",
@@ -2436,6 +2436,13 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/backend-data-provider-timeouts-followups.json"
+    },
+    {
+      "id": "frontend-fibonacci-auto-levels-followups",
+      "area": "frontend/stocks",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-fibonacci-auto-levels-followups.json"
     }
   ]
 }

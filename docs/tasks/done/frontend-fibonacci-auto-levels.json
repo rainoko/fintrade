@@ -3,7 +3,7 @@
   "title": "Stock Detail price chart: auto-calculated Fibonacci retracement levels for the currently visible range, recalculated on zoom/pan",
   "area": "frontend/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "docs/Analyse.md",
@@ -86,5 +86,38 @@
     "pr_number": 361,
     "pr_url": "https://github.com/rainoko/fintrade/pull/361",
     "pushed_at": "2026-09-30T07:33:34Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-30T07:49:32Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/361",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Backend: 1486 passed, 99.92% coverage (unaffected/untouched by this PR, checked as baseline). Frontend: 980 passed, 99.65% statements / 98.93% branches / 99.64% functions / 99.74% lines, comfortably above the 90% gate. Backend ruff+mypy clean; frontend eslint and `tsc -b --noEmit` clean; scripts/check_profit_target_wording.py clean.",
+        "file": "frontend/src/features/stocks/components/fibonacciLevels.ts"
+      },
+      {
+        "summary": "Verified all 7 `decisions` entries are genuine judgment-call records (algorithm choice researched against TradingView's Auto Fib Retracement precedent, ratio-set scope, createPriceLine-vs-addSeries rendering choice, 150ms debounce, legend gating, module placement vs Frontend.md §3, and why this doesn't violate the 'no client-side Elder-indicator recomputation' rule) -- each states what was decided and why, including rejected alternatives, not just 'changed X'.",
+        "file": "docs/tasks/frontend-fibonacci-auto-levels.json"
+      },
+      {
+        "summary": "No API/schema changes in this PR (purely frontend) -- backend/openapi.json regeneration doesn't apply.",
+        "file": "backend/openapi.json"
+      },
+      {
+        "summary": "Real browser walkthrough (Stock Detail page, AAPL, fixture data provider): 7 dotted Fib price lines render with correct labels/colors; the legend row + MetricHelp popover show the current swing/levels text matching what's drawn; zooming (mouse wheel) and panning (click-drag) both correctly recalculate the swing and redraw the levels (confirmed both an uptrend-swing popover text and, after aggressive zoom, a downtrend-swing popover text with the mirrored level values); no console errors or failed network requests observed at any step. The library's own minimum-bar-spacing floor prevented driving the live UI down to a literal <2-bar view (that degenerate path is exercised by the existing simulated-event unit tests instead, which is reasonable given the real UI can't reach it).",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx"
+      },
+      {
+        "summary": "Persisted e2e suite (`make e2e`): all 26 specs across dashboard/navigation/portfolio/scanner/stock-analysis/watchlist passed; no regression from this PR.",
+        "file": "frontend/tests/e2e/stock-analysis.spec.ts"
+      },
+      {
+        "summary": "code-review skill (medium effort) found no blocking correctness bug. It flagged one real but narrow edge case (findFibonacciSwing's tie-breaking keeps the first, not most-recent, bar on an exact tied extreme value, which can mirror-flip direction) plus two minor gaps (fibonacciHelp.interpretValue's downtrend branch has no direct unit test, and selectVisibleBars duplicates PriceChart.tsx's existing selectVisibleIndicatorPoints filter logic instead of reusing it). Judged non-blocking: the tie case requires an exact price tie across distinct bars in a purely cosmetic (non-signal) overlay with no established canonical tie-break convention to violate, and the downtrend branch was manually verified correct via the live browser walkthrough despite lacking a unit test. Filed as docs/tasks/frontend-fibonacci-auto-levels-followups.json.",
+        "file": "frontend/src/features/stocks/components/fibonacciLevels.ts",
+        "line": 114
+      }
+    ],
+    "notes": "Accepted. Comprehensive, well-documented PR: 7 genuine decisions entries, hand-computed reference-value tests, correct handling of the two documented degenerate cases (verified live), and a real, working zoom/pan recalculation confirmed in an actual browser (not just mocked unit tests). Three non-blocking findings (a narrow tied-extreme edge case, a missing downtrend-branch unit test, and a small reuse duplication) tracked on frontend-fibonacci-auto-levels-followups rather than blocking this PR."
   }
 }
