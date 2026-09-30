@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-portfolio-load-performance-followups-followups-followups's PR #355 review",
   "area": "backend/signals",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "backend-portfolio-load-performance-followups-followups-followups"
   ],
@@ -60,5 +60,11 @@
       "rationale": "Straightforward mechanical deduplication with no behavior change -- verified by re-running `tests/unit/signals/test_divergence.py` (still 39 passing, same assertions, same fixture values) after the edit."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-portfolio-load-performance-followups-followups-followups-followups",
+    "pr_number": 357,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/357",
+    "pushed_at": "2026-09-30T04:50:37Z"
+  }
 }
