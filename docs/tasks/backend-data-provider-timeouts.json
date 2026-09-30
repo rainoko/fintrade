@@ -61,5 +61,11 @@
       "rationale": "None of the three fetches depends on either of the others, so running them concurrently means a slow/degraded provider now costs its ~10s timeout budget once per ticker instead of up to three times -- directly addressing the compounding-latency mechanism (three sequential ~30s-capable calls stacking toward ~90s) that produced this task's own incident. Mirrors the already-established, already-reviewed `ThreadPoolExecutor` pattern this same file's `get_indicator_history` uses for its own daily+weekly concurrent fetch (backend-indicator-history-performance), and the pattern `app.api.day_trader_signal.compute_day_trader_signals_concurrently`/`app.portfolio.pricing` use for N-ticker fan-out. Resolving `.result()` in daily-then-weekly-then-extended order (rather than, say, whichever completes first) preserves the exact pre-existing error-priority behavior (a daily failure -> 404/422/503 takes priority over a weekly/extended one) so no existing error-mapping test needed to change. Verified safe against `CachedDataProvider`'s SQLite-backed cache layer without any cache-layer change: `get_extended_data` already takes the same `self._lock` `get_daily_ohlcv`/`get_weekly_ohlcv` do (app/data/cache.py), which was already documented and reviewed as safe for exactly this kind of concurrent-caller addition when the daily+weekly pair was made concurrent for backend-indicator-history-performance."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-data-provider-timeouts",
+    "pr_number": 360,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/360",
+    "pushed_at": "2026-09-30T05:33:21Z"
+  }
 }
