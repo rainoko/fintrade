@@ -449,8 +449,10 @@ def find_divergences(
     those same dates, across ``price``'s full history. Oldest first.
 
     Runs swing-point detection fresh on the full ``price`` series every call -- fine for a
-    single whole-history pass (e.g. GET /api/stocks/{ticker}/analysis, or this module's own
-    reference tests), but a caller re-running this once per bar over a growing prefix (e.g.
+    single whole-history pass (this module's own reference tests are exactly that pattern; a
+    hypothetical caller that only ever needs one full-history pass, such as an endpoint
+    computing over a stock's complete history in one shot, would fit the same pattern), but a
+    caller re-running this once per bar over a growing prefix (e.g.
     app.signals.engine.analyse_history) should use ``build_divergence_swing_cache`` +
     ``confirmed_divergence_as_of`` instead, to avoid an O(history_length) swing-point re-scan
     on every one of up to thousands of calls -- see that pair's own docstrings.
