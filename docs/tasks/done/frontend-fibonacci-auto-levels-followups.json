@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from frontend-fibonacci-auto-levels's PR #361 review",
   "area": "frontend/stocks",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-fibonacci-auto-levels"],
   "references": [
     "docs/tasks/frontend-fibonacci-auto-levels.json",
@@ -50,5 +50,12 @@
     "pr_number": 362,
     "pr_url": "https://github.com/rainoko/fintrade/pull/362",
     "pushed_at": "2026-09-30T08:11:33Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-30T08:18:34Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/362",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review of PR #362 (3 non-blocking follow-ups from PR #361: tie-break fix, fibonacciHelp.interpretValue test coverage, selectVisibleBars dedup). Frontend suite: 986/986 tests pass, coverage 99.65% statements / 98.99% branches (well above the 90% gate); backend suite unaffected by this frontend-only PR, re-run as a sanity check anyway: 1486 passed, 99.92% coverage. Static analysis clean: backend ruff + mypy, frontend eslint + tsc -b, and the profit-target stale-wording guard all pass with zero findings. code-review skill (medium effort, backgrounded) found zero bugs after tracing the tie-break arithmetic against both new and existing test cases, confirming the selectVisibleIndicatorPoints->selectVisibleBars delegation is behaviorally identical to the deleted inline filter, and verifying the new fibonacciHelp.interpretValue tests match the (unchanged) implementation's actual output. Manually re-derived both new tied-high/tied-low test cases by hand from findFibonacciSwing's updated >=/<= loop and confirmed the expected highDate/lowDate/direction in each; the >=/<= fix is correct given bars arrive pre-sorted ascending by date (an invariant already established elsewhere in PriceChart.tsx, unchanged by this PR) -- forward iteration with a non-strict comparison naturally makes the most-recently-seen tied bar win, no off-by-one at the bars[0] initialization. All three decisions entries are genuine: each documents a real alternative considered and rejected (explicit index/date tracking vs. the >=/<= swap; toBe vs. toContain assertions; a new shared utils module vs. delegating to the already-exported selectVisibleBars) with rationale grounded in the existing codebase's own conventions, not post-hoc restatements of the diff. No new/substantially-changed frontend component in this diff (PriceChart.tsx's change is a 6-line internal delegation, not a new component) so the common/-vs-feature placement check (step 7a) doesn't apply. No new module/dependency/layer, so architecture-review wasn't loaded. Not backend/signals or backend/portfolio and skill is null (not verify-elder-signal), so that skill wasn't loaded. No API route/schema touched, so the openapi.json snapshot check doesn't apply. UI-facing (PriceChart.tsx rendering path) per step 9/9a: ran the persisted e2e suite (`make e2e`) -- all 26 specs across 8 files pass, including stock-analysis.spec.ts's price-chart-rendering and range/interval-toggle specs, with no console/network errors. Skipped the exploratory Playwright MCP walkthrough (step 9) per the dispatcher's own judgment call for this PR: the change is a mechanical, behavior-preserving delegation plus a narrow tie-break fix and pure test additions, all three already covered by precise hand-computed unit tests and the unchanged PriceChart.test.tsx (74/74 still passing) and the full e2e suite above -- no incremental signal a manual walkthrough would add beyond what's already been exercised. No blocking findings; no non-blocking findings either (code-review returned zero, static analysis clean, both test suites and e2e green), so no frontend-fibonacci-auto-levels-followups-followups task was created."
   }
 }
