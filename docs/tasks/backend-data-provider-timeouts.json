@@ -3,7 +3,7 @@
   "title": "Add explicit request timeouts to the yfinance/Stooq market-data provider calls",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "docs/Analyse.md#9-data-sources-free",
@@ -67,5 +67,18 @@
     "pr_number": 360,
     "pr_url": "https://github.com/rainoko/fintrade/pull/360",
     "pushed_at": "2026-09-30T05:33:21Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-30T05:46:01Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/360",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: GET /api/stocks/{ticker}/analysis's new concurrent fetch (ThreadPoolExecutor(max_workers=3), .result() called in daily->weekly->extended order) delays a fast failure by however long the slowest of the OTHER two concurrent fetches takes, because ThreadPoolExecutor.__exit__ unconditionally calls shutdown(wait=True) before an exception raised by an earlier .result() call can propagate out of the `with` block. Reproduced directly against the real endpoint: a stub provider whose get_daily_ohlcv raises TickerNotFoundError immediately, with get_extended_data sleeping 3s, returns its 404 in ~3.04s instead of near-instantly. Also means all three provider calls are now unconditionally issued every time, even for a ticker that would previously have short-circuited after the first failure (extra load on the exact rate-limited provider this task exists to protect) -- both directly contradict this PR's own decisions-entry claim that a slow/degraded provider now 'costs its timeout once per ticker ... rather than up to three times over'. None of the added tests exercise a mixed fast-fail/slow-other-leg scenario, so this slipped through the mutation-tested concurrency test (which only exercises the all-three-succeed timing case).",
+        "file": "backend/app/api/routers/stocks.py",
+        "line": 483
+      }
+    ],
+    "notes": "Verified the final committed diff on task/backend-data-provider-timeouts directly (both the yfinance timeout mechanism and the get_analysis concurrency conversion are genuinely present together in commit ceed6f3 -- no sign of the task-worker's self-reported mid-session git-checkout mishap leaving anything half-reapplied). Read the installed yfinance (1.7.0) and curl_cffi (0.16.3) source directly to ground-truth every claim in the session-clamp decisions entry: .history()'s 10s default, .calendar/.info/.insider_transactions being plain properties with no timeout kwarg, YfData being a genuine process-wide singleton, and both requests.Session and curl_cffi's Session funneling .get()/.post() through .request() (so wrapping .request in place genuinely works) -- all confirmed accurate. Verified the 503 path directly with a live TimeoutError repro (not just via the test suite). Re-ran the mutation test myself (revert to sequential -> new integration test fails at 0.95s vs 0.6s threshold -> reapply -> passes) using `git checkout --` to restore, confirming the committed state matches after. Regenerated backend/openapi.json myself: zero diff, confirming the committed snapshot is genuinely docstring-only. Full backend suite (1481 passed, 99.92% coverage, gate 90%), ruff/mypy clean, frontend lint/tsc clean (unaffected by this PR), validate_tasks.py clean, and the full Playwright e2e suite (26 specs, including stock-analysis.spec.ts) all pass against this branch. Loaded code-review at high effort (ran as a background subagent) which surfaced the blocking fail-fast-delay bug above; independently reproduced it myself with a standalone ThreadPoolExecutor repro and directly against the real get_analysis endpoint before accepting it as genuine, per this review's own verification standard. Four non-blocking findings (get_extended_data's own three property fetches still stacking to ~30s worst-case since they remain sequential; the new concurrency test's wall-clock timing-threshold flakiness risk; the now-4th-near-duplicate ThreadPoolExecutor pattern across the backend with no shared helper; two genuinely-hard-to-hit defensive branches left uncovered in yfinance_provider.py) filed on backend-data-provider-timeouts-followups (new task, since none existed yet). Posted this verdict as a COMMENTED-type PR review (gh pr review --comment), not a formal approve/request-changes review. State set back to implementing so task-worker can fix the fail-fast-delay bug (e.g. resolve via as_completed or avoid waiting on the executor's shutdown before re-raising) and a fresh review can follow."
   }
 }

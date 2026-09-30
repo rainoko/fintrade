@@ -1,0 +1,37 @@
+{
+  "id": "backend-data-provider-timeouts-followups",
+  "title": "Follow-ups from backend-data-provider-timeouts's PR #360 review",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-data-provider-timeouts"],
+  "references": [
+    "docs/tasks/backend-data-provider-timeouts.json",
+    "https://github.com/rainoko/fintrade/pull/360",
+    "backend/app/data/yfinance_provider.py",
+    "backend/app/api/routers/stocks.py",
+    "backend/app/portfolio/pricing.py",
+    "backend/app/api/day_trader_signal.py"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's PR #360 review of backend-data-provider-timeouts (needs_work verdict on that PR for a separate, blocking fail-fast-delay bug in GET /api/stocks/{ticker}/analysis's new concurrent fetch -- tracked as a review comment on the parent task itself, not here, since it must be fixed before that PR can merge). These four items are real but non-blocking: worth tracking so they aren't lost once the parent PR merges, per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule.",
+  "checklist": [
+    {
+      "step": "get_extended_data's own three property fetches (.calendar/.info/.insider_transactions) remain sequential; each is capped at 10s by the new _clamp_session_timeout, but the call as a whole can still take up to ~30s in the worst case -- the same 'sequential calls stacking' mechanism the parent task's own incident report describes, just moved one level down from get_analysis and only partially addressed by this PR's per-call timeout cap. Consider fetching these three concurrently too (mirroring the get_analysis-level fix, once its own fail-fast-delay bug is fixed) to bound get_extended_data's own worst case to roughly one timeout budget.",
+      "done": false
+    },
+    {
+      "step": "The new TestConcurrentFetch integration test (tests/integration/test_stocks_analysis.py) asserts elapsed wall-clock time is under 2x a 0.3s sleep -- confirmed genuinely discriminating (fails when reverted to sequential), but a wall-clock timing threshold like this carries some flakiness risk under heavy CI/sandbox scheduling load. Consider a more deterministic mechanism if this test is ever observed to flake (e.g. instrumenting call start/end order or overlap directly instead of timing it).",
+      "done": false
+    },
+    {
+      "step": "This PR's GET /api/stocks/{ticker}/analysis concurrent fetch is now the 4th near-identical hand-rolled 'with ThreadPoolExecutor(...) as executor: submit(...); .result()' block in the backend (app/portfolio/pricing.py, app/api/day_trader_signal.py, get_indicator_history in app/api/routers/stocks.py, and now get_analysis), with no shared helper factored out. Worth factoring into one shared utility -- especially relevant since the parent PR's blocking fail-fast-delay bug (ThreadPoolExecutor.__exit__'s shutdown(wait=True) delaying an early exception until every submitted future finishes) would need the same fix applied consistently across all of these call sites if any of them share the same bug shape.",
+      "done": false
+    },
+    {
+      "step": "backend/app/data/yfinance_provider.py sits at 97% line / 96% branch coverage after this PR: _clamp_session_timeout's inner re-check-after-acquiring-the-lock branch (line 73) and its defensive `except Exception: pass` around the attribute assignment (lines 91-92) are not exercised by any test -- both are genuinely best-effort/defensive paths (the first is hard to hit deterministically without instrumenting the lock; the second needs a session object that allows reading .request but rejects arbitrary attribute assignment). Worth a test if a clean way to trigger these is found, but low priority given both are intentionally never-raise safety nets.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
