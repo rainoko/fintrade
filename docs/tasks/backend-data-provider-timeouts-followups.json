@@ -3,7 +3,7 @@
   "title": "Follow-ups from backend-data-provider-timeouts's PR #360 review",
   "area": "backend/data",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-data-provider-timeouts"],
   "references": [
     "docs/tasks/backend-data-provider-timeouts.json",
@@ -62,5 +62,11 @@
       "rationale": "backend/app/db/session.py is unchanged since PR #360's third review round's own empirical load test (10-12 concurrent requests, 30-36 simultaneous connection demands against the 15-connection cap, graceful queuing with no OperationalError/pool TimeoutError) and pr-decision's independent re-verification of the same result -- there is no new code on this path for this followups task to re-test against, and this task's own instructions explicitly say to 'only act on this if there's a concrete, low-risk improvement, otherwise it's fine to just confirm/reconfirm via a decisions entry and leave as-is.' Considered two concrete low-risk improvements and rejected both for this pass: (1) explicit pool_size/max_overflow sizing on the engine -- rejected because there's no evidence-based number to pick yet (this is a single-user/local app in every environment that's actually exercised it; an arbitrary larger number is not obviously safer than the SQLAlchemy default, and an arbitrary smaller number risks making the theoretical exhaustion scenario easier to hit, not harder); (2) a lighter-weight per-leg resource than a full second Session for get_data_provider_factory's per-leg scope -- rejected because CachedDataProvider's read-through-cache contract (app/data/cache.py) is written against a SQLAlchemy Session specifically (ORM upserts, IntegrityError/OperationalError swallowing), and inventing a narrower resource just for this one call site would duplicate that contract's logic rather than reuse it, for a risk this task's own findings already show degrades gracefully. Worth revisiting if either the per-call-session pattern spreads to more endpoints or real usage approaches the concurrency levels where the pool's default 30s checkout timeout could actually be hit -- neither has happened since PR #360 merged."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-data-provider-timeouts-followups",
+    "pr_number": 364,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/364",
+    "pushed_at": "2026-09-30T09:09:38Z"
+  }
 }
