@@ -3,7 +3,7 @@
   "title": "Clearer in-progress feedback on the IBKR preload dialog during delete-then-import",
   "area": "frontend/portfolio",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "docs/architecture/Frontend.md",
@@ -55,5 +55,12 @@
     "pr_number": 363,
     "pr_url": "https://github.com/rainoko/fintrade/pull/363",
     "pushed_at": "2026-09-30T08:35:24Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-30T08:48:32Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/363",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review of PR #363. Frontend suite: 987/987 pass, coverage 99.65%/98.99% line/branch (well above the 90% gate), IbkrPreloadDialog.tsx itself at 100%. Backend suite unaffected: 1486/1486 pass, 99.92% coverage. Static analysis clean: backend ruff + mypy, frontend eslint + tsc -b, and the profit-target stale-wording guard all pass with zero findings. code-review skill (medium-high effort) found zero correctness/reuse/simplification issues -- confirmed the diff is a faithful additive wrap (dim + overlay + explicit checkbox disabled) around pre-existing JSX with no logic removed or altered. e2e suite (make e2e): 26/26 specs pass (no dedicated IBKR e2e spec exists, but this confirms no regression elsewhere). Browser walkthrough (real backend+frontend dev servers, browser-level network mocking for the /api/ibkr/* endpoints since FINTRADE_IBKR_ENABLED points at an unreachable gateway and no fixture-provider path exists for IBKR specifically): golden path -- opened the dialog, confirmed the overlay (role=status, aria-live=polite, correct spinner + status text) appears and dims the content while the mutation is held pending, confirmed the conflict checkbox is disabled and a click on it is genuinely blocked, released the mutation and confirmed the success screen shows the imported position and the Portfolio page behind the dialog had already refreshed (Positions Value/Total Equity updated) via onSettled's invalidation before Done was even clicked. Edge case -- same flow but the preload call returns 503: overlay/disabled state correctly appear and then correctly clear on settle, the already-deleted-positions warning renders, and the checkbox/Confirm button are usable again for a retry (not stuck disabled). All three `decisions` entries are genuine judgment calls with real rationale and were independently verified: no pre-existing common/ overlay pattern exists (grepped for absolute-position/Backdrop/overlay usage), single-phase status message is accurate to what useIbkrPortfolioPreload's isPending actually exposes, and the 'no code change needed for the refresh complaint' claim checks out (portfolioKeys.all is exactly usePortfolio's query key). No API/schema change, so no openapi.json regeneration was needed. No blocking or non-blocking findings."
   }
 }

@@ -2350,8 +2350,8 @@
       "id": "frontend-ibkr-preload-loading-feedback",
       "area": "frontend/portfolio",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-ibkr-preload-loading-feedback.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-ibkr-preload-loading-feedback.json"
     },
     {
       "id": "frontend-support-zones-disappear-after-oscillators",
