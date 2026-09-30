@@ -80,5 +80,11 @@
       "rationale": "That rule is scoped to *Elder's own indicators* (the ones docs/Analyse.md defines and the backend already computes for the Triple Screen system) -- its rationale is 'don't duplicate the backend's indicator math in a second language with no test-cross-checking'. A Fibonacci retracement is not one of Elder's indicators at all (confirmed directly against docs/Analyse.md, which never mentions Fibonacci) and the backend has no equivalent computation to duplicate or drift from -- it's a simple, standalone geometric calculation (max/min + linear interpolation) over data the frontend already has, the same category of purely-visual client-side aid this task's own description frames it as (analogous to the existing support/resistance zone overlay's client-side rendering logic, though that overlay's underlying zone *detection* is itself backend-computed, unlike this one)."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-fibonacci-auto-levels",
+    "pr_number": 361,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/361",
+    "pushed_at": "2026-09-30T07:33:34Z"
+  }
 }
