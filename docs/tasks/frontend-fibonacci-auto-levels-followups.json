@@ -44,5 +44,11 @@
       "rationale": "PriceChart.tsx already imports selectVisibleBars from fibonacciLevels.ts for the Fibonacci overlay itself, so the import-direction precedent (fibonacciLevels.ts as the generic windowing helper's home, PriceChart.tsx as a consumer) already exists in this codebase -- no new module or import cycle needed. Keeping selectVisibleIndicatorPoints's own name/signature/doc comment at both call sites (rather than inlining selectVisibleBars<IndicatorHistoryPoint> at each) preserves its own doc comment's context (the /indicators-vs-/history defensive-guard rationale, and being 'exported so two computations can't drift' -- referring to its own two internal call sites, not fibonacciLevels.ts) with the smallest possible diff, while still eliminating the actual duplicated filter logic the checklist item flagged. Rejected: promoting a brand-new shared module (e.g. a `visibleRange.ts` utils file) for a single one-line filter function -- more indirection than the size of the problem warrants, and CLAUDE.md/architecture docs express no existing convention calling for a shared-utils module at this granularity."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-fibonacci-auto-levels-followups",
+    "pr_number": 362,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/362",
+    "pushed_at": "2026-09-30T08:11:33Z"
+  }
 }
