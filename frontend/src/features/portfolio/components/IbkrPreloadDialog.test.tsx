@@ -615,6 +615,46 @@ describe('IbkrPreloadDialog', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
+  // frontend-ibkr-preload-loading-feedback: while the delete-then-import
+  // mutation is in flight, the review content must show a clear, hard-to-miss
+  // in-progress indicator and stop inviting further checkbox input.
+  it('shows an in-progress status overlay and disables the conflict checkbox while the mutation is pending', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.post('/api/ibkr/portfolio-preload', async () => {
+        await delay('infinite')
+        return HttpResponse.json({
+          state: 'available',
+          detail: null,
+          imported: [],
+          skipped_conflicting_tickers: [],
+        })
+      }),
+    )
+    renderDialog(true)
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Import 1 position' }),
+      ).toBeInTheDocument(),
+    )
+    // Not shown before the mutation starts.
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+
+    const checkbox = screen.getByRole('checkbox', {
+      name: 'Delete existing AAPL position (IBKR conid 265598)',
+    })
+    expect(checkbox).toBeEnabled()
+
+    await user.click(screen.getByRole('button', { name: 'Import 1 position' }))
+
+    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument())
+    expect(
+      screen.getByText('Deleting selected positions and importing from IBKR…'),
+    ).toBeInTheDocument()
+    expect(checkbox).toBeDisabled()
+  })
+
   it('lets Escape dismiss the dialog normally once no mutation is pending', async () => {
     const onClose = vi.fn()
     renderWithProviders(

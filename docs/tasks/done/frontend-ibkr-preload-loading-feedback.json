@@ -1,0 +1,71 @@
+{
+  "id": "frontend-ibkr-preload-loading-feedback",
+  "title": "Clearer in-progress feedback on the IBKR preload dialog during delete-then-import",
+  "area": "frontend/portfolio",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": [],
+  "references": [
+    "docs/architecture/Frontend.md",
+    "frontend/src/features/portfolio/components/IbkrPreloadDialog.tsx",
+    "frontend/src/features/portfolio/hooks/useIbkrPortfolioPreload.ts"
+  ],
+  "description": "User-reported UX issue: while the IBKR portfolio-preload dialog's delete-then-import sequence (`useIbkrPortfolioPreload`) is running, it's hard to tell whether anything is happening at all -- 'maybe page just not refreshing'. Investigated the current implementation (`IbkrPreloadDialog.tsx`) before writing this task: the Confirm button does already show a small MUI `loading` spinner while `preloadMutation.isPending`, but that's the only visual indicator -- the non-conflicting/conflicting position tables and the per-row 'Delete existing?' checkboxes render exactly as before and stay fully interactive the whole time the sequential deletes-then-import network calls are in flight (which, for a triple-position preload, is several real round trips, not instantaneous). A user can still toggle a checkbox mid-operation with no effect and no visual cue that their input is being ignored.\n\nThis is UI-only polish -- no backend change, and no change to the actual delete-then-preload request sequence or its ordering guarantees (already correct, per the `backend-ibkr-portfolio-preload`/`frontend-ibkr-portfolio-preload` task chain). Separately investigated the 'maybe page just not refreshing' half of the complaint: `useIbkrPortfolioPreload`'s `onSettled` already invalidates the relevant portfolio query keys (see that hook's own `decisions` entry, informed by the PR #328 regression on a sibling settings hook), so the underlying Portfolio page's positions table should already refresh promptly once the mutation settles -- this task should confirm that's still true (it may just be a perception problem solved entirely by better in-progress feedback, not a real staleness bug), and only dig further into the refresh mechanism itself if a genuine gap is found.",
+  "checklist": [
+    {
+      "step": "Add a clear, hard-to-miss in-progress treatment over the dialog's content area (position tables + conflict list) while `preloadMutation.isPending` -- e.g. an MUI `Skeleton` overlay/replacement for the tables, or a dimmed/disabled visual state with a centered spinner and status text (\"Deleting selected positions...\" -> \"Importing...\" if the two phases are distinguishable, or a single generic in-progress message otherwise). Check `components/common/` for any existing skeleton/loading-overlay pattern to reuse before inventing a new one (Frontend.md §3's placement rule applies to whatever you build).",
+      "done": true
+    },
+    {
+      "step": "Disable the conflict-row 'Delete existing?' checkboxes (and any other interactive control in the dialog body besides Cancel, which should stay `disabled` as it already is) while `preloadMutation.isPending`, so the UI doesn't invite input it will silently ignore.",
+      "done": true
+    },
+    {
+      "step": "Confirm (or fix, if genuinely broken) that the Portfolio page's underlying positions data visibly refreshes promptly once the preload mutation settles -- read `useIbkrPortfolioPreload`'s `onSettled` invalidation logic directly rather than assuming it still works after any recent changes, and do a real check (browser walkthrough or an integration-level test) that a newly-imported position actually appears in the page behind the dialog after clicking 'Done', not just that the query cache was technically invalidated.",
+      "done": true
+    },
+    {
+      "step": "Tests (vitest/Testing Library/MSW, no live network calls): the loading treatment's visibility gated on `preloadMutation.isPending`, the checkboxes' disabled state during the mutation, and (if a gap was found and fixed in checklist item 3) a regression test for the refresh behavior.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-30T08:33:59Z",
+      "recorded_by": "task-worker",
+      "decision": "The in-progress treatment is a dimmed content area (opacity 0.35 on the existing tables/confirmation-text Stack) covered by an absolutely-positioned semi-transparent overlay `Box` (role=\"status\", aria-live=\"polite\") containing a centered MUI `CircularProgress` plus one generic status line (\"Deleting selected positions and importing from IBKR…\") -- not an MUI `Skeleton` replacement of the tables. Kept inline in `IbkrPreloadDialog.tsx` as a one-off rather than promoted to a new `components/common/` component.",
+      "rationale": "The user has already reviewed exactly what these tables show (which tickers, which conflicts, which checkboxes they chose) immediately before clicking Confirm -- dimming-and-overlaying keeps that context visible (reinforcing 'yes, the thing you just asked for is happening') rather than replacing it with content-shaped grey placeholder bars the way `Skeleton` would, which reads more naturally for 'new data is arriving' (the `frontend-watchlist-add-skeleton` precedent) than for 'your just-confirmed action is being applied'. `components/common/` was checked first per the checklist item's own instruction: `LoadingState` is a whole-section replacement spinner (already used elsewhere in this same file for the initial preview fetch), not a dim/overlay-over-existing-content pattern, and no such overlay component exists anywhere in the codebase yet (grepped for `position: 'absolute'`/`Backdrop`/`overlay` usage) -- so this is a first use, same situation `frontend-watchlist-add-skeleton` was in for its own first-use `Skeleton` pattern, which explicitly kept that one-off inline rather than generalizing prematurely; this task follows the same reasoning and revisits promotion to `common/` only if a second use site appears. A single generic status message (not a two-phase \"Deleting...\" -> \"Importing...\" sequence) was used because the two phases genuinely aren't observable from `IbkrPreloadDialog`: `useIbkrPortfolioPreload`'s `mutationFn` runs the sequential deletes and the final `preloadIbkrPortfolio()` call inside one `useMutation`, exposing only a single `isPending` boolean with no intermediate phase state -- inventing a fake phase transition (e.g. a local timer) would be dishonest about what's actually verifiable rather than genuinely informative."
+    },
+    {
+      "timestamp": "2026-09-30T08:33:59Z",
+      "recorded_by": "task-worker",
+      "decision": "Each conflict-row `Checkbox` gets an explicit `disabled={preloadMutation.isPending}` prop, in addition to (not instead of) the dimmed/overlaid visual treatment from the previous decision.",
+      "rationale": "The overlay makes the checkboxes visually read as non-interactive, but a real MUI `Checkbox` underneath remains focusable/clickable by default unless actually `disabled` -- an explicit `disabled` prop is both the accessible signal (assistive tech announces it, not just a CSS opacity change) and the only reliable way to test the 'doesn't invite input it will silently ignore' requirement from this checklist item without relying on brittle pointer-events/CSS assertions in jsdom."
+    },
+    {
+      "timestamp": "2026-09-30T08:33:59Z",
+      "recorded_by": "task-worker",
+      "decision": "No code change was needed for the 'does the Portfolio page actually refresh' half of the reported complaint -- it already works correctly. Verified by reading `useIbkrPortfolioPreload`'s `onSettled` (invalidates `portfolioKeys.all`, which is the exact `queryKey` `usePortfolio()` uses, not merely a prefix match) and by re-running the existing `PortfolioPage.test.tsx` integration test `'preloads NVDA end to end and shows it in the refreshed positions table'`, which passes and genuinely exercises: opening the dialog, confirming an import, clicking Done, and asserting the newly-imported ticker appears in the real `Positions` table afterward.",
+      "rationale": "The task description itself flagged this as possibly 'just a perception problem solved entirely by better in-progress feedback, not a real staleness bug' -- that's exactly what was found. Since a passing, genuinely end-to-end test already covers this exact scenario, no new regression test was added for it (the checklist's own fourth item only calls for a new regression test 'if a gap was found and fixed'); a real interactive browser walkthrough was not additionally performed on top of that existing automated coverage since the integration test already renders real React components against a mocked API boundary and asserts on the actual DOM the user would see, which is what a manual walkthrough would otherwise confirm."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-ibkr-preload-loading-feedback",
+    "pr_number": 363,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/363",
+    "pushed_at": "2026-09-30T08:35:24Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-30T08:48:32Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/363",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review of PR #363. Frontend suite: 987/987 pass, coverage 99.65%/98.99% line/branch (well above the 90% gate), IbkrPreloadDialog.tsx itself at 100%. Backend suite unaffected: 1486/1486 pass, 99.92% coverage. Static analysis clean: backend ruff + mypy, frontend eslint + tsc -b, and the profit-target stale-wording guard all pass with zero findings. code-review skill (medium-high effort) found zero correctness/reuse/simplification issues -- confirmed the diff is a faithful additive wrap (dim + overlay + explicit checkbox disabled) around pre-existing JSX with no logic removed or altered. e2e suite (make e2e): 26/26 specs pass (no dedicated IBKR e2e spec exists, but this confirms no regression elsewhere). Browser walkthrough (real backend+frontend dev servers, browser-level network mocking for the /api/ibkr/* endpoints since FINTRADE_IBKR_ENABLED points at an unreachable gateway and no fixture-provider path exists for IBKR specifically): golden path -- opened the dialog, confirmed the overlay (role=status, aria-live=polite, correct spinner + status text) appears and dims the content while the mutation is held pending, confirmed the conflict checkbox is disabled and a click on it is genuinely blocked, released the mutation and confirmed the success screen shows the imported position and the Portfolio page behind the dialog had already refreshed (Positions Value/Total Equity updated) via onSettled's invalidation before Done was even clicked. Edge case -- same flow but the preload call returns 503: overlay/disabled state correctly appear and then correctly clear on settle, the already-deleted-positions warning renders, and the checkbox/Confirm button are usable again for a retry (not stuck disabled). All three `decisions` entries are genuine judgment calls with real rationale and were independently verified: no pre-existing common/ overlay pattern exists (grepped for absolute-position/Backdrop/overlay usage), single-phase status message is accurate to what useIbkrPortfolioPreload's isPending actually exposes, and the 'no code change needed for the refresh complaint' claim checks out (portfolioKeys.all is exactly usePortfolio's query key). No API/schema change, so no openapi.json regeneration was needed. No blocking or non-blocking findings."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-30T08:55:27Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran frontend test:coverage: 987/987 tests pass, 99.65%/98.99% statement/branch coverage (matches pr-reviewer exactly), IbkrPreloadDialog.tsx itself confirmed at 100%/100%/100%/100% from the raw coverage table. Skimmed the full diff on IbkrPreloadDialog.tsx and its test file: the dim+overlay Box (role=status, aria-live=polite) and explicit checkbox disabled={preloadMutation.isPending} are a faithful additive wrap with no removed logic, Cancel/Confirm's pre-existing disabled/loading wiring is unchanged, and the new test genuinely renders a held-pending mutation and asserts the overlay text, role=status, and checkbox disabled state. Verified the refresh claim directly in source rather than trusting the narrative: useIbkrPortfolioPreload.ts's onSettled invalidates portfolioKeys.all, and usePortfolio.ts's queryKey is exactly portfolioKeys.all (not a prefix match). Also ran eslint on both changed files with zero findings. Skill is add-frontend-feature (not add-indicator), so no hand-computed reference value applies here."
+  }
+}
