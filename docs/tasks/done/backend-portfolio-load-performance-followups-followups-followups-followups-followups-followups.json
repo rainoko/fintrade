@@ -40,5 +40,10 @@
     "verdict": "accepted",
     "comments": [],
     "notes": "Docstring-only fix, verified end to end: re-read the final docstring text and confirmed the two paragraphs no longer contradict each other (the reworded paragraph now illustrates the single-whole-history-pass pattern generically instead of naming GET /api/stocks/{ticker}/analysis as an implied real caller). Independently re-verified the 'no production caller today' claim via `grep -rn find_divergences backend/app/ backend/tests/` -- only test callers exist; app.signals.engine reaches divergence detection exclusively via current_divergence/confirmed_divergence_as_of -> _latest_divergence_from_swings/divergences_from_swings. Also spot-checked the unchanged app.signals.engine.analyse_history cross-reference in the same paragraph and confirmed it's still accurate. decisions entry is genuine (states what was decided and why, records rejected alternatives). Backend suite: pytest --cov=app -> 1491 passed, 100% coverage (gate is 90%). ruff check . and mypy both clean; scripts/check_profit_target_wording.py and scripts/validate_tasks.py both clean. No API route/schema touched, so openapi.json correctly untouched. No frontend/UI surface -- browser walkthrough and e2e suite steps don't apply, explicitly skipped. No blocking or non-blocking findings; no new followups task filed."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-30T10:05:40Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran `pytest --cov=app --cov-report=term-missing`: 1491 passed, 100% coverage, matching pr-reviewer's reported numbers exactly. Re-read the diff (git diff origin/main...HEAD): only backend/app/signals/divergence.py's find_divergences docstring plus task-board bookkeeping changed. Confirmed the reworded first paragraph no longer implies GET /api/stocks/{ticker}/analysis is a real caller (now phrased as a hypothetical single-pass pattern) and re-ran `grep -rn find_divergences backend/app/ backend/tests/` myself, confirming zero production call sites outside this module and tests -- the 'no production caller today' paragraph's claim holds."
   }
 }
