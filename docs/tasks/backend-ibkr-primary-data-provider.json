@@ -3,7 +3,7 @@
   "title": "When the IBKR gateway is connected, use it exclusively for market data instead of yfinance/Stooq",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "waiting_input",
   "depends_on": [],
   "references": [
     "docs/Analyse.md#9-data-sources-free",
@@ -40,5 +40,12 @@
     }
   ],
   "decisions": [],
-  "questions": []
+  "questions": [
+    {
+      "timestamp": "2026-09-30T10:09:46Z",
+      "raised_by": "task-worker",
+      "question": "This task's checklist item 1 explicitly requires confirming, against a LIVE IBKR Client Portal Gateway, whether /iserver/marketdata/history can serve full-history daily/weekly bars and whether any IBKR endpoint has an equivalent to get_extended_data's earnings/dividend/short-interest/insider fields. Can a human with access to an authenticated gateway session (or willing to complete the interactive browser login on the configured host) perform/confirm this research, or authorize a documented assumption in its place?",
+      "context": "Checked connectivity from this sandboxed dev-container session before doing any implementation, per this task's own explicit instruction not to guess. The configured host in backend/.env (FINTRADE_IBKR_ENABLED=true, FINTRADE_IBKR_BASE_URL=https://ibkr.home.arpa/v1/api) is actually network-reachable from this container this time (DNS resolves to 192.168.10.40, TLS/HTTP round trip succeeds) -- unlike a prior PR review session in this same environment that found it unreachable. However, the gateway itself reports it is not authenticated: `IBKRProvider(base_url=...).get_gateway_status()` returns `GatewayStatus(state='not_authenticated', detail=None)`, and a direct call to /iserver/marketdata/history and /iserver/secdef/search both return HTTP 400 `{\"error\": \"Bad Request: no bridge\", \"statusCode\": 400}` -- i.e. the clientportal.gw process is running but has no active brokerage session behind it. IBKR's Client Portal Gateway requires a one-time interactive browser login (2FA via IBKR Mobile) that IBKR explicitly does not support automating -- this is the exact 'Testing constraint' already documented in ibkr_provider.py's own module docstring ('no sandboxed/CI environment has a live authenticated gateway to test against'). With no authenticated session, every data-serving endpoint 400s regardless of ticker/params, so none of checklist item 1's research questions (history depth ceiling, extended-data equivalents) can be confirmed from here -- confirming them requires either a human completing the interactive login against this gateway host, or an explicit decision to proceed on a documented, clearly-flagged assumption instead (which the task's own description says not to do unilaterally)."
+    }
+  ]
 }
