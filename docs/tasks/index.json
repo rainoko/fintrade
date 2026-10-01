@@ -2434,7 +2434,7 @@
       "id": "backend-ibkr-primary-data-provider-followups",
       "area": "backend/data",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-ibkr-primary-data-provider-followups.json"
     },
     {

@@ -343,7 +343,10 @@ export interface paths {
          *     `Settings.ibkr_enabled` is `False` (this app's default; `get_ibkr_provider` yields
          *     `None` in exactly that case, so no attempt to reach a gateway is made at all), otherwise
          *     whatever `IBKRProvider.get_gateway_status()` reports ('available' / 'gateway_unreachable'
-         *     / 'not_authenticated').
+         *     / 'not_authenticated'). Since `backend-ibkr-primary-data-provider`, that result can be up
+         *     to `app.data.ibkr_provider._GATEWAY_STATUS_TTL_SECONDS` (a few seconds) stale -- see that
+         *     constant's own docstring for why this endpoint accepts that trade-off rather than
+         *     bypassing the cache.
          *
          *     Never raises for any gateway state: `get_gateway_status()` itself never raises (its own
          *     docstring's contract -- every failure mode it can observe is represented as a
@@ -399,7 +402,14 @@ export interface paths {
          *     (`backend-day-trader-timeframe-mode-api-followups`), every held position's own ticker is
          *     resolved concurrently up front (`compute_day_trader_signals_concurrently`) rather than one
          *     IBKR round trip at a time in the loop below -- see that function's own docstring and this
-         *     task's `decisions` entry for the latency rationale.
+         *     task's `decisions` entry for the latency rationale. While swing mode is active (this app's
+         *     default): `enrich_positions_with_price` above already fetches every position's own price
+         *     concurrently (`app.portfolio.pricing`'s own docstring), and each position's own weekly OHLCV
+         *     (needed only for the signal, not the price) is likewise resolved concurrently up front here
+         *     (`_prefetch_swing_weekly_ohlcv`) rather than one more provider round trip per position in the
+         *     loop below -- see the backend-portfolio-load-performance task's `decisions` entry for the
+         *     measured latency this replaces (previously up to ~2N sequential provider round trips for N
+         *     held positions).
          */
         get: operations["get_portfolio"];
         put?: never;
@@ -848,12 +858,18 @@ export interface paths {
          *     `backend-profit-target` task's `decisions` entry for why this app's long-only protective-
          *     stop formula rules out a symmetric SELL-side reward:risk ratio.
          *
-         *     `extended_data` (earnings/dividend dates, short interest, insider transactions -- see
-         *     `ExtendedDataOut`'s own field descriptions) is fetched in the same try/except as
-         *     `daily_ohlcv`/`weekly_ohlcv` above, so a `DataProviderUnavailableError` from it maps to the
-         *     same 503 -- in practice this only happens if *both* the primary and fallback providers fail
-         *     on this specific call, since the fallback (Stooq) provider always succeeds with an
-         *     explicit "unsupported" result rather than raising (see `app.data.stooq_provider.
+         *     `daily_ohlcv`/`weekly_ohlcv`/`extended_data` are fetched concurrently (not sequentially)
+         *     since none of the three depends on either of the others -- backend-data-provider-timeouts,
+         *     mirroring `get_indicator_history`'s own daily+weekly concurrent fetch below
+         *     (backend-indicator-history-performance) -- but `.result()` is still resolved in
+         *     daily -> weekly -> extended order, so the raised failure matches this endpoint's previous
+         *     sequential-fetch error priority exactly (a failing daily fetch takes priority over a
+         *     failing weekly/extended one, since sequentially the daily fetch would have failed first
+         *     and the later fetches would never even have started). A `DataProviderUnavailableError`
+         *     from `extended_data`'s fetch maps to the same 503 as `daily_ohlcv`/`weekly_ohlcv` -- in
+         *     practice this only happens if *both* the primary and fallback providers fail on this
+         *     specific call, since the fallback (Stooq) provider always succeeds with an explicit
+         *     "unsupported" result rather than raising (see `app.data.stooq_provider.
          *     StooqProvider.get_extended_data`'s own docstring and this task's `decisions` entry).
          *
          *     `insider_clusters` (`app.signals.insider_clusters.detect_insider_clusters`, Elder ch. 37
@@ -1945,8 +1961,9 @@ export interface components {
         IBKRScannerRunRequest: {
             /**
              * Scan Config
-             * @description IBKR's own `/iserver/scanner/run` request body: `instrument`/`type`/`location`/`filter` keys, built from the option lists `GET /api/ibkr/scanner/params` returns. Passed to the gateway as-is -- this app does not validate or transform it (matching `IBKRProvider.run_scanner`'s own contract). To apply ch. 56's own liquidity-filter advice (skip illiquid names, roughly <500k-1M average daily volume), include IBKR's own volume-floor filter code from `get_scanner_params`'s filter option list here -- this endpoint does not inject one automatically (see this task's `decisions` entry).
+             * @description IBKR's own `/iserver/scanner/run` request body: `instrument`/`type`/`location`/`filter` keys, built from the option lists `GET /api/ibkr/scanner/params` returns. Passed to the gateway as-is -- this app does not validate or transform it (matching `IBKRProvider.run_scanner`'s own contract). `filter` must be present as an array (an empty one is fine) -- a live gateway rejects the call with a 400 ('filter must be an array') if it's omitted entirely, confirmed against a real running gateway. To apply ch. 56's own liquidity-filter advice (skip illiquid names, roughly <500k-1M average daily volume), include IBKR's own volume-floor filter code from `get_scanner_params`'s filter option list here -- this endpoint does not inject one automatically (see this task's `decisions` entry).
              * @example {
+             *       "filter": [],
              *       "instrument": "STK",
              *       "location": "STK.US.MAJOR",
              *       "type": "TOP_PERC_GAIN"
