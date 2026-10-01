@@ -1,0 +1,48 @@
+{
+  "id": "backend-ibkr-primary-data-provider-followups-followups",
+  "title": "Non-blocking follow-up from backend-ibkr-primary-data-provider-followups's PR #370 review",
+  "area": "backend/data",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-ibkr-primary-data-provider-followups"],
+  "references": [
+    "docs/tasks/backend-ibkr-primary-data-provider-followups.json",
+    "https://github.com/rainoko/fintrade/pull/370",
+    "backend/app/data/ibkr_provider.py",
+    "backend/tests/unit/data/test_ibkr_provider.py"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's PR #370 review of backend-ibkr-primary-data-provider-followups (accepted). PR #370's `_resolve_stk_conid` duplicate-description fix (first non-null `description` wins for a repeated conid, rather than the last row in payload order silently overwriting it) is itself verified correct -- manually confirmed with a two-distinct-conid scenario (conid A with duplicate rows `[\"NASDAQ\", None]`, conid B single row `\"NYSE\"`): the fixed code correctly returns `None` (both now count as primary-exchange candidates, genuinely ambiguous) where the pre-fix last-wins logic incorrectly returned conid B's conid (A's retained description got clobbered to `None` by the second row, making B look like the only primary candidate). However, the two new tests PR #370 actually shipped for this fix (`test_duplicate_rows_for_the_same_conid_keep_the_first_non_null_description`, `test_duplicate_rows_for_the_same_conid_disagreeing_on_description_keep_the_first`) only ever construct a single distinct conid (265598) with duplicate rows for it -- in that shape, `_resolve_stk_conid`'s `len(candidates) == 1` branch returns the sole conid unconditionally, before the retained `description` value is ever consulted. Verified directly: reverting the fix back to the old unconditional-overwrite (`candidates[conid] = description if isinstance(description, str) else None`) still makes both of these tests pass unchanged. So neither test actually exercises or guards the distinguishing behavior the fix introduces -- a future regression back to last-wins semantics would ship silently with these two tests still green.",
+  "checklist": [
+    {
+      "step": "Add a test to tests/unit/data/test_ibkr_provider.py's TestResolveConid class with two distinct conids, where one has duplicate rows disagreeing on description (e.g. first row description naming a primary US exchange, a later row null or a different non-primary value) and the other is a single-row primary-exchange candidate -- asserting resolve_conid/_resolve_stk_conid returns None (genuinely ambiguous, both count as primary) rather than silently picking the other candidate. Confirm this new test fails against the pre-fix (last-wins) logic and passes against the current code, the same way this finding's own review did manually.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-10-01T22:08:15Z",
+      "recorded_by": "task-worker",
+      "decision": "Added `test_duplicate_description_retention_is_exercised_against_a_second_distinct_conid` to `TestResolveConid` using the exact two-distinct-conid payload shape the task description itself verified during review (conid 111 with duplicate rows `[\"NASDAQ\", None]`, conid 222 with a single `\"NYSE\"` row), asserting `resolve_conid` returns `None`. Did not also add a disagreeing-non-null-description variant at this two-conid shape (e.g. `[\"NASDAQ\", \"SOME_OTHER_VENUE\"]` for conid 111) as a second new test -- the single new test already exercises the exact gap the finding identified (the `len(candidates) == 1` shortcut no longer short-circuits before the retention logic runs), and a second nearly-identical two-conid case would be redundant coverage rather than closing a distinct gap; the existing single-conid disagreeing-description test already covers that the first-non-null-wins rule picks the right winner when it's not null vs. null.",
+      "rationale": "Mutation-tested directly per this task's own instructions: temporarily reverted `_resolve_stk_conid` to the old unconditional last-wins assignment (`candidates[conid] = description if isinstance(description, str) else None`, dropping the `if conid not in candidates or candidates[conid] is None` guard) and reran `TestResolveConid` -- the new test failed (`resolve_conid('BAR') == 222`, not `None`) while all other existing tests in the class still passed unchanged, confirming the new test is the one that actually catches a regression to last-wins semantics that the two originally-shipped tests (both single-conid) do not. Restored the fix immediately after and reran the full class to confirm all 25 tests (now including the new one) pass against the current code."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/backend-ibkr-primary-data-provider-followups-followups",
+    "pr_number": 371,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/371",
+    "pushed_at": "2026-10-01T22:09:19Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-01T22:14:39Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/371",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full backend suite + coverage: `pytest --cov=app --cov-fail-under=90` over the full `tests/` tree (not just `tests/unit`, which alone reports 84% since router/endpoint coverage lives in `tests/integration` -- not a regression) -- 1544 passed, 100.00% coverage. ruff check and mypy (scoped to app/ per pyproject.toml) both clean. scripts/check_profit_target_wording.py and scripts/validate_tasks.py both clean. Independently reproduced the mutation test myself (did not trust the self-report): reverted _resolve_stk_conid's duplicate-description guard in backend/app/data/ibkr_provider.py back to unconditional last-wins, reran TestResolveConid -- the new test failed exactly as claimed (resolve_conid('BAR') == 222, not None) while the other 24 tests stayed green; restored the fix and reran -- all 25 pass. The decisions entry is genuine and matches my independent reproduction. No UI surface (test file + task-board JSON only), so browser walkthrough/e2e suite are not applicable; no API/schema changes so no openapi.json regeneration needed; no new module/dependency/layer so architecture-review not applicable; area is backend/data (not signals/portfolio) and skill is null so verify-elder-signal not applicable. No blocking or non-blocking findings -- no followups task filed."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-10-01T22:19:30Z",
+    "verdict": "merge",
+    "notes": "Re-ran full backend suite + coverage myself: 1544 passed, 100.00% coverage (matches pr-reviewer exactly), plus ruff/mypy/validate_tasks.py clean. Independently reproduced the mutation test: reverted _resolve_stk_conid's duplicate-description guard to unconditional last-wins, confirmed test_duplicate_description_retention_is_exercised_against_a_second_distinct_conid fails (resolve_conid('BAR') == 222, not None) with the other 24 TestResolveConid tests still green, restored the fix, confirmed all 25 pass again. Skimmed the full diff (test file + task-board JSON only, no source change); task-board bookkeeping (done/ move, index.json state+path mirror) is consistent."
+  }
+}
