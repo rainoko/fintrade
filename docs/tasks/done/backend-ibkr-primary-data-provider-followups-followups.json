@@ -39,5 +39,10 @@
     "verdict": "accepted",
     "comments": [],
     "notes": "Full backend suite + coverage: `pytest --cov=app --cov-fail-under=90` over the full `tests/` tree (not just `tests/unit`, which alone reports 84% since router/endpoint coverage lives in `tests/integration` -- not a regression) -- 1544 passed, 100.00% coverage. ruff check and mypy (scoped to app/ per pyproject.toml) both clean. scripts/check_profit_target_wording.py and scripts/validate_tasks.py both clean. Independently reproduced the mutation test myself (did not trust the self-report): reverted _resolve_stk_conid's duplicate-description guard in backend/app/data/ibkr_provider.py back to unconditional last-wins, reran TestResolveConid -- the new test failed exactly as claimed (resolve_conid('BAR') == 222, not None) while the other 24 tests stayed green; restored the fix and reran -- all 25 pass. The decisions entry is genuine and matches my independent reproduction. No UI surface (test file + task-board JSON only), so browser walkthrough/e2e suite are not applicable; no API/schema changes so no openapi.json regeneration needed; no new module/dependency/layer so architecture-review not applicable; area is backend/data (not signals/portfolio) and skill is null so verify-elder-signal not applicable. No blocking or non-blocking findings -- no followups task filed."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-10-01T22:19:30Z",
+    "verdict": "merge",
+    "notes": "Re-ran full backend suite + coverage myself: 1544 passed, 100.00% coverage (matches pr-reviewer exactly), plus ruff/mypy/validate_tasks.py clean. Independently reproduced the mutation test: reverted _resolve_stk_conid's duplicate-description guard to unconditional last-wins, confirmed test_duplicate_description_retention_is_exercised_against_a_second_distinct_conid fails (resolve_conid('BAR') == 222, not None) with the other 24 TestResolveConid tests still green, restored the fix, confirmed all 25 pass again. Skimmed the full diff (test file + task-board JSON only, no source change); task-board bookkeeping (done/ move, index.json state+path mirror) is consistent."
   }
 }
