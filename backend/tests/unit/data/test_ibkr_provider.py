@@ -995,6 +995,36 @@ class TestResolveConid:
 
         assert IBKRProvider().resolve_conid("AAPL") == 265598
 
+    def test_duplicate_description_retention_is_exercised_against_a_second_distinct_conid(
+        self, mocker
+    ) -> None:
+        """`backend-ibkr-primary-data-provider-followups-followups`: the two tests above
+        only ever construct a SINGLE distinct conid, so `_resolve_stk_conid`'s
+        `len(candidates) == 1` shortcut returns the sole conid before the retained-
+        `description` value is ever consulted -- reverting the fix back to unconditional
+        last-wins overwrite still makes both of them pass unchanged. This test uses TWO
+        distinct conids so the retention logic actually feeds into the primary-exchange
+        disambiguation step: conid A's rows disagree on `description` (`"NASDAQ"` then
+        `None`) and must retain `"NASDAQ"` (first non-null wins) rather than being
+        clobbered to `None` by the second row; conid B is a single-row `"NYSE"` listing.
+        With the fix, both A and B count as primary-US-exchange candidates, which is
+        genuinely ambiguous -> `None`. Under the old last-wins bug, A's retained
+        description would be clobbered to `None` by its second row, leaving B as the
+        *only* primary candidate -> B's conid returned instead, which this test rejects.
+        """
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        payload = [
+            self._stk_entry("BAR", 111, description="NASDAQ"),
+            self._stk_entry("BAR", 111, description=None),
+            self._stk_entry("BAR", 222, description="NYSE"),
+        ]
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
+
+        assert IBKRProvider().resolve_conid("BAR") is None
+
     def test_non_exact_symbol_matches_are_ignored(self, mocker) -> None:
         """The search endpoint can return fuzzy/partial matches -- only an exact
         (case-insensitive) symbol match counts."""

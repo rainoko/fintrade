@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from backend-ibkr-primary-data-provider-followups's PR #370 review",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-ibkr-primary-data-provider-followups"],
   "references": [
     "docs/tasks/backend-ibkr-primary-data-provider-followups.json",
@@ -15,9 +15,16 @@
   "checklist": [
     {
       "step": "Add a test to tests/unit/data/test_ibkr_provider.py's TestResolveConid class with two distinct conids, where one has duplicate rows disagreeing on description (e.g. first row description naming a primary US exchange, a later row null or a different non-primary value) and the other is a single-row primary-exchange candidate -- asserting resolve_conid/_resolve_stk_conid returns None (genuinely ambiguous, both count as primary) rather than silently picking the other candidate. Confirm this new test fails against the pre-fix (last-wins) logic and passes against the current code, the same way this finding's own review did manually.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-01T22:08:15Z",
+      "recorded_by": "task-worker",
+      "decision": "Added `test_duplicate_description_retention_is_exercised_against_a_second_distinct_conid` to `TestResolveConid` using the exact two-distinct-conid payload shape the task description itself verified during review (conid 111 with duplicate rows `[\"NASDAQ\", None]`, conid 222 with a single `\"NYSE\"` row), asserting `resolve_conid` returns `None`. Did not also add a disagreeing-non-null-description variant at this two-conid shape (e.g. `[\"NASDAQ\", \"SOME_OTHER_VENUE\"]` for conid 111) as a second new test -- the single new test already exercises the exact gap the finding identified (the `len(candidates) == 1` shortcut no longer short-circuits before the retention logic runs), and a second nearly-identical two-conid case would be redundant coverage rather than closing a distinct gap; the existing single-conid disagreeing-description test already covers that the first-non-null-wins rule picks the right winner when it's not null vs. null.",
+      "rationale": "Mutation-tested directly per this task's own instructions: temporarily reverted `_resolve_stk_conid` to the old unconditional last-wins assignment (`candidates[conid] = description if isinstance(description, str) else None`, dropping the `if conid not in candidates or candidates[conid] is None` guard) and reran `TestResolveConid` -- the new test failed (`resolve_conid('BAR') == 222`, not `None`) while all other existing tests in the class still passed unchanged, confirming the new test is the one that actually catches a regression to last-wins semantics that the two originally-shipped tests (both single-conid) do not. Restored the fix immediately after and reran the full class to confirm all 25 tests (now including the new one) pass against the current code."
+    }
+  ],
   "questions": []
 }
