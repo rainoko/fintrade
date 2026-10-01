@@ -95,6 +95,7 @@ class TestUpgradeHeadAgainstAFreshDatabase:
             "low",
             "close",
             "volume",
+            "source",
             "fetched_at",
         }
         assert _table_columns(db_path, "watchlist_items") == {"ticker", "added_at"}

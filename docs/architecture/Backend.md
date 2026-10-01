@@ -105,7 +105,7 @@ Implement each indicator directly against its Analyse.md §4 definition and para
 
 ## 7. Persistence
 
-SQLite via SQLAlchemy for MVP: positions, account equity, a watchlist (ticker + added_at, keyed by ticker itself), closed trades (one row per closed position, realized P&L and exit details), a cache table for fetched OHLCV (ticker, date, OHLCV columns, fetched_at) to avoid re-hitting yfinance/Stooq on every request, a cache table for fetched extended data (fundamentals/sentiment, ticker + kind, fetched_at), a cache table for the fully-computed `GET /api/stocks/{ticker}/indicators` response itself (`indicator_history_cache`, keyed by `ticker` + `range`, same-calendar-day TTL rather than OHLCV's rolling 24h one -- `app.api.indicator_history_cache.IndicatorHistoryResponseCache`, docs/tasks/backend-indicator-history-performance.json), and a daily homework entries table (one row per calendar day, keyed by `date` itself, for ch. 57's "Am I ready to trade?" self-test -- see `app/portfolio/homework.py`). Migrations via Alembic (`app/db/migrations/`), wired to `app.db.models.Base.metadata` for autogenerate and to `app.config.get_settings().database_url` for the target database (see `app/db/migrations/env.py`) — see README.md's "Database migrations" section for the day-to-day workflow.
+SQLite via SQLAlchemy for MVP: positions, account equity, a watchlist (ticker + added_at, keyed by ticker itself), closed trades (one row per closed position, realized P&L and exit details), a cache table for fetched OHLCV (ticker, date, interval, OHLCV columns, `source`, fetched_at) to avoid re-hitting yfinance/Stooq/IBKR on every request, a cache table for fetched extended data (fundamentals/sentiment, ticker + kind, fetched_at), a cache table for the fully-computed `GET /api/stocks/{ticker}/indicators` response itself (`indicator_history_cache`, keyed by `ticker` + `range`, same-calendar-day TTL rather than OHLCV's rolling 24h one -- `app.api.indicator_history_cache.IndicatorHistoryResponseCache`, docs/tasks/backend-indicator-history-performance.json), and a daily homework entries table (one row per calendar day, keyed by `date` itself, for ch. 57's "Am I ready to trade?" self-test -- see `app/portfolio/homework.py`). The OHLCV cache's `source` column (`backend-ibkr-primary-data-provider`'s PR #369 review -- `app.db.models.OHLCVCacheORM`, `app.data.cache.CachedDataProvider`) tags each row with which provider chain (yfinance/Stooq vs. IBKR, §8) wrote it, so a mode switch never silently serves a still-fresh row left behind by the other chain as a cache hit. Migrations via Alembic (`app/db/migrations/`), wired to `app.db.models.Base.metadata` for autogenerate and to `app.config.get_settings().database_url` for the target database (see `app/db/migrations/env.py`) — see README.md's "Database migrations" section for the day-to-day workflow.
 
 `app/main.py`'s FastAPI lifespan hook still calls `Base.metadata.create_all(bind=engine)` on startup — this is now just a convenience bootstrap (idempotent, a no-op against a database Alembic already migrated) so a brand-new dev/test SQLite file works immediately without running `alembic upgrade head` first, not a substitute for migrations going forward.
 
@@ -152,7 +152,12 @@ behavior. `IBKRProvider.resolve_conid` caches each ticker's resolved conid (incl
 unresolved result) for 24h on the `IBKRProvider` instance itself, shared via the existing
 process-wide singleton (`app.api.dependencies._get_ibkr_provider_singleton`), so
 switching to IBKR-primary doesn't add a `/iserver/secdef/search` round trip to every
-request for every ticker.
+request for every ticker. "Exclusively" also holds across the SQLite OHLCV cache itself
+(§7's `OHLCVCacheORM.source` column): without it, a mode switch could silently keep
+serving a still-fresh (<24h) row the OTHER chain had cached, rather than actually
+switching — `CachedDataProvider` tags every row it writes with its own primary
+provider's class name and treats an other-source (or pre-migration, source-less) row as
+a cache miss, not a hit, triggering exactly one refetch that overwrites it in place.
 
 **Conid disambiguation for cross-listed tickers.** A bare `/iserver/secdef/search` for a
 heavily-tracked US ticker routinely returns *more than one* distinct STK conid — live

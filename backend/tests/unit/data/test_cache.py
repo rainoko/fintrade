@@ -44,6 +44,31 @@ def _frame(dates: list[str], closes: list[float]) -> pd.DataFrame:
     )
 
 
+class _OtherStubProvider:
+    """A second `DataProvider` stand-in, identical in behavior to `_StubProvider` but
+    under a distinct class name -- `backend-ibkr-primary-data-provider`'s PR #369 review
+    (`TestCrossSourceContamination` below) needs two differently-*named* stubs to stand in
+    for "the yfinance-primary chain" vs. "the IBKR-primary chain", since
+    `CachedDataProvider._source` is derived from `type(primary).__name__`."""
+
+    def __init__(self, *, daily=None, weekly=None) -> None:
+        self.daily = daily
+        self.weekly = weekly
+        self.daily_calls: list[str] = []
+        self.weekly_calls: list[str] = []
+
+    def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
+        self.daily_calls.append(ticker)
+        return self.daily
+
+    def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
+        self.weekly_calls.append(ticker)
+        return self.weekly
+
+    def get_extended_data(self, ticker: str) -> ExtendedData:
+        raise AssertionError("not used by TestCrossSourceContamination")
+
+
 class _StubProvider:
     """A minimal DataProvider stand-in that records calls and can be told to
     return a fixed frame or raise a fixed exception per method.
@@ -102,7 +127,25 @@ def session():
         engine.dispose()
 
 
-def _seed(session: Session, *, ticker: str, interval: str, date_: object, close: float, fetched_at: datetime) -> None:
+def _seed(
+    session: Session,
+    *,
+    ticker: str,
+    interval: str,
+    date_: object,
+    close: float,
+    fetched_at: datetime,
+    source: str | None = "_StubProvider",
+) -> None:
+    """`source` defaults to `"_StubProvider"` -- every test in this file constructs
+    `CachedDataProvider(_StubProvider(...), _StubProvider(...), session)`, so
+    `CachedDataProvider._source` (`type(primary).__name__`) is always `"_StubProvider"`
+    here too, matching a seeded row by default so this helper's pre-existing callers'
+    "already cached" setup still reads as a cache hit for the *current* source after
+    `backend-ibkr-primary-data-provider`'s PR #369 source-tagging fix. Pass an explicit
+    `source` (a different string, or `None`) to simulate a row left behind by a
+    *different* provider chain -- see `TestCrossSourceContamination` below.
+    """
     session.add(
         OHLCVCacheORM(
             ticker=ticker,
@@ -113,6 +156,7 @@ def _seed(session: Session, *, ticker: str, interval: str, date_: object, close:
             low=close - 1.0,
             close=close,
             volume=1_000.0,
+            source=source,
             fetched_at=fetched_at,
         )
     )
@@ -786,3 +830,132 @@ class TestExtendedDataRoundTrip:
         assert len(result.insider_transactions) == 2
         assert result.insider_transactions[0] == fetched.insider_transactions[0]
         assert result.insider_transactions[1] == fetched.insider_transactions[1]
+
+
+class TestCrossSourceContamination:
+    """`OHLCVCacheORM.source`/`CachedDataProvider._source` (`backend-ibkr-primary-data-
+    provider`'s PR #369 review) -- a still-fresh (<24h) cached row written by one provider
+    chain (e.g. yfinance-primary) must never be silently served to a *different* chain
+    (e.g. IBKR-primary) as if it were that chain's own data, and switching chains must not
+    leave duplicate rows behind. Directly reproduces the exact scenario the review's own
+    repro used: populate the cache via one `CachedDataProvider` instance, then immediately
+    query a FRESH `CachedDataProvider` wrapping a different-named provider for the same
+    ticker/interval within the same TTL window.
+    """
+
+    def test_fresh_other_source_row_is_not_served_as_a_cache_hit(self, session: Session) -> None:
+        _seed(
+            session,
+            ticker="AAPL",
+            interval="daily",
+            date_=datetime(2026, 1, 2).date(),
+            close=999.0,
+            fetched_at=_now(),
+            source="_StubProvider",
+        )
+        ibkr_frame = _frame(["2026-01-02"], [111.0])
+        ibkr_primary = _OtherStubProvider(daily=ibkr_frame)
+        provider = CachedDataProvider(ibkr_primary, ibkr_primary, session)
+
+        result = provider.get_daily_ohlcv("AAPL")
+
+        # The fresh _StubProvider-sourced row must NOT have been served -- the
+        # _OtherStubProvider-backed instance must have actually been called.
+        assert ibkr_primary.daily_calls == ["AAPL"]
+        assert result["close"].iloc[0] == 111.0
+
+    def test_switching_source_overwrites_the_row_in_place_not_a_duplicate(
+        self, session: Session
+    ) -> None:
+        """The same (ticker, date, interval) primary key must end up with exactly one row
+        after a source switch -- a naive source-filtered `_upsert` lookup would instead
+        try to INSERT a second row at an already-occupied key and hit an IntegrityError."""
+        _seed(
+            session,
+            ticker="AAPL",
+            interval="daily",
+            date_=datetime(2026, 1, 2).date(),
+            close=999.0,
+            fetched_at=_now(),
+            source="_StubProvider",
+        )
+        ibkr_frame = _frame(["2026-01-02"], [111.0])
+        ibkr_primary = _OtherStubProvider(daily=ibkr_frame)
+        provider = CachedDataProvider(ibkr_primary, ibkr_primary, session)
+
+        provider.get_daily_ohlcv("AAPL")
+
+        rows = (
+            session.query(OHLCVCacheORM)
+            .filter(OHLCVCacheORM.ticker == "AAPL", OHLCVCacheORM.interval == "daily")
+            .all()
+        )
+        assert len(rows) == 1
+        assert rows[0].source == "_OtherStubProvider"
+        assert rows[0].close == 111.0
+
+    def test_switching_back_to_the_original_source_refetches_again(self, session: Session) -> None:
+        """Confirms the fix isn't one-directional: once a row has been overwritten by
+        _OtherStubProvider, switching back to the original _StubProvider chain within the
+        same TTL window must also refetch rather than serving the now-other-source row."""
+        _seed(
+            session,
+            ticker="AAPL",
+            interval="daily",
+            date_=datetime(2026, 1, 2).date(),
+            close=999.0,
+            fetched_at=_now(),
+            source="_OtherStubProvider",
+        )
+        fresh_frame = _frame(["2026-01-02"], [190.0])
+        primary = _StubProvider(daily=fresh_frame)
+        fallback = _StubProvider()
+        provider = CachedDataProvider(primary, fallback, session)
+
+        result = provider.get_daily_ohlcv("AAPL")
+
+        assert primary.daily_calls == ["AAPL"]
+        assert result["close"].iloc[0] == 190.0
+
+    def test_legacy_null_source_row_is_treated_as_a_miss(self, session: Session) -> None:
+        """A row written before this column existed (`source IS NULL`, no backfill) must
+        also be treated as a miss for whichever source is active today, not silently
+        served forever."""
+        _seed(
+            session,
+            ticker="AAPL",
+            interval="daily",
+            date_=datetime(2026, 1, 2).date(),
+            close=999.0,
+            fetched_at=_now(),
+            source=None,
+        )
+        fresh_frame = _frame(["2026-01-02"], [190.0])
+        primary = _StubProvider(daily=fresh_frame)
+        fallback = _StubProvider()
+        provider = CachedDataProvider(primary, fallback, session)
+
+        result = provider.get_daily_ohlcv("AAPL")
+
+        assert primary.daily_calls == ["AAPL"]
+        assert result["close"].iloc[0] == 190.0
+
+    def test_same_source_fresh_row_is_still_served_from_cache(self, session: Session) -> None:
+        """Sanity check that this fix didn't break the ordinary same-source cache-hit
+        path it's layered on top of."""
+        _seed(
+            session,
+            ticker="AAPL",
+            interval="daily",
+            date_=datetime(2026, 1, 2).date(),
+            close=190.0,
+            fetched_at=_now(),
+            source="_OtherStubProvider",
+        )
+        ibkr_primary = _OtherStubProvider(daily=_frame(["2026-01-02"], [999.0]))
+        provider = CachedDataProvider(ibkr_primary, ibkr_primary, session)
+
+        result = provider.get_daily_ohlcv("AAPL")
+
+        assert ibkr_primary.daily_calls == []
+        assert result["close"].iloc[0] == 190.0
