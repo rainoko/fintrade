@@ -289,8 +289,29 @@ class CachedDataProvider(DataProvider):
         pre-migration `source IS NULL`) rows reads as an empty result here -- exactly like
         a genuine cold cache -- so `_get` falls through to a real fetch, and `_upsert`
         (via the unfiltered `_read_cache` above) finds and overwrites those same rows in
-        place with the current source's fresh data and `source` tag, rather than leaving
-        a second, duplicate set of rows behind.
+        place with the current source's fresh data and `source` tag.
+
+        That overwrite is only ever as wide as the new fetch's own date range, though
+        (`_upsert`'s own docstring) -- not "every other-source row for this ticker/
+        interval, regardless of date" (`backend-ibkr-primary-data-provider-followups`'s
+        checklist: an earlier revision of this docstring overstated the fix here).
+        IBKR's daily history is confirmed live to be only ~999 bars deep (~4 calendar
+        years, `IBKRProvider.get_daily_bars`'s own docstring) -- far shallower than
+        yfinance's full decades-deep history -- so a ticker with years of pre-existing
+        yfinance-sourced rows that then switches to IBKR-primary only gets its ~4-year
+        overlapping window re-tagged `source="IBKRDataProvider"` by `_upsert`; older
+        yfinance rows outside that window are never revisited and keep their stale
+        `source` tag indefinitely. This is not a correctness bug -- this method still
+        correctly reads those untouched rows as a miss, so they're never served as a
+        false cache hit for the current chain -- but a ticker that switches provider
+        chains back and forth repeatedly does accumulate orphaned other-source rows in
+        the table rather than ever having them cleaned up. Accepted as a known trade-off
+        (not acted on) rather than adding a cleanup pass (e.g. deleting other-source rows
+        outside the new fetch's date range during `_upsert`) -- a few extra rows in a
+        SQLite cache table costs essentially nothing, and the one entity that would
+        actually benefit from a deeper cleanup (a ticker oscillating between IBKR-primary
+        and yfinance-primary on every request) isn't a real usage pattern this
+        single-process, self-hosted app has.
         """
         return (
             self._db.query(OHLCVCacheORM)

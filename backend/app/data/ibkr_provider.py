@@ -48,6 +48,7 @@ against a real running gateway.
 from __future__ import annotations
 
 import math
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -412,7 +413,37 @@ class IBKRProvider:
         self._scanner_params_cache: tuple[float, dict] | None = None
         self._last_scanner_run_at: float | None = None
         self._gateway_status_cache: tuple[float, GatewayStatus] | None = None
+        # Double-checked locking around `_gateway_status_cache`'s own check-fetch-store
+        # sequence (`get_gateway_status`, `backend-ibkr-primary-data-provider-followups`)
+        # -- there's only ever one gateway-status cache entry (unlike `_conid_cache`
+        # below, which is keyed per ticker), so a single lock for the whole sequence
+        # doesn't cost any cross-ticker concurrency: every caller is checking the exact
+        # same fact. Without it, a cold-cache race (every concurrent request's
+        # `_is_ibkr_connected()` plus every per-ticker fetch's own `_require_available()`
+        # guard, now far more concurrent traffic than this class's one pre-existing
+        # cache -- `_scanner_params_cache` -- ever saw) lets several threads all observe
+        # a miss and each issue its own redundant `GET /iserver/auth/status` call, with
+        # whichever write lands last silently overwriting the others' -- wasted gateway
+        # round trips, not a wrong-answer bug (see this task's own checklist), but worth
+        # closing given how much more concurrent traffic this cache now sees. Mirrors
+        # `app.api.dependencies._get_ibkr_provider_singleton`'s own double-checked-locking
+        # rationale and shape.
+        self._gateway_status_lock = threading.Lock()
         self._conid_cache: dict[str, tuple[float, int | None]] = {}
+        # Per-ticker locks for `_conid_cache`'s own check-fetch-store sequence
+        # (`resolve_conid`), guarded by `_conid_cache_locks_lock` only while looking up
+        # or creating the per-ticker lock itself -- deliberately NOT one single lock for
+        # the whole cache (unlike `_gateway_status_lock` above): `IBKRDataProvider.
+        # get_daily_ohlcv`/`get_weekly_ohlcv` resolve a *different* ticker's conid inside
+        # each leg of `enrich_positions_with_price`/day-trader-mode's per-ticker
+        # `ThreadPoolExecutor` fan-out, so serializing every ticker's resolution behind
+        # one lock (holding it for the full `_request` round trip) would silently
+        # re-introduce the exact sequential-fetch cost that fan-out exists to avoid.
+        # Locking only per ticker still closes the same-ticker race the single-lock
+        # gateway-status case has (two threads racing to resolve the same cold ticker)
+        # without serializing unrelated tickers against each other.
+        self._conid_cache_locks: dict[str, threading.Lock] = {}
+        self._conid_cache_locks_lock = threading.Lock()
 
     def close(self) -> None:
         """Release the underlying HTTP client -- a no-op if this instance was
@@ -442,6 +473,11 @@ class IBKRProvider:
         `app.api.dependencies.get_data_provider` has checked connectivity for a request,
         an actual data-fetching call moments later doesn't pay for a second live round
         trip to confirm the same thing again.
+
+        Double-checked locking around the whole check-fetch-store sequence
+        (`_gateway_status_lock`, `backend-ibkr-primary-data-provider-followups`) so a
+        concurrent cold-cache race can't make more than one thread issue the real
+        `GET /iserver/auth/status` call -- see that lock's own comment (`__init__`).
         """
         cached = self._gateway_status_cache
         if cached is not None:
@@ -449,20 +485,29 @@ class IBKRProvider:
             if self._clock() - cached_at < _GATEWAY_STATUS_TTL_SECONDS:
                 return status
 
-        try:
-            payload = self._request("GET", "/iserver/auth/status")
-        except IBKRUnavailableError as exc:
-            status = GatewayStatus(state="gateway_unreachable", detail=str(exc))
+        with self._gateway_status_lock:
+            # Re-check under the lock: another thread may have already refreshed the
+            # cache while this one was waiting to acquire it.
+            cached = self._gateway_status_cache
+            if cached is not None:
+                cached_at, status = cached
+                if self._clock() - cached_at < _GATEWAY_STATUS_TTL_SECONDS:
+                    return status
+
+            try:
+                payload = self._request("GET", "/iserver/auth/status")
+            except IBKRUnavailableError as exc:
+                status = GatewayStatus(state="gateway_unreachable", detail=str(exc))
+                self._gateway_status_cache = (self._clock(), status)
+                return status
+
+            if not isinstance(payload, dict) or not payload.get("authenticated"):
+                detail = payload.get("message") if isinstance(payload, dict) else None
+                status = GatewayStatus(state="not_authenticated", detail=detail)
+            else:
+                status = GatewayStatus(state="available")
             self._gateway_status_cache = (self._clock(), status)
             return status
-
-        if not isinstance(payload, dict) or not payload.get("authenticated"):
-            detail = payload.get("message") if isinstance(payload, dict) else None
-            status = GatewayStatus(state="not_authenticated", detail=detail)
-        else:
-            status = GatewayStatus(state="available")
-        self._gateway_status_cache = (self._clock(), status)
-        return status
 
     def tickle(self) -> None:
         """Keep the gateway session alive via `GET /tickle`
@@ -722,6 +767,14 @@ class IBKRProvider:
         same ticker's conid on every single request. Caches a `None` (unresolved/
         ambiguous) result too, on the same TTL -- see that constant's own comment for why.
 
+        Double-checked locking per ticker (`_conid_cache_locks`, `backend-ibkr-primary-
+        data-provider-followups`) so a concurrent cold-cache race for the *same* ticker
+        can't make more than one thread issue the real `GET /iserver/secdef/search` call
+        -- while still letting concurrent resolution of *different* tickers (e.g. this
+        app's own per-ticker `ThreadPoolExecutor` fan-out) proceed fully in parallel. See
+        `__init__`'s own comment on `_conid_cache_locks` for why this is per-ticker rather
+        than one lock for the whole cache (unlike `_gateway_status_lock`).
+
         Raises:
             IBKRUnavailableError: the gateway isn't `available` (see
                 `get_gateway_status`), or the request itself fails.
@@ -733,11 +786,34 @@ class IBKRProvider:
             if self._clock() - cached_at < _CONID_CACHE_TTL_SECONDS:
                 return conid
 
-        self._require_available()
-        payload = self._request("GET", "/iserver/secdef/search", params={"symbol": ticker})
-        conid = _resolve_stk_conid(payload, ticker)
-        self._conid_cache[cache_key] = (self._clock(), conid)
-        return conid
+        with self._get_conid_cache_lock(cache_key):
+            # Re-check under the lock: another thread may have already resolved and
+            # cached this exact ticker while this one was waiting to acquire it.
+            cached = self._conid_cache.get(cache_key)
+            if cached is not None:
+                cached_at, conid = cached
+                if self._clock() - cached_at < _CONID_CACHE_TTL_SECONDS:
+                    return conid
+
+            self._require_available()
+            payload = self._request("GET", "/iserver/secdef/search", params={"symbol": ticker})
+            conid = _resolve_stk_conid(payload, ticker)
+            self._conid_cache[cache_key] = (self._clock(), conid)
+            return conid
+
+    def _get_conid_cache_lock(self, cache_key: str) -> threading.Lock:
+        """The per-ticker lock `resolve_conid` serializes a cold-cache race on, created
+        lazily on first use and reused for the lifetime of this instance -- `_conid_cache`
+        and `_conid_cache_locks` grow at the same unbounded-but-small rate (one entry per
+        distinct ticker this instance has ever resolved), matching `_conid_cache`'s own
+        existing no-eviction behavior (not a new concern this introduces).
+        """
+        with self._conid_cache_locks_lock:
+            lock = self._conid_cache_locks.get(cache_key)
+            if lock is None:
+                lock = threading.Lock()
+                self._conid_cache_locks[cache_key] = lock
+            return lock
 
     def get_account_positions(self) -> list[IBKRAccountPosition]:
         """The connected IBKR account's current equity positions
@@ -977,6 +1053,20 @@ def _resolve_stk_conid(payload: object, ticker: str) -> int | None:
     constant's own comment and `IBKRProvider.resolve_conid`'s docstring for the live
     research this is based on and why a still-ambiguous result degrades to `None` rather
     than raising or guessing further.
+
+    `candidates` is keyed by conid (duplicate rows for the same conid -- one row per
+    derivative-bearing section returned as separate entries, see
+    `test_duplicate_rows_for_the_same_conid_are_not_ambiguous` -- are not genuine
+    ambiguity), so a conid seen more than once keeps the first non-null `description` it
+    was given rather than letting a later row's value silently overwrite it: a later
+    duplicate with a *null* description never clobbers an already-known one, and if two
+    duplicate rows for the same conid ever disagreed on a non-null `description` (not
+    observed live -- every live-tested duplicate-conid ticker's rows agreed -- but not
+    structurally ruled out by IBKR's documented response shape either), the first one
+    encountered wins rather than this candidate's primary-exchange-match outcome
+    silently depending on `/iserver/secdef/search`'s own row order. See
+    `backend-ibkr-primary-data-provider-followups`'s checklist for the finding this
+    closes.
     """
     if not isinstance(payload, list):
         return None
@@ -997,7 +1087,9 @@ def _resolve_stk_conid(payload: object, ticker: str) -> int | None:
         if conid is None:
             continue
         description = raw.get("description")
-        candidates[conid] = description if isinstance(description, str) else None
+        description = description if isinstance(description, str) else None
+        if conid not in candidates or candidates[conid] is None:
+            candidates[conid] = description
     if len(candidates) == 1:
         return next(iter(candidates))
     if len(candidates) > 1:

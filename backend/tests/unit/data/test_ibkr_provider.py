@@ -8,6 +8,8 @@ response shapes (docs/ideas.md). A dedicated `TestRequest` class instead mocks t
 underlying `httpx.Client` to exercise `_request` itself.
 """
 
+import threading
+import time
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -162,6 +164,48 @@ class TestGetGatewayStatusCaching:
 
         auth_calls = [c for c in request.call_args_list if c.args[1] == "/iserver/auth/status"]
         assert len(auth_calls) == 1
+
+    def test_concurrent_cold_cache_calls_make_only_one_real_request(self, mocker) -> None:
+        """`backend-ibkr-primary-data-provider-followups`: several threads racing a cold
+        `_gateway_status_cache` (e.g. one request's `_is_ibkr_connected()` overlapping
+        another's per-ticker `_require_available()` guard) must still only ever issue one
+        real `/iserver/auth/status` call -- `_gateway_status_lock`'s double-checked
+        locking, not one call per racing thread."""
+        call_count = 0
+        count_lock = threading.Lock()
+
+        def counting_request(method: str, path: str, **kwargs: object) -> dict:
+            # A short sleep widens the race window so every thread's own unlocked
+            # fast-path check has a real chance to run before the first call
+            # finishes and populates the cache -- without this, the GIL alone could
+            # make the threads run near-sequentially and pass trivially regardless
+            # of whether the lock actually does anything.
+            time.sleep(0.05)
+            with count_lock:
+                nonlocal call_count
+                call_count += 1
+            return {"authenticated": True}
+
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", side_effect=counting_request)
+        provider = IBKRProvider()
+
+        results: list = []
+        results_lock = threading.Lock()
+
+        def call() -> None:
+            status = provider.get_gateway_status()
+            with results_lock:
+                results.append(status)
+
+        threads = [threading.Thread(target=call) for _ in range(20)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+
+        assert call_count == 1
+        assert len(results) == 20
+        assert all(status.state == "available" for status in results)
 
 
 class TestTickle:
@@ -909,6 +953,48 @@ class TestResolveConid:
 
         assert IBKRProvider().resolve_conid("AAPL") == 265598
 
+    def test_duplicate_rows_for_the_same_conid_keep_the_first_non_null_description(
+        self, mocker
+    ) -> None:
+        """`backend-ibkr-primary-data-provider-followups`: a null-description duplicate
+        row for an already-seen conid must not clobber an earlier real description --
+        otherwise the primary-exchange-match outcome could flip depending on which
+        duplicate happens to arrive last."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        payload = [
+            self._stk_entry("AAPL", 265598, description="NASDAQ"),
+            self._stk_entry("AAPL", 265598, description=None),
+            self._stk_entry("BAR", 999, description="NYSE"),
+        ]
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
+
+        assert IBKRProvider().resolve_conid("AAPL") == 265598
+
+    def test_duplicate_rows_for_the_same_conid_disagreeing_on_description_keep_the_first(
+        self, mocker
+    ) -> None:
+        """Not observed live (every live-tested duplicate-conid ticker's rows agreed on
+        `description`), but not structurally ruled out either: if duplicate rows for the
+        same conid ever disagreed on a non-null `description`, the first one encountered
+        must win deterministically rather than whichever happens to be last in the
+        payload -- here, if the second (non-NASDAQ) row silently won, this conid would no
+        longer be recognized as a primary-US-exchange candidate and the whole resolution
+        would degrade to `None` instead of 265598."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        payload = [
+            self._stk_entry("AAPL", 265598, description="NASDAQ"),
+            self._stk_entry("AAPL", 265598, description="SOME_OTHER_VENUE"),
+        ]
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
+
+        assert IBKRProvider().resolve_conid("AAPL") == 265598
+
     def test_non_exact_symbol_matches_are_ignored(self, mocker) -> None:
         """The search endpoint can return fuzzy/partial matches -- only an exact
         (case-insensitive) symbol match counts."""
@@ -1067,6 +1153,79 @@ class TestResolveConidCaching:
         provider.resolve_conid("MSFT")
 
         assert request.call_count == 2
+
+    def test_concurrent_same_ticker_calls_make_only_one_real_request(self, mocker) -> None:
+        """`backend-ibkr-primary-data-provider-followups`: several threads racing to
+        resolve the exact same cold ticker must still only ever issue one real
+        `/iserver/secdef/search` call -- per-ticker double-checked locking, not one call
+        per racing thread."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        call_count = 0
+        count_lock = threading.Lock()
+
+        def counting_request(method: str, path: str, **kwargs: object) -> list[dict]:
+            time.sleep(0.05)  # widen the race window, same rationale as the gateway-status test
+            with count_lock:
+                nonlocal call_count
+                call_count += 1
+            return [self._stk_entry("AAPL", 265598)]
+
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", side_effect=counting_request)
+        provider = IBKRProvider()
+
+        results: list = []
+        results_lock = threading.Lock()
+
+        def call() -> None:
+            conid = provider.resolve_conid("AAPL")
+            with results_lock:
+                results.append(conid)
+
+        threads = [threading.Thread(target=call) for _ in range(20)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+
+        assert call_count == 1
+        assert results == [265598] * 20
+
+    def test_concurrent_distinct_ticker_calls_are_not_serialized(self, mocker) -> None:
+        """Unlike the same-ticker case above, resolving *different* tickers concurrently
+        (this app's own per-ticker `ThreadPoolExecutor` fan-out, e.g.
+        `enrich_positions_with_price`) must not be serialized behind one shared lock --
+        each ticker gets its own lock (`_get_conid_cache_lock`), so N distinct tickers'
+        real requests can all proceed in parallel rather than one at a time."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+
+        def slow_request(method: str, path: str, **kwargs: object) -> list[dict]:
+            time.sleep(0.2)
+            symbol = kwargs["params"]["symbol"]  # type: ignore[index]
+            return [self._stk_entry(symbol, 1)]
+
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", side_effect=slow_request)
+        provider = IBKRProvider()
+
+        tickers = ["AAPL", "MSFT", "GOOGL", "TSLA", "NVDA"]
+        threads = [threading.Thread(target=provider.resolve_conid, args=(ticker,)) for ticker in tickers]
+        started_at = time.monotonic()
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+        elapsed = time.monotonic() - started_at
+
+        # Serialized, this would take >= 5 * 0.2s = 1.0s; run in parallel it should take
+        # roughly one slow call's worth of time. A generous threshold avoids flakiness on
+        # a loaded CI box while still clearly failing if locking regressed to one shared
+        # lock for the whole cache.
+        assert elapsed < 0.6
 
 
 class TestGetDailyBars:
