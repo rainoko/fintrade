@@ -91,6 +91,79 @@ class TestGetGatewayStatus:
         IBKRProvider().get_gateway_status()
 
 
+class TestGetGatewayStatusCaching:
+    """`backend-ibkr-primary-data-provider`'s checklist item 3 -- `_GATEWAY_STATUS_TTL_
+    SECONDS` cache, so a per-request "is IBKR connected" check doesn't cost a live
+    `/iserver/auth/status` round trip on every single call."""
+
+    def test_second_call_within_ttl_is_served_from_cache(self, mocker) -> None:
+        clock = _FakeClock()
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            return_value={"authenticated": True},
+        )
+        provider = IBKRProvider(clock=clock)
+
+        first = provider.get_gateway_status()
+        clock.advance(1.0)  # well within the 5s TTL
+        second = provider.get_gateway_status()
+
+        assert first.state == "available"
+        assert second.state == "available"
+        request.assert_called_once()
+
+    def test_call_after_ttl_expiry_rechecks(self, mocker) -> None:
+        clock = _FakeClock()
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            return_value={"authenticated": True},
+        )
+        provider = IBKRProvider(clock=clock)
+
+        provider.get_gateway_status()
+        clock.advance(5.1)
+        provider.get_gateway_status()
+
+        assert request.call_count == 2
+
+    def test_a_failure_result_is_also_cached(self, mocker) -> None:
+        clock = _FakeClock()
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=IBKRUnavailableError("connection refused"),
+        )
+        provider = IBKRProvider(clock=clock)
+
+        first = provider.get_gateway_status()
+        second = provider.get_gateway_status()
+
+        assert first.state == "gateway_unreachable"
+        assert second.state == "gateway_unreachable"
+        request.assert_called_once()
+
+    def test_a_fresh_status_check_also_serves_a_subsequent_require_available_call(
+        self, mocker
+    ) -> None:
+        """Every other data-fetching method's own internal `_require_available()` guard
+        shares this same cache -- a caller that already checked connectivity via
+        `get_gateway_status()` doesn't pay for a second live round trip moments later
+        when it then makes an actual data call."""
+        clock = _FakeClock()
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=lambda method, path, **kw: {"authenticated": True}
+            if path == "/iserver/auth/status"
+            else {"data": []},
+        )
+        provider = IBKRProvider(clock=clock)
+
+        provider.get_gateway_status()
+        provider.resolve_conid("AAPL")
+
+        auth_calls = [c for c in request.call_args_list if c.args[1] == "/iserver/auth/status"]
+        assert len(auth_calls) == 1
+
+
 class TestTickle:
     """`IBKRProvider.tickle()` (`backend-ibkr-tickle-keepalive`) -- mocks `_request`
     itself, matching every other data-fetching method's test class above, since
@@ -855,6 +928,201 @@ class TestResolveConid:
         mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
 
         assert IBKRProvider().resolve_conid("AAPL") is None
+
+
+class TestResolveConidCaching:
+    """`backend-ibkr-primary-data-provider`'s checklist item 2 -- `_CONID_CACHE_TTL_
+    SECONDS` cache, so a ticker-keyed `DataProvider` adapter calling this on every
+    request doesn't re-resolve an already-known ticker's conid every time."""
+
+    @staticmethod
+    def _stk_entry(symbol: str, conid: int) -> dict:
+        return {"conid": str(conid), "symbol": symbol, "sections": [{"secType": "STK"}]}
+
+    def test_second_call_within_ttl_is_served_from_cache(self, mocker) -> None:
+        clock = _FakeClock()
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            return_value=[self._stk_entry("AAPL", 265598)],
+        )
+        provider = IBKRProvider(clock=clock)
+
+        first = provider.resolve_conid("AAPL")
+        clock.advance(60.0)  # well within the 24h TTL
+        second = provider.resolve_conid("AAPL")
+
+        assert first == 265598
+        assert second == 265598
+        request.assert_called_once()
+
+    def test_cache_key_is_case_insensitive(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            return_value=[self._stk_entry("AAPL", 265598)],
+        )
+        provider = IBKRProvider()
+
+        provider.resolve_conid("AAPL")
+        provider.resolve_conid("aapl")
+
+        request.assert_called_once()
+
+    def test_call_after_ttl_expiry_refetches(self, mocker) -> None:
+        clock = _FakeClock()
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            return_value=[self._stk_entry("AAPL", 265598)],
+        )
+        provider = IBKRProvider(clock=clock)
+
+        provider.resolve_conid("AAPL")
+        clock.advance(24 * 60 * 60.0 + 1.0)
+        provider.resolve_conid("AAPL")
+
+        assert request.call_count == 2
+
+    def test_an_unresolved_result_is_also_cached(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        request = mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=[])
+        provider = IBKRProvider()
+
+        first = provider.resolve_conid("NOSUCHTICKER")
+        second = provider.resolve_conid("NOSUCHTICKER")
+
+        assert first is None
+        assert second is None
+        request.assert_called_once()
+
+    def test_distinct_tickers_are_cached_independently(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=lambda method, path, **kw: [self._stk_entry(kw["params"]["symbol"], 1)],
+        )
+        provider = IBKRProvider()
+
+        provider.resolve_conid("AAPL")
+        provider.resolve_conid("MSFT")
+
+        assert request.call_count == 2
+
+
+class TestGetDailyBars:
+    """`IBKRProvider.get_daily_bars` (`backend-ibkr-primary-data-provider`'s checklist
+    items 1/5) -- a single `/iserver/marketdata/history` call at `bar="1d"`."""
+
+    def test_raises_when_gateway_not_available(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="gateway_unreachable", detail=None),
+        )
+        request = mocker.patch("app.data.ibkr_provider.IBKRProvider._request")
+
+        with pytest.raises(IBKRUnavailableError):
+            IBKRProvider().get_daily_bars(265598)
+
+        request.assert_not_called()
+
+    def test_requests_bar_1d_with_configured_period(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            return_value={"data": []},
+        )
+
+        IBKRProvider().get_daily_bars(265598)
+
+        request.assert_called_once()
+        _method, path = request.call_args.args
+        assert path == "/iserver/marketdata/history"
+        params = request.call_args.kwargs["params"]
+        assert params["conid"] == "265598"
+        assert params["bar"] == "1d"
+        assert "period" in params
+
+    def test_parses_returned_bars_oldest_first(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        payload = {
+            "data": [
+                {"t": 1665149400000, "o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 100.0},
+                {"t": 1665235800000, "o": 1.1, "h": 2.1, "l": 0.6, "c": 1.6, "v": 110.0},
+            ]
+        }
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
+
+        bars = IBKRProvider().get_daily_bars(265598)
+
+        assert len(bars) == 2
+        assert bars == sorted(bars, key=lambda b: b.timestamp)
+
+    def test_no_bars_returns_empty_list(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value={"data": []})
+
+        assert IBKRProvider().get_daily_bars(265598) == []
+
+
+class TestGetWeeklyBars:
+    """`IBKRProvider.get_weekly_bars` -- symmetric to `TestGetDailyBars` but `bar="1w"`."""
+
+    def test_raises_when_gateway_not_available(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="gateway_unreachable", detail=None),
+        )
+        request = mocker.patch("app.data.ibkr_provider.IBKRProvider._request")
+
+        with pytest.raises(IBKRUnavailableError):
+            IBKRProvider().get_weekly_bars(265598)
+
+        request.assert_not_called()
+
+    def test_requests_bar_1w_with_configured_period(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            return_value={"data": []},
+        )
+
+        IBKRProvider().get_weekly_bars(265598)
+
+        request.assert_called_once()
+        _method, path = request.call_args.args
+        assert path == "/iserver/marketdata/history"
+        params = request.call_args.kwargs["params"]
+        assert params["conid"] == "265598"
+        assert params["bar"] == "1w"
+        assert "period" in params
 
 
 class TestGetAccountPositions:
