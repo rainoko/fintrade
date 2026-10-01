@@ -200,6 +200,29 @@ def max_lookback_days_for_bar_size(bar_size: str) -> float:
 # the tens of positions per page, so 50 pages covers well over a thousand held positions).
 _MAX_ACCOUNT_POSITIONS_PAGES = 50
 
+# `_resolve_stk_conid`'s disambiguation preference when a bare symbol search returns more
+# than one distinct STK conid. Confirmed live during `backend-ibkr-primary-data-provider`'s
+# PR #369 review follow-up research (this task's `decisions` entry carries the full
+# request/response detail): a bare `/iserver/secdef/search` for AAPL returns FOUR distinct
+# STK conids -- the NASDAQ primary listing plus IBKR's own international feeder-exchange
+# programs for popular US names (a TSE-CDR cross-listing, a MEXI/Mexico-exchange listing,
+# an EBS listing) -- and the same shape (one US-primary listing plus 2-4 feeder-exchange
+# listings) was confirmed for MSFT/GOOGL/TSLA/NVDA/AMZN/IBM/KO/F/GE/SPY/QQQ/CROX/CELH/RUN/
+# PLTR/SNOW/ZS/COIN, i.e. this is the norm for heavily-tracked US tickers, not a rare edge
+# case -- so the prior "more than one candidate degrades to None" rule made IBKR-primary
+# mode 404 on the app's single most common example ticker (and most other popular US
+# mega-caps) the instant a gateway connects. Each search-result candidate carries a
+# top-level `description` field naming the exchange that specific listing trades on
+# (confirmed live, NOT nested under `sections` -- a `sections` entry's own `exchange` key,
+# where present at all, names where that section's *derivatives* trade, not the underlying
+# listing itself) -- `"NASDAQ"`/`"NYSE"`/`"ARCA"` for the primary US listing of every ticker
+# above, versus `"TSE"`/`"MEXI"`/`"EBS"`/`"GETTEX"`/`"FWB"`/`"VALUE"`/`"BVME"`/`"ASX"`/
+# `"PURE"`/`"AQSE"`/`"LSEETF"`/`"IBIS"`/`"CDE"` for every feeder-exchange listing observed.
+# `"AMEX"`/`"BATS"` are included even though not confirmed live (no candidate ticker
+# tried happened to list there) since they're IBKR's other two well-documented primary
+# US equity exchanges alongside the two confirmed ones.
+_US_PRIMARY_EXCHANGES: frozenset[str] = frozenset({"NASDAQ", "NYSE", "AMEX", "ARCA", "BATS"})
+
 # docs/ideas.md: "`params` is rate-limited to 1 request per 15 minutes (cache it)".
 _SCANNER_PARAMS_TTL_SECONDS = 15 * 60.0
 
@@ -677,13 +700,20 @@ class IBKRProvider:
         options/warrants/futures tied to the same underlying, and can return unrelated
         symbols as fuzzy/partial matches -- neither is a usable equity conid here).
 
-        Returns `None` -- never raises -- for both a **no-match** ticker and a
-        genuinely **ambiguous** one (more than one distinct stock conid for the same
-        symbol, e.g. the same ticker used by unrelated companies listed on different
-        exchanges): silently guessing among several candidate contracts risks resolving
-        to the wrong instrument entirely, which is worse than surfacing "could not
-        resolve automatically" and asking a human to supply a conid directly instead.
-        See this task's `decisions` entry.
+        When a bare symbol search returns more than one distinct stock conid -- confirmed
+        live to be the norm, not an edge case, for heavily-tracked US tickers (IBKR lists
+        AAPL/MSFT/GOOGL/etc. on several of its own international feeder-exchange programs
+        under the same symbol, alongside the primary US listing -- see `_US_PRIMARY_
+        EXCHANGES`'s own comment for the full live research) -- prefers the single
+        candidate whose search-result `description` names a primary US listing venue
+        (`_US_PRIMARY_EXCHANGES`) over degrading to `None`. Only falls back to `None` for a
+        true **no-match** ticker, or a genuinely **ambiguous** one where that preference
+        doesn't leave exactly one candidate (none of them is a recognized US venue, or --
+        not observed live, but structurally possible -- more than one is): silently
+        guessing among several still-ambiguous candidates risks resolving to the wrong
+        instrument entirely, which is worse than surfacing "could not resolve
+        automatically" and asking a human to supply a conid directly instead. See this
+        task's `decisions` entry.
 
         Cached per (uppercased) ticker for `_CONID_CACHE_TTL_SECONDS` (see that constant's
         own comment) -- `backend-ibkr-primary-data-provider`'s checklist item 2, once a
@@ -932,21 +962,26 @@ def _parse_account_positions(payload: object) -> list[IBKRAccountPosition]:
 
 
 def _resolve_stk_conid(payload: object, ticker: str) -> int | None:
-    """`[{"conid": "265598", "symbol": "AAPL", "sections": [{"secType": "STK"}, ...],
-    ...}, ...]` per `/iserver/secdef/search`'s documented shape (this task's `decisions`
-    entry) -- a list of candidate contracts, each potentially covering several asset
-    classes (`sections`) tied to the same underlying. Keeps only entries whose `symbol`
-    matches `ticker` exactly (case-insensitive) and which include a `"STK"` section
-    (skipping symbol matches that only exist as options/warrants/futures, and fuzzy
-    partial-symbol matches the endpoint can also return). Returns the single resulting
-    conid, or `None` if that leaves zero or more than one distinct candidate -- see
-    `IBKRProvider.resolve_conid`'s own docstring for why both degrade to the same `None`
-    rather than raising or guessing.
+    """`[{"conid": "265598", "symbol": "AAPL", "description": "NASDAQ",
+    "sections": [{"secType": "STK"}, ...], ...}, ...]` per `/iserver/secdef/search`'s
+    documented shape (this task's `decisions` entry) -- a list of candidate contracts,
+    each potentially covering several asset classes (`sections`) tied to the same
+    underlying. Keeps only entries whose `symbol` matches `ticker` exactly
+    (case-insensitive) and which include a `"STK"` section (skipping symbol matches that
+    only exist as options/warrants/futures, and fuzzy partial-symbol matches the endpoint
+    can also return).
+
+    Returns the single resulting conid; if more than one distinct candidate remains,
+    prefers the one listed on a primary US exchange (`_US_PRIMARY_EXCHANGES`, keyed off
+    each candidate's own top-level `description` field) before giving up -- see that
+    constant's own comment and `IBKRProvider.resolve_conid`'s docstring for the live
+    research this is based on and why a still-ambiguous result degrades to `None` rather
+    than raising or guessing further.
     """
     if not isinstance(payload, list):
         return None
     ticker_upper = ticker.upper()
-    candidates: set[int] = set()
+    candidates: dict[int, str | None] = {}
     for raw in payload:
         if not isinstance(raw, dict):
             continue
@@ -959,10 +994,18 @@ def _resolve_stk_conid(payload: object, ticker: str) -> int | None:
         if not any(isinstance(section, dict) and section.get("secType") == "STK" for section in sections):
             continue
         conid = _int_or_none(raw.get("conid"))
-        if conid is not None:
-            candidates.add(conid)
+        if conid is None:
+            continue
+        description = raw.get("description")
+        candidates[conid] = description if isinstance(description, str) else None
     if len(candidates) == 1:
         return next(iter(candidates))
+    if len(candidates) > 1:
+        primary_listings = {
+            conid for conid, description in candidates.items() if description in _US_PRIMARY_EXCHANGES
+        }
+        if len(primary_listings) == 1:
+            return next(iter(primary_listings))
     return None
 
 

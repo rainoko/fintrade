@@ -769,12 +769,19 @@ class TestResolveConid:
     mocked per this module's own no-live-gateway testing constraint."""
 
     @staticmethod
-    def _stk_entry(symbol: str, conid: int, extra_sections: list[dict] | None = None) -> dict:
+    def _stk_entry(
+        symbol: str,
+        conid: int,
+        extra_sections: list[dict] | None = None,
+        *,
+        description: str | None = None,
+    ) -> dict:
         return {
             "conid": str(conid),
             "companyHeader": f"{symbol} INC - NASDAQ",
             "companyName": f"{symbol} INC",
             "symbol": symbol,
+            "description": description,
             "sections": [{"secType": "STK"}, *(extra_sections or [])],
         }
 
@@ -849,6 +856,43 @@ class TestResolveConid:
             return_value=mocker.Mock(state="available", detail=None),
         )
         payload = [self._stk_entry("BAR", 111), self._stk_entry("BAR", 222)]
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
+
+        assert IBKRProvider().resolve_conid("BAR") is None
+
+    def test_ambiguous_prefers_the_primary_us_exchange_listing(self, mocker) -> None:
+        """Live-gateway research (`backend-ibkr-primary-data-provider`'s `decisions`
+        entry) confirmed AAPL itself resolves to FOUR distinct STK conids -- the NASDAQ
+        primary listing plus IBKR's own TSE-CDR/MEXI/EBS international feeder-exchange
+        listings for the same symbol -- and the same shape recurs for most other heavily-
+        tracked US tickers. The NASDAQ-listed candidate must win rather than the whole
+        resolution degrading to `None`."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        payload = [
+            self._stk_entry("AAPL", 265598, description="NASDAQ"),
+            self._stk_entry("AAPL", 532640894, description="TSE"),
+            self._stk_entry("AAPL", 38708077, description="MEXI"),
+            self._stk_entry("AAPL", 273982664, description="EBS"),
+        ]
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
+
+        assert IBKRProvider().resolve_conid("AAPL") == 265598
+
+    def test_ambiguous_with_two_primary_exchange_candidates_still_returns_none(self, mocker) -> None:
+        """Not observed live, but structurally possible -- if the primary-exchange
+        preference itself doesn't resolve down to exactly one candidate, this must still
+        degrade to `None` rather than guessing between them."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        payload = [
+            self._stk_entry("BAR", 111, description="NASDAQ"),
+            self._stk_entry("BAR", 222, description="NYSE"),
+        ]
         mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
 
         assert IBKRProvider().resolve_conid("BAR") is None

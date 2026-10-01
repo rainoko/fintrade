@@ -23,6 +23,20 @@ review round's test suite didn't catch it). Only the outermost data source
 `get_db` all run unmodified, on a real (in-memory, `StaticPool`-backed so it's shared across the
 worker threads `TestClient`/`ThreadPoolExecutor` actually use) SQLite engine.
 
+`_racing_providers` also forces `FINTRADE_IBKR_ENABLED=false`
+(`backend-ibkr-primary-data-provider`'s PR #369 review follow-up fix): `_live_scope` -> `_build_
+live_data_provider` now calls `_is_ibkr_connected()` before ever reaching
+`YFinanceProvider`/`StooqProvider`, which would otherwise make a REAL `GET /iserver/auth/status`
+call against whatever `FINTRADE_IBKR_BASE_URL` this dev container's own ambient `backend/.env`
+configures (`FINTRADE_IBKR_ENABLED=true`, per that task's own standing constraints) --
+independently confirmed via socket-connect tracing before this fix (3 real outbound TCP connect()
+attempts per run of this one file) -- the same concern/fix as
+`tests/unit/api/test_dependencies.py`'s and `tests/integration/test_portfolio_get_db_wiring.py`'s
+own `FINTRADE_IBKR_ENABLED=false` overrides. Without this, a live-authenticated gateway at test
+time would also silently route this test's real `_live_scope` call through the real
+`IBKRProvider`/`IBKRDataProvider` instead of `_RacingPrimaryProvider`/`_UnusedFallbackProvider`,
+defeating this regression test's own purpose.
+
 Run as a real regression test (not a one-off manual repro): `TestRepeatedFastFailWithSlowAbandonedLeg`
 below runs many iterations of the exact fast-fail/slow-other-leg scenario, since this is a race
 condition -- a single passing run proves nothing about whether the race is still reachable,
@@ -39,6 +53,7 @@ from sqlalchemy.orm import sessionmaker
 
 import app.api.dependencies as dependencies_module
 import app.db.session as db_session_module
+from app.config import get_settings
 from app.data.base import DataProvider, ExtendedData
 from app.data.exceptions import TickerNotFoundError
 from app.db.models import Base, ExtendedDataCacheORM
@@ -163,7 +178,15 @@ def _racing_providers(monkeypatch):
     """Monkeypatches the two data-source classes `get_data_provider_factory`'s `_live_scope`
     constructs (`app.api.dependencies.YFinanceProvider`/`.StooqProvider`) so every `CachedDataProvider`
     it builds wraps `_RacingPrimaryProvider`/`_UnusedFallbackProvider` instead -- no live network
-    call is ever reachable through this path (docs/architecture/Testing.md)."""
+    call is ever reachable through this path (docs/architecture/Testing.md).
+
+    Also forces `FINTRADE_IBKR_ENABLED=false` -- see this module's own docstring for why --
+    before `_live_scope`'s own `_is_ibkr_connected()` check gets a chance to make a real
+    `GET /iserver/auth/status` call against this dev container's ambient `backend/.env`.
+    """
+    monkeypatch.setenv("FINTRADE_IBKR_ENABLED", "false")
+    get_settings.cache_clear()
+
     sleep_seconds = 0.05
 
     monkeypatch.setattr(
@@ -173,7 +196,10 @@ def _racing_providers(monkeypatch):
     )
     monkeypatch.setattr(dependencies_module, "StooqProvider", _UnusedFallbackProvider)
 
-    return sleep_seconds
+    try:
+        yield sleep_seconds
+    finally:
+        get_settings.cache_clear()
 
 
 class TestRepeatedFastFailWithSlowAbandonedLeg:

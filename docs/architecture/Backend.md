@@ -19,7 +19,8 @@ backend/
       stooq_provider.py
       cache.py         # SQLite-backed OHLCV + extended-data cache
       exceptions.py    # shared DataProviderError hierarchy (TickerNotFoundError, InsufficientHistoryError, DataProviderUnavailableError)
-      ibkr_provider.py # optional IBKR Client Portal Web API provider (hourly bars + scanner) -- not a DataProvider, see §8
+      ibkr_provider.py # IBKR Client Portal Web API provider (conid-keyed hourly/daily/weekly bars + scanner) -- not itself a DataProvider, see §8
+      ibkr_data_provider.py # ticker-keyed DataProvider adapter over ibkr_provider.py -- the app's primary market-data source whenever IBKR is connected, see §8
       cftc_cot_provider.py # CFTC Commitments of Traders (futures positioning) -- not a DataProvider, see §9
       day_trader_intraday.py # IBKR intraday bars for the active day-trader TimeframeTriple's MINUTE-unit leg(s) -- see §10
     indicators/    # pure functions, one indicator per module
@@ -110,19 +111,62 @@ SQLite via SQLAlchemy for MVP: positions, account equity, a watchlist (ticker + 
 
 **Retrofitting Alembic onto a database created by the earlier `create_all`-only stopgap:** any database that predates this task (`db-migrations`) had its tables created by `create_all` directly, not by a migration — running `alembic upgrade head` against one fails (`CREATE TABLE` against a table that already exists). Run `alembic stamp head` instead, which records the initial migration as already applied without touching the schema (see `tests/integration/test_db_migrations.py` for both paths exercised as regression tests). This only works cleanly if that pre-existing schema actually matches what the initial migration would have created — e.g. a `positions` table created before `unique=True` was added to `PositionORM.ticker` (see the `api-portfolio-add-position` task's `decisions`) won't retroactively gain that index just because it gets stamped as head; a genuinely drifted database needs a manual fix-up, not a stamp. `scripts/fix_schema_drift.py` (see README.md's "Database migrations" section, and `docs/tasks/db-migrations-followups.json`) closes this one specific, currently-known drift case: it idempotently corrects `positions.ticker`'s index to unique if it's missing or wrong, no-ops if it's already correct, and fails loudly instead of silently succeeding if duplicate ticker rows already exist under the old non-unique index (a genuine data problem, not something to paper over). It is a narrow, targeted fix for this one case, not a general pre-stamp schema-diff tool — a future schema change that introduces a new kind of possible pre-Alembic drift needs its own fix, not an assumption that this script still covers it.
 
-## 8. Optional: IBKR Client Portal Web API Provider
+## 8. IBKR Client Portal Web API Provider — primary market-data source when connected
 
-`app/data/ibkr_provider.py`'s `IBKRProvider` is an **optional, secondary** market-data
-source (docs/tasks/backend-ibkr-data-provider.json, docs/ideas.md's "Decided: add IBKR's
-Client Portal Web API" entry) used only for two capabilities the primary
-yfinance/Stooq chain doesn't have: hourly bars (Screen 3 intraday entry-timing) and the
-IBKR market scanner (broad-market-breadth detection). It deliberately does **not**
-implement the `DataProvider` protocol (§2 above) — its capabilities don't map onto that
-protocol's daily/weekly/extended-data shape — and nothing in the app currently consumes
-it (`app.api.dependencies.get_ibkr_provider` is wired up but not yet called from any
-route); it exists purely as infrastructure a future task can build an endpoint against.
-See that module's own docstring, and this task's `decisions` entry, for the full
-rationale.
+`app/data/ibkr_provider.py`'s `IBKRProvider` is an **optional** market-data source
+(docs/tasks/backend-ibkr-data-provider.json, docs/ideas.md's "Decided: add IBKR's
+Client Portal Web API" entry) — optional in the sense that the whole app, including the
+full test/coverage suite, works identically with no gateway configured at all (see
+"fully optional and off by default" below), not in the sense of being merely a secondary
+capability anymore. `IBKRProvider` itself stays **conid-keyed**, not ticker-keyed — its
+methods (hourly/daily/weekly bars for one IBKR contract id, the market scanner) still
+don't match the `DataProvider` protocol's (§2) `get_daily_ohlcv(ticker)`-shaped
+signatures directly, so it deliberately does **not** implement that protocol itself.
+
+**`app/data/ibkr_data_provider.py`'s `IBKRDataProvider`/`IBKRPrimaryDataProvider` do**
+(`backend-ibkr-primary-data-provider`, which reverses this section's own prior "optional,
+secondary... nothing in the app currently consumes it" framing — see that task's
+`decisions` entry for the full reversal rationale and the live-gateway research behind
+it, and `ibkr_provider.py`'s own module docstring, which records the same reversal).
+`IBKRDataProvider` is the thin ticker→conid→bars adapter (`IBKRProvider.resolve_conid`
+then `get_daily_bars`/`get_weekly_bars`) that actually satisfies `DataProvider`;
+`IBKRPrimaryDataProvider` is the router `app.api.dependencies` composes from it:
+daily/weekly OHLCV from IBKR, extended data (earnings/dividend dates, short interest,
+insider transactions) delegated whole-sale to the existing cached yfinance/Stooq chain,
+since IBKR's Client Portal Web API has no equivalent for any of those fields (confirmed
+live during that task's research — a permanent, structural carve-out, not a per-call
+resilience fallback).
+
+**Selection logic** (`app.api.dependencies._is_ibkr_connected`/
+`_build_live_data_provider`/`_build_ibkr_primary_data_provider`, every caller of
+`get_data_provider`/`get_data_provider_factory`): whenever `Settings.ibkr_enabled` is
+`True` **and** the gateway reports `available` (`IBKRProvider.get_gateway_status`,
+cached 5 seconds), OHLCV is sourced from IBKR **exclusively** — no yfinance/Stooq
+fallback even on a single call's own failure, since `IBKRPrimaryDataProvider`'s
+`CachedDataProvider` is wired with the same `IBKRDataProvider` instance as *both* its
+primary and its fallback, so a per-call IBKR failure surfaces as the app's existing
+`DataProviderUnavailableError` → 503 contract rather than ever silently reaching for
+yfinance. Only when IBKR isn't connected (disabled, gateway unreachable, not
+authenticated) does the app fall back to the original yfinance-primary/Stooq-fallback
+behavior. `IBKRProvider.resolve_conid` caches each ticker's resolved conid (including an
+unresolved result) for 24h on the `IBKRProvider` instance itself, shared via the existing
+process-wide singleton (`app.api.dependencies._get_ibkr_provider_singleton`), so
+switching to IBKR-primary doesn't add a `/iserver/secdef/search` round trip to every
+request for every ticker.
+
+**Conid disambiguation for cross-listed tickers.** A bare `/iserver/secdef/search` for a
+heavily-tracked US ticker routinely returns *more than one* distinct STK conid — live
+research confirmed this for AAPL/MSFT/GOOGL/TSLA/NVDA/AMZN/IBM/KO/F/GE/SPY/QQQ and
+others: IBKR's own international feeder-exchange programs (a TSE-CDR cross-listing, a
+MEXI/Mexico-exchange listing, EBS, among others) list the same symbol alongside the
+primary US listing. `IBKRProvider._resolve_stk_conid` prefers the single candidate whose
+search-result `description` field names a primary US exchange (`NASDAQ`/`NYSE`/`AMEX`/
+`ARCA`/`BATS`) over degrading straight to "ambiguous, give up" — without this, IBKR-
+primary mode would 404 the app's single most common example ticker (and most other
+popular US mega-caps) the instant a gateway connects. Only falls back to `None`
+(unresolvable) for a true no-match, or if that preference itself doesn't leave exactly
+one candidate. See `backend-ibkr-primary-data-provider`'s `decisions` entry for the full
+live search responses this was confirmed against.
 
 **This is fully optional and off by default.** `Settings.ibkr_enabled` (env var
 `FINTRADE_IBKR_ENABLED`) defaults to `False`, and every other part of the app —
@@ -173,14 +217,18 @@ while scoping this task:**
   spending a real HTTP round-trip only to have the gateway reject it.
 - `GET /iserver/secdef/search` (`?symbol=...`) — resolves a plain ticker symbol to
   IBKR's own numeric conid (docs/tasks/backend-ibkr-symbol-resolution.json), the id
-  `get_hourly_bars`/`run_scanner` actually key off of. `resolve_conid` keeps only exact
-  (case-insensitive) symbol matches that include a `"STK"` section (filtering out
-  options/warrants/futures on the same underlying and fuzzy partial-symbol matches the
-  endpoint can also return), and returns `None` -- never raises -- for both no match and
-  a genuinely ambiguous one (more than one distinct conid for that symbol, e.g. dual
-  listings on different exchanges) rather than guessing which contract was meant. See
-  that task's `decisions` entry for the documented response shape this was implemented
-  against.
+  `get_hourly_bars`/`get_daily_bars`/`get_weekly_bars`/`run_scanner` actually key off of
+  (cached 24h per ticker, see above). `resolve_conid` keeps only exact (case-insensitive)
+  symbol matches that include a `"STK"` section (filtering out options/warrants/futures
+  on the same underlying and fuzzy partial-symbol matches the endpoint can also return).
+  When more than one distinct conid remains, it prefers the one whose search-result
+  `description` names a primary US exchange (`NASDAQ`/`NYSE`/`AMEX`/`ARCA`/`BATS`) — see
+  this section's "Conid disambiguation for cross-listed tickers" paragraph above — and
+  returns `None` -- never raises -- only for a true no-match, or if that preference still
+  doesn't leave exactly one candidate, rather than guessing which contract was meant. See
+  `backend-ibkr-symbol-resolution`'s and `backend-ibkr-primary-data-provider`'s
+  `decisions` entries for the documented/live-confirmed response shapes this was
+  implemented against.
 - `GET /iserver/accounts` + `GET /portfolio/{accountId}/positions/{pageId}` --
   `get_account_positions` (docs/tasks/backend-ibkr-portfolio-preload.json, `GET
   /api/ibkr/portfolio-preview`/`POST /api/ibkr/portfolio-preload`) discovers the
@@ -194,15 +242,22 @@ while scoping this task:**
   is dropped rather than represented with a null/nonsensical field, matching
   `resolve_conid`'s own equity-only scope in this same module.
 
-**Known, accepted limitation — unverified against a live gateway.** Every one of the
-above was implemented directly against IBKR's own documented Web API request/response
-shapes (docs/ideas.md's own research), and every test in
-`tests/unit/data/test_ibkr_provider.py` mocks HTTP at the `_request` boundary rather
-than hitting a real gateway — no sandboxed/CI environment used to build or review this
-has one. The actual response shapes returned by a live gateway, the interactive login
-flow itself, and any undocumented quirks are therefore not verified end-to-end here;
-this is deferred to manual testing by a user with a real running, authenticated
-gateway. See this task's `decisions` entry.
+**Known, accepted limitation — mostly unverified against a live gateway, with some
+exceptions now confirmed.** Every one of the above was originally implemented directly
+against IBKR's own documented Web API request/response shapes (docs/ideas.md's own
+research), and every test in `tests/unit/data/test_ibkr_provider.py` still mocks HTTP at
+the `_request` boundary rather than hitting a real gateway — no sandboxed/CI environment
+used to build or review this has one, per `docs/architecture/Testing.md`'s "no live
+network calls in tests" rule. `backend-ibkr-primary-data-provider` did get access to a
+live, authenticated gateway for its own research (see that task's `decisions` entry) and
+used it to confirm several specific facts this section now documents as verified rather
+than assumed: `/iserver/marketdata/history`'s actual per-bar-size response depth ceiling
+(`get_daily_bars`/`get_weekly_bars`'s own docstrings), that no IBKR Web API endpoint has
+an equivalent to yfinance's earnings/dividend/short-interest/insider-transaction fields,
+and the cross-listing/conid-disambiguation behavior described above. Everything else in
+this section (the account-positions pagination page size, the exact scanner response
+shape, the interactive login flow itself) remains unverified end-to-end and is still
+deferred to manual testing by a user with a real running, authenticated gateway.
 
 ## 9. CFTC Commitments of Traders (COT) Provider
 
