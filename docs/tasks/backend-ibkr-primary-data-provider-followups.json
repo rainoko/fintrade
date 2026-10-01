@@ -27,6 +27,10 @@
     {
       "step": "While checking whether backend-ibkr-primary-data-provider's own docstring-only route change needed an openapi.json/frontend-types regeneration, found that backend/openapi.json and frontend/src/api/types.ts are ALREADY stale relative to each other on main, independent of this task: regenerating both (python scripts/export_openapi.py from backend/, then yarn generate:api-types from frontend/) pulled in several already-merged backend route docstring changes (GET /api/portfolio's swing-mode weekly-OHLCV prefetch note, GET /api/stocks/{ticker}/analysis's concurrent daily/weekly/extended-data fetch note, IBKRScannerRunRequest's 'filter must be an array' note) that are present in backend/openapi.json but missing from the committed frontend/src/api/types.ts -- i.e. some prior PR(s) regenerated openapi.json without also regenerating (or committing) the frontend types, or vice versa. Worth a dedicated pass to regenerate frontend/src/api/types.ts properly (reviewing the resulting diff on its own, not bundled with an unrelated feature PR) and, if this keeps recurring, considering a CI check that fails when the two are out of sync.",
       "done": false
+    },
+    {
+      "step": "pr-reviewer's PR #369 review (needs_work -- see backend-ibkr-primary-data-provider.json's `review.comments` for the 3 blocking findings this was filed alongside) found a minor reuse/simplification issue while reviewing `app/api/dependencies.py`: `CachedDataProvider(YFinanceProvider(), StooqProvider(), db)` is constructed identically in two places -- `_build_live_data_provider`'s non-IBKR branch (the plain fallback path) and `_build_ibkr_primary_data_provider`'s `extended_data_provider` (the yfinance/Stooq carve-out chain used even while IBKR is primary). Worth factoring into a small shared helper (e.g. `_build_yfinance_stooq_provider(db)`) the next time either function is touched, so the two call sites can't silently drift apart. Non-blocking -- purely a duplication/readability nit, not a correctness issue.",
+      "done": false
     }
   ],
   "decisions": [],
