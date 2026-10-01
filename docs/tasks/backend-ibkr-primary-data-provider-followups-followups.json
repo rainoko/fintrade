@@ -26,5 +26,11 @@
       "rationale": "Mutation-tested directly per this task's own instructions: temporarily reverted `_resolve_stk_conid` to the old unconditional last-wins assignment (`candidates[conid] = description if isinstance(description, str) else None`, dropping the `if conid not in candidates or candidates[conid] is None` guard) and reran `TestResolveConid` -- the new test failed (`resolve_conid('BAR') == 222`, not `None`) while all other existing tests in the class still passed unchanged, confirming the new test is the one that actually catches a regression to last-wins semantics that the two originally-shipped tests (both single-conid) do not. Restored the fix immediately after and reran the full class to confirm all 25 tests (now including the new one) pass against the current code."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-ibkr-primary-data-provider-followups-followups",
+    "pr_number": 371,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/371",
+    "pushed_at": "2026-10-01T22:09:19Z"
+  }
 }
