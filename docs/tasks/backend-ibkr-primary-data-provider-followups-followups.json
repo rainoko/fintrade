@@ -1,0 +1,23 @@
+{
+  "id": "backend-ibkr-primary-data-provider-followups-followups",
+  "title": "Non-blocking follow-up from backend-ibkr-primary-data-provider-followups's PR #370 review",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-ibkr-primary-data-provider-followups"],
+  "references": [
+    "docs/tasks/backend-ibkr-primary-data-provider-followups.json",
+    "https://github.com/rainoko/fintrade/pull/370",
+    "backend/app/data/ibkr_provider.py",
+    "backend/tests/unit/data/test_ibkr_provider.py"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's PR #370 review of backend-ibkr-primary-data-provider-followups (accepted). PR #370's `_resolve_stk_conid` duplicate-description fix (first non-null `description` wins for a repeated conid, rather than the last row in payload order silently overwriting it) is itself verified correct -- manually confirmed with a two-distinct-conid scenario (conid A with duplicate rows `[\"NASDAQ\", None]`, conid B single row `\"NYSE\"`): the fixed code correctly returns `None` (both now count as primary-exchange candidates, genuinely ambiguous) where the pre-fix last-wins logic incorrectly returned conid B's conid (A's retained description got clobbered to `None` by the second row, making B look like the only primary candidate). However, the two new tests PR #370 actually shipped for this fix (`test_duplicate_rows_for_the_same_conid_keep_the_first_non_null_description`, `test_duplicate_rows_for_the_same_conid_disagreeing_on_description_keep_the_first`) only ever construct a single distinct conid (265598) with duplicate rows for it -- in that shape, `_resolve_stk_conid`'s `len(candidates) == 1` branch returns the sole conid unconditionally, before the retained `description` value is ever consulted. Verified directly: reverting the fix back to the old unconditional-overwrite (`candidates[conid] = description if isinstance(description, str) else None`) still makes both of these tests pass unchanged. So neither test actually exercises or guards the distinguishing behavior the fix introduces -- a future regression back to last-wins semantics would ship silently with these two tests still green.",
+  "checklist": [
+    {
+      "step": "Add a test to tests/unit/data/test_ibkr_provider.py's TestResolveConid class with two distinct conids, where one has duplicate rows disagreeing on description (e.g. first row description naming a primary US exchange, a later row null or a different non-primary value) and the other is a single-row primary-exchange candidate -- asserting resolve_conid/_resolve_stk_conid returns None (genuinely ambiguous, both count as primary) rather than silently picking the other candidate. Confirm this new test fails against the pre-fix (last-wins) logic and passes against the current code, the same way this finding's own review did manually.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
