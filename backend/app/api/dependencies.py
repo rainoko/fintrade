@@ -20,6 +20,7 @@ from app.data.base import DataProvider
 from app.data.cache import CachedDataProvider
 from app.data.cftc_cot_provider import CFTCCOTProvider
 from app.data.fixture_provider import FixtureDataProvider
+from app.data.ibkr_data_provider import IBKRDataProvider, IBKRPrimaryDataProvider
 from app.data.ibkr_provider import IBKRProvider
 from app.data.stooq_provider import StooqProvider
 from app.data.yfinance_provider import YFinanceProvider
@@ -29,11 +30,13 @@ from app.db.session import SessionLocal, get_db
 def get_data_provider(db: Session = Depends(get_db)) -> DataProvider:
     """The market-data provider used by API routes.
 
-    Normally (``Settings.data_provider_mode == "live"``, the default): yfinance
-    primary, Stooq fallback (docs/Analyse.md §9), both behind the SQLite
-    read-through cache (docs/architecture/Backend.md §7). A fresh pair of
-    provider adapters is constructed per request — they're stateless, so this
-    is cheap — while the cache shares the request's `db` session.
+    Normally (``Settings.data_provider_mode == "live"``, the default): IBKR exclusively
+    when its gateway is connected/authenticated (`_build_live_data_provider` below,
+    `backend-ibkr-primary-data-provider`), otherwise yfinance primary / Stooq fallback
+    (docs/Analyse.md §9) — both behind the SQLite read-through cache
+    (docs/architecture/Backend.md §7). A fresh pair of provider adapters is constructed
+    per request — they're stateless, so this is cheap — while the cache shares the
+    request's `db` session.
 
     When ``FINTRADE_DATA_PROVIDER_MODE=fixture`` is set (only ever done by the
     frontend e2e test suite, see `app.data.fixture_provider`): a deterministic,
@@ -53,7 +56,74 @@ def get_data_provider(db: Session = Depends(get_db)) -> DataProvider:
     """
     if get_settings().data_provider_mode == "fixture":
         return FixtureDataProvider()
+    return _build_live_data_provider(db)
+
+
+def _is_ibkr_connected() -> bool:
+    """Whether `get_data_provider`/`get_data_provider_factory` should source market data
+    from IBKR instead of yfinance/Stooq for this call -- `Settings.ibkr_enabled` AND a
+    currently-`available` gateway (`backend-ibkr-primary-data-provider`'s checklist item
+    3). Goes through the same process-wide `IBKRProvider` singleton `get_ibkr_provider`
+    uses (`_get_ibkr_provider_singleton`) rather than constructing a fresh instance just
+    to check status -- that would both discard `get_gateway_status`'s own TTL cache
+    (`app.data.ibkr_provider._GATEWAY_STATUS_TTL_SECONDS`) and, if this call ends up using
+    IBKR as primary, mean two separate `IBKRProvider` instances backing the same request
+    (this check's, and the one `_build_ibkr_primary_data_provider` would otherwise
+    construct) with two separate conid/gateway-status caches instead of one shared pair.
+    """
+    if not get_settings().ibkr_enabled:
+        return False
+    return _get_ibkr_provider_singleton().get_gateway_status().state == "available"
+
+
+def _build_yfinance_stooq_provider(db: Session) -> DataProvider:
+    """The yfinance-primary/Stooq-fallback `CachedDataProvider` chain (docs/Analyse.md §9)
+    -- factored out since it's built identically in two places: `_build_live_data_provider`
+    below (the non-IBKR branch) and `_build_ibkr_primary_data_provider` (the extended-data
+    chain IBKR-primary mode still delegates to, since IBKR has no earnings/dividend/
+    short-interest/insider-transaction equivalent -- see that function's own docstring).
+    Non-blocking finding from `backend-ibkr-primary-data-provider`'s PR #369 review,
+    tracked on docs/tasks/backend-ibkr-primary-data-provider-followups.json.
+    """
     return CachedDataProvider(YFinanceProvider(), StooqProvider(), db)
+
+
+def _build_live_data_provider(db: Session) -> DataProvider:
+    """The non-fixture-mode `DataProvider` composition shared by `get_data_provider` and
+    `get_data_provider_factory`'s own live-mode scope, so both pick the same source for
+    the same gateway state rather than drifting independently.
+    """
+    if _is_ibkr_connected():
+        return _build_ibkr_primary_data_provider(db)
+    return _build_yfinance_stooq_provider(db)
+
+
+def _build_ibkr_primary_data_provider(db: Session) -> DataProvider:
+    """The `IBKRPrimaryDataProvider` composition used while IBKR is connected
+    (`backend-ibkr-primary-data-provider`'s checklist items 4/5 -- see that task's
+    `decisions` entry for the full rationale):
+
+    - OHLCV: `IBKRDataProvider` wrapped in `CachedDataProvider` as **both** primary and
+      fallback. Passing the same instance twice is deliberate, not a typo -- the task's
+      own explicit requirement is that a per-call IBKR failure must never fall back to
+      yfinance/Stooq while IBKR is connected, so `CachedDataProvider`'s "try primary, on
+      `DataProviderUnavailableError` try fallback" logic retrying the *same* IBKR adapter
+      on failure (rather than a different source) is exactly the desired behavior: it
+      still gets the SQLite OHLCV read-through cache (`app.data.cache._CACHE_TTL`'s 24h
+      window) for free, and a genuine failure simply surfaces as `DataProviderUnavailableError`
+      (both "primary" and "fallback" attempts report the same underlying failure) rather
+      than silently reaching for a different provider.
+    - Extended data: delegated whole-sale to the existing cached yfinance/Stooq chain
+      (`_build_yfinance_stooq_provider`, the same one `_build_live_data_provider`'s
+      non-IBKR branch uses) via `IBKRPrimaryDataProvider`, which routes `get_extended_data`
+      to this directly rather than through the OHLCV `CachedDataProvider` above -- avoiding
+      a second, redundant caching layer around the same `ExtendedDataCacheORM` rows (see
+      `IBKRPrimaryDataProvider`'s own docstring).
+    """
+    ibkr_adapter = IBKRDataProvider(_get_ibkr_provider_singleton())
+    ohlcv_provider = CachedDataProvider(ibkr_adapter, ibkr_adapter, db)
+    extended_data_provider = _build_yfinance_stooq_provider(db)
+    return IBKRPrimaryDataProvider(ohlcv_provider, extended_data_provider)
 
 
 def get_data_provider_factory() -> Callable[[], AbstractContextManager[DataProvider]]:
@@ -68,9 +138,14 @@ def get_data_provider_factory() -> Callable[[], AbstractContextManager[DataProvi
     fresh `DataProvider` and closing whatever it opened on `__exit__` -- entirely independent
     of the request's own `Depends(get_db)` session and of every other `DataProvider` this same
     factory has produced. Concretely (non-fixture mode): each call opens its own
-    `SessionLocal()` and wraps it in a fresh `CachedDataProvider`, closing that session itself
-    once the caller's own `with` block exits -- regardless of what thread that happens on, or
-    whether the request handler that triggered the call has already returned.
+    `SessionLocal()` and passes it to `_build_live_data_provider` (the same composition
+    `get_data_provider` uses, so both pick the same source for the same gateway state --
+    `backend-ibkr-primary-data-provider`), closing that session itself once the caller's own
+    `with` block exits -- regardless of what thread that happens on, or whether the request
+    handler that triggered the call has already returned. This is a fresh `CachedDataProvider`
+    only while IBKR isn't connected; while it is, it's an `IBKRPrimaryDataProvider` instead
+    (see `_build_live_data_provider`'s own docstring) -- no yfinance/Stooq fallback for OHLCV
+    at this call site either, in that case.
 
     This is the actual fix for the DB-session race PR #360's second review round reproduced
     (`sqlalchemy.exc.IllegalStateChangeError`, real `FastAPI` + `TestClient` + real
@@ -108,7 +183,7 @@ def get_data_provider_factory() -> Callable[[], AbstractContextManager[DataProvi
     def _live_scope() -> Iterator[DataProvider]:
         db = SessionLocal()
         try:
-            yield CachedDataProvider(YFinanceProvider(), StooqProvider(), db)
+            yield _build_live_data_provider(db)
         finally:
             db.close()
 

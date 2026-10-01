@@ -45,6 +45,7 @@ from sqlalchemy.pool import StaticPool
 
 import app.api.dependencies as dependencies_module
 import app.db.session as db_session_module
+from app.config import get_settings
 from app.db.models import AccountORM, Base, PositionORM
 from app.main import app
 from tests.integration.conftest import _count_position_selects, _StubDailyProvider
@@ -56,6 +57,16 @@ def real_wiring_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestCl
     and the route handlers all run exactly as they would in production. Only the engine
     `SessionLocal` binds to, and the two network-calling provider classes, are swapped out --
     via `monkeypatch` on the real module attributes, not FastAPI's override mechanism."""
+    # `get_data_provider` now checks `Settings.ibkr_enabled`/a live gateway status
+    # (`backend-ibkr-primary-data-provider`) before composing YFinanceProvider/StooqProvider
+    # at all -- without this override, this dev container's own real `backend/.env` (which
+    # can have `FINTRADE_IBKR_ENABLED=true` set for manual live-gateway checking, per that
+    # task's own standing constraints) would make this "no live network call" fixture
+    # silently make one anyway. Same concern/fix as
+    # tests/unit/api/test_dependencies.py's own `FINTRADE_IBKR_ENABLED=false` overrides.
+    monkeypatch.setenv("FINTRADE_IBKR_ENABLED", "false")
+    get_settings.cache_clear()
+
     test_engine = create_engine(
         "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
@@ -82,6 +93,7 @@ def real_wiring_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestCl
         yield TestClient(app), test_engine
     finally:
         test_engine.dispose()
+        get_settings.cache_clear()
 
 
 class TestRealGetDbWiringAvoidsNPlusOne:

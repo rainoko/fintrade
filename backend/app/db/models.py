@@ -178,7 +178,21 @@ class DailyHomeworkEntryORM(Base):
 
 
 class OHLCVCacheORM(Base):
-    """Cached market data, keyed by ticker + date + interval (docs/architecture/Backend.md §7)."""
+    """Cached market data, keyed by ticker + date + interval (docs/architecture/Backend.md §7).
+
+    `source` (`backend-ibkr-primary-data-provider`'s PR #369 review, added after the
+    initial migration -- `b9428ca17553_add_source_to_ohlcv_cache`) records which
+    `DataProvider` chain's primary wrote this row (`type(primary).__name__`, e.g.
+    `"YFinanceProvider"` or `"IBKRDataProvider"` -- `app.data.cache.CachedDataProvider.
+    __init__`), NOT part of the primary key. Without this, switching between IBKR-primary
+    and yfinance-primary mode (`app.api.dependencies._is_ibkr_connected`) could silently
+    keep serving a still-fresh (<24h) cached row from the OTHER mode instead of actually
+    switching sources -- confirmed live by directly reproducing the cross-contamination in
+    both directions during that PR's review. `None` for any row written before this column
+    existed (nullable, no backfill) -- see `CachedDataProvider._read_cache_for_current_
+    source`'s own docstring for how a pre-existing `None`-sourced (or other-source) row is
+    treated as a miss for whichever source is now active, triggering exactly one refetch
+    that then overwrites it in place with the correct `source` tag."""
 
     __tablename__ = "ohlcv_cache"
 
@@ -190,6 +204,7 @@ class OHLCVCacheORM(Base):
     low: Mapped[float] = mapped_column(Float)
     close: Mapped[float] = mapped_column(Float)
     volume: Mapped[float] = mapped_column(Float)
+    source: Mapped[str | None] = mapped_column(String, nullable=True)
     fetched_at: Mapped[datetime] = mapped_column(DateTime)
 
 

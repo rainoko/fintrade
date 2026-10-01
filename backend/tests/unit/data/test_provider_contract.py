@@ -19,6 +19,8 @@ import pytest
 
 from app.data.base import DataProvider
 from app.data.fixture_provider import FixtureDataProvider
+from app.data.ibkr_data_provider import IBKRDataProvider
+from app.data.ibkr_provider import IBKRProvider
 from app.data.stooq_provider import StooqProvider
 from app.data.yfinance_provider import YFinanceProvider
 
@@ -29,8 +31,11 @@ YFINANCE_FIXTURES_DIR = FIXTURES_DIR / "yfinance"
 # FixtureDataProvider (app/data/fixture_provider.py) is included here too: it's a third real
 # DataProvider implementation (used by the frontend e2e suite, not the live app), so the same
 # interchangeability contract applies to it -- see this task's (frontend-e2e-tests) `decisions`
-# entry.
-_PROVIDER_CLASSES = [StooqProvider, YFinanceProvider, FixtureDataProvider]
+# entry. IBKRDataProvider (app/data/ibkr_data_provider.py) joins the list for the same reason,
+# added by `backend-ibkr-primary-data-provider` -- the ticker-keyed adapter over `IBKRProvider`
+# that satisfies this protocol (see that module's own docstring for why `IBKRProvider` itself
+# still doesn't).
+_PROVIDER_CLASSES = [StooqProvider, YFinanceProvider, FixtureDataProvider, IBKRDataProvider]
 
 _PROTOCOL_METHODS = ["get_daily_ohlcv", "get_weekly_ohlcv", "get_extended_data"]
 
@@ -122,6 +127,49 @@ class TestProvidersProduceIdenticallyShapedOutput:
 
     def test_fixture_weekly_output_matches_protocol_shape(self) -> None:
         result = FixtureDataProvider().get_weekly_ohlcv("AAPL")
+
+        assert list(result.columns) == ["open", "high", "low", "close", "volume"]
+        assert result.index.name == "date"
+
+    @staticmethod
+    def _mocked_ibkr_provider(mocker, *, bars_payload: dict) -> IBKRProvider:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        search_payload = [{"conid": "265598", "symbol": "AAPL", "sections": [{"secType": "STK"}]}]
+
+        def _fake_request(method, path, **kwargs):  # type: ignore[no-untyped-def]
+            if path == "/iserver/secdef/search":
+                return search_payload
+            return bars_payload
+
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", side_effect=_fake_request)
+        return IBKRProvider()
+
+    def test_ibkr_daily_output_matches_protocol_shape(self, mocker) -> None:
+        bars_payload = {
+            "data": [
+                {"t": 1665149400000, "o": 142.58, "h": 143.1, "l": 139.44, "c": 140.09, "v": 1520004.4}
+            ]
+        }
+        provider = self._mocked_ibkr_provider(mocker, bars_payload=bars_payload)
+
+        result = IBKRDataProvider(provider).get_daily_ohlcv("AAPL")
+
+        assert list(result.columns) == ["open", "high", "low", "close", "volume"]
+        assert result.index.name == "date"
+
+    def test_ibkr_weekly_output_matches_protocol_shape(self, mocker) -> None:
+        bars_payload = {
+            "data": [
+                {"t": 1665149400000 + i * 7 * 86400000, "o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 100.0}
+                for i in range(26)
+            ]
+        }
+        provider = self._mocked_ibkr_provider(mocker, bars_payload=bars_payload)
+
+        result = IBKRDataProvider(provider).get_weekly_ohlcv("AAPL")
 
         assert list(result.columns) == ["open", "high", "low", "close", "volume"]
         assert result.index.name == "date"

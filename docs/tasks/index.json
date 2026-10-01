@@ -2427,8 +2427,8 @@
       "id": "backend-ibkr-primary-data-provider",
       "area": "backend/data",
       "skill": null,
-      "state": "waiting_input",
-      "path": "docs/tasks/backend-ibkr-primary-data-provider.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-primary-data-provider.json"
     },
     {
       "id": "backend-ibkr-primary-data-provider-followups",

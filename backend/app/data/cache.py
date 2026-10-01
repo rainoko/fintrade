@@ -2,14 +2,22 @@
 docs/Architecture.md §3).
 
 ``CachedDataProvider`` wraps a primary + fallback ``DataProvider`` (in
-practice ``YFinanceProvider`` and ``StooqProvider``) with ``OHLCVCacheORM``
-(app/db/models.py): cached rows are served straight from SQLite when fresh,
-a source fetch is only made on a miss or when the cache has gone stale, and
-that source call itself falls back from primary to fallback on an
+practice ``YFinanceProvider``/``StooqProvider``, or -- since
+`backend-ibkr-primary-data-provider` -- the same ``IBKRDataProvider`` instance passed
+as both, see ``app.api.dependencies._build_ibkr_primary_data_provider``) with
+``OHLCVCacheORM`` (app/db/models.py): cached rows are served straight from SQLite
+when fresh, a source fetch is only made on a miss or when the cache has gone stale,
+and that source call itself falls back from primary to fallback on an
 availability failure per docs/Analyse.md §9. See this task's `decisions`
 entry (docs/tasks/data-cache.json) for the freshness policy, the "date
 range" reading, and the fallback scope, all of which are shaped by the
 `DataProvider` protocol (app/data/base.py) taking no date-range argument.
+
+``OHLCVCacheORM.source`` (`backend-ibkr-primary-data-provider`'s PR #369 review) tags
+each cached row with which provider chain wrote it (`type(primary).__name__`), so a
+mode switch between IBKR-primary and yfinance-primary never serves a still-fresh
+cached row from the OTHER chain as if it came from the current one -- see that
+column's own docstring, and `_read_cache_for_current_source`'s, for the full mechanism.
 """
 
 from __future__ import annotations
@@ -82,6 +90,22 @@ class CachedDataProvider(DataProvider):
         self._fallback = fallback
         self._db = db
         self._lock = threading.Lock()
+        # `backend-ibkr-primary-data-provider`'s PR #369 review: tags every OHLCV row this
+        # instance writes with the primary provider's class name, so a mode switch (IBKR
+        # <-> yfinance/Stooq, `app.api.dependencies._is_ibkr_connected`) can tell its own
+        # previously-cached rows apart from a still-fresh (<24h) row the OTHER mode wrote --
+        # see `OHLCVCacheORM.source`'s own docstring for the cross-contamination bug this
+        # fixes, and `_read_cache_for_current_source`'s docstring for how it's used. Derived
+        # from `type(primary)` (not `fallback`, and not which one actually served a given
+        # call) since the two providers passed here are always one coherent "chain" sharing
+        # one cache identity in every composition `app.api.dependencies` builds today --
+        # yfinance-primary/Stooq-fallback is one chain (tagged by its primary,
+        # `"YFinanceProvider"`, regardless of which of the pair actually served any given
+        # row -- an existing, unrelated, already-accepted mixing this change doesn't alter),
+        # and IBKR-primary passes the *same* `IBKRDataProvider` instance as both primary and
+        # fallback (`app.api.dependencies._build_ibkr_primary_data_provider`), so `type(primary)`
+        # is unambiguous there too.
+        self._source = type(primary).__name__
 
     def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
         """Daily OHLCV bars for `ticker`, from cache if fresh, else fetched and cached.
@@ -217,7 +241,7 @@ class CachedDataProvider(DataProvider):
         # `_fetch_from_source` (the actual network round trip) deliberately runs
         # unlocked, so a concurrent daily+weekly fetch still overlaps on the slow part.
         with self._lock:
-            cached_rows = self._read_cache(ticker, interval)
+            cached_rows = self._read_cache_for_current_source(ticker, interval)
             if cached_rows and self._is_fresh(cached_rows):
                 return self._rows_to_frame(cached_rows)
 
@@ -239,10 +263,42 @@ class CachedDataProvider(DataProvider):
         """All currently-cached rows for `ticker`/`interval` -- i.e. whatever date
         range is already cached, since the `DataProvider` protocol itself has no
         caller-supplied date-range argument to narrow this to (see module docstring).
+
+        Deliberately NOT filtered by `self._source` -- unlike `_read_cache_for_current_
+        source` below -- because this is also what `_upsert` uses to find the existing
+        row (if any) to update in place by its (ticker, date, interval) primary key,
+        regardless of which source last wrote it. Filtering this one by source too would
+        make `_upsert` blind to an other-source row at the same primary key, causing it
+        to attempt a second INSERT at an already-occupied key (an `IntegrityError`) on
+        every single mode switch instead of overwriting that row's data and `source` in
+        place -- see this task's `decisions` entry.
         """
         return (
             self._db.query(OHLCVCacheORM)
             .filter(OHLCVCacheORM.ticker == ticker, OHLCVCacheORM.interval == interval)
+            .order_by(OHLCVCacheORM.date)
+            .all()
+        )
+
+    def _read_cache_for_current_source(self, ticker: str, interval: str) -> list[OHLCVCacheORM]:
+        """Like `_read_cache`, but only rows this instance's own `self._source` wrote --
+        used by `_get`'s freshness check (`backend-ibkr-primary-data-provider`'s PR #369
+        review) so a still-fresh (<24h) row left behind by the OTHER provider chain (e.g.
+        yfinance-cached rows from before an IBKR gateway connected) is never served as a
+        cache hit for this chain. A ticker/interval with only other-source (or legacy,
+        pre-migration `source IS NULL`) rows reads as an empty result here -- exactly like
+        a genuine cold cache -- so `_get` falls through to a real fetch, and `_upsert`
+        (via the unfiltered `_read_cache` above) finds and overwrites those same rows in
+        place with the current source's fresh data and `source` tag, rather than leaving
+        a second, duplicate set of rows behind.
+        """
+        return (
+            self._db.query(OHLCVCacheORM)
+            .filter(
+                OHLCVCacheORM.ticker == ticker,
+                OHLCVCacheORM.interval == interval,
+                OHLCVCacheORM.source == self._source,
+            )
             .order_by(OHLCVCacheORM.date)
             .all()
         )
@@ -357,6 +413,7 @@ class CachedDataProvider(DataProvider):
             existing.low = float(row["low"])
             existing.close = float(row["close"])
             existing.volume = float(row["volume"])
+            existing.source = self._source
             existing.fetched_at = fetched_at
         try:
             self._db.commit()

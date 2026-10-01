@@ -1,26 +1,40 @@
 """Optional IBKR Client Portal Web API provider (docs/tasks/backend-ibkr-data-provider.json,
 docs/ideas.md's "Decided: add IBKR's Client Portal Web API" entry).
 
-Unlike ``YFinanceProvider``/``StooqProvider`` (app/data/yfinance_provider.py,
-app/data/stooq_provider.py), ``IBKRProvider`` deliberately does **not** implement the
-``DataProvider`` protocol (app/data/base.py) -- its capabilities (hourly bars for one
-IBKR contract ID, a market-breadth scanner) don't map onto that protocol's
-``get_daily_ohlcv``/``get_weekly_ohlcv``/``get_extended_data`` shape at all, and forcing
-a fit (e.g. resampling hourly bars into a fake "daily" series, or returning scanner
-results through a method named for per-ticker OHLCV) would misrepresent what this
-provider actually does. It's a distinct, secondary, fully optional capability -- see
-this task's `decisions` entry for the full rationale.
+``IBKRProvider`` itself is still conid-keyed (not ticker-keyed) and still does **not**
+implement the ``DataProvider`` protocol (app/data/base.py) directly -- its methods
+(hourly/daily/weekly bars for one IBKR contract ID, a market-breadth scanner) take a
+``conid``, not a ``ticker``, so they don't satisfy that protocol's
+``get_daily_ohlcv(ticker)``/``get_weekly_ohlcv(ticker)`` signatures as-is.
+``app.data.ibkr_data_provider.IBKRDataProvider`` is the ticker-keyed adapter
+(``resolve_conid`` + this class's ``get_daily_bars``/``get_weekly_bars``) that actually
+satisfies the protocol.
+
+**This module's own "poor fit as a primary data source" design decision has been
+reversed** by `backend-ibkr-primary-data-provider` (see that task's `decisions` entry for
+the full rationale and live-gateway research this reversal is based on): when the
+gateway is connected/authenticated, `app.api.dependencies.get_data_provider` now sources
+daily/weekly OHLCV from IBKR exclusively (via `IBKRDataProvider`) rather than
+yfinance/Stooq, falling back to the original yfinance-primary/Stooq-fallback behavior
+only when IBKR isn't connected. The structural reason the original decision gave --
+the gateway's interactive-login/session-keepalive requirements make it unlike
+`YFinanceProvider`'s always-on nature -- still holds and still motivates the *fallback*
+behavior (an app with no locally-running, authenticated gateway must keep working
+exactly as before), it just no longer rules IBKR out as primary *when* that gateway
+happens to be up: a human already keeping their own IBKR Gateway logged in is a
+reasonable thing for this self-hosted app to take advantage of, and doing so was the
+literal, explicit user request this task implements.
 
 **Structural constraint this whole module is designed around** (this task's own
 `description`): the gateway is a persistent local process (`clientportal.gw`) that
 requires a one-time interactive browser login IBKR explicitly does not support
-automating, and the session must be kept alive with a periodic ``/tickle`` call. That
-makes it a poor fit as this app's *primary* data source (unlike `YFinanceProvider`'s
-always-on, no-login-step nature) -- it's used only for the specific extra capabilities
-it uniquely unlocks, and degrades gracefully (a typed `GatewayStatus`, never an opaque
-exception) whenever the gateway isn't running or isn't authenticated. See
-`docs/architecture/Backend.md`'s IBKR section for the human setup walkthrough
-(downloading/running the gateway, the browser login step, `FINTRADE_IBKR_ENABLED`).
+automating, and the session must be kept alive with a periodic ``/tickle`` call -- this
+is why the app only ever *uses* IBKR opportunistically (gated behind a live
+`get_gateway_status()` check, see below) rather than *requiring* it, and degrades
+gracefully (a typed `GatewayStatus`, never an opaque exception) whenever the gateway
+isn't running or isn't authenticated. See `docs/architecture/Backend.md`'s IBKR section
+for the human setup walkthrough (downloading/running the gateway, the browser login
+step, `FINTRADE_IBKR_ENABLED`).
 
 **Testing constraint** (also this task's own `description`): no sandboxed/CI environment
 has a live authenticated gateway to test against, so every test in
@@ -50,6 +64,20 @@ DEFAULT_BASE_URL = "https://localhost:5000/v1/api"
 
 # docs/ideas.md: "max 1,000 data points per call" on /iserver/marketdata/history.
 _MAX_BARS_PER_PAGE = 1000
+
+# `get_daily_bars`/`get_weekly_bars`'s own single-request `period` values --
+# `backend-ibkr-primary-data-provider`'s checklist item 1 live-gateway research (this
+# task's `decisions` entry) confirmed `/iserver/marketdata/history` hard-caps a
+# `bar="1d"` response at `_MAX_BARS_PER_PAGE` regardless of how much history a larger
+# `period` requests (every value from `"4y"` up through `"max"` returned the identical
+# ~999-bar response against a live gateway), so any `period` at or past that ceiling
+# already returns IBKR's full available daily history in one request -- `"10y"` is
+# comfortably past it with headroom to spare. `bar="1w"` has a materially deeper ceiling
+# (confirmed live: `"20y"` returned 1,000 weekly bars, ~19 calendar years) -- both are
+# single-request values, not paginated further; see `get_daily_bars`'s own docstring for
+# why this doesn't reuse `get_hourly_bars`'s pagination loop.
+_DAILY_BARS_PERIOD = "10y"
+_WEEKLY_BARS_PERIOD = "20y"
 
 # `get_hourly_bars`'s default bar size -- kept for backward compatibility with every
 # existing caller (none of which pass `bar_size` explicitly yet, per this task's own
@@ -172,11 +200,72 @@ def max_lookback_days_for_bar_size(bar_size: str) -> float:
 # the tens of positions per page, so 50 pages covers well over a thousand held positions).
 _MAX_ACCOUNT_POSITIONS_PAGES = 50
 
+# `_resolve_stk_conid`'s disambiguation preference when a bare symbol search returns more
+# than one distinct STK conid. Confirmed live during `backend-ibkr-primary-data-provider`'s
+# PR #369 review follow-up research (this task's `decisions` entry carries the full
+# request/response detail): a bare `/iserver/secdef/search` for AAPL returns FOUR distinct
+# STK conids -- the NASDAQ primary listing plus IBKR's own international feeder-exchange
+# programs for popular US names (a TSE-CDR cross-listing, a MEXI/Mexico-exchange listing,
+# an EBS listing) -- and the same shape (one US-primary listing plus 2-4 feeder-exchange
+# listings) was confirmed for MSFT/GOOGL/TSLA/NVDA/AMZN/IBM/KO/F/GE/SPY/QQQ/CROX/CELH/RUN/
+# PLTR/SNOW/ZS/COIN, i.e. this is the norm for heavily-tracked US tickers, not a rare edge
+# case -- so the prior "more than one candidate degrades to None" rule made IBKR-primary
+# mode 404 on the app's single most common example ticker (and most other popular US
+# mega-caps) the instant a gateway connects. Each search-result candidate carries a
+# top-level `description` field naming the exchange that specific listing trades on
+# (confirmed live, NOT nested under `sections` -- a `sections` entry's own `exchange` key,
+# where present at all, names where that section's *derivatives* trade, not the underlying
+# listing itself) -- `"NASDAQ"`/`"NYSE"`/`"ARCA"` for the primary US listing of every ticker
+# above, versus `"TSE"`/`"MEXI"`/`"EBS"`/`"GETTEX"`/`"FWB"`/`"VALUE"`/`"BVME"`/`"ASX"`/
+# `"PURE"`/`"AQSE"`/`"LSEETF"`/`"IBIS"`/`"CDE"` for every feeder-exchange listing observed.
+# `"AMEX"`/`"BATS"` are included even though not confirmed live (no candidate ticker
+# tried happened to list there) since they're IBKR's other two well-documented primary
+# US equity exchanges alongside the two confirmed ones.
+_US_PRIMARY_EXCHANGES: frozenset[str] = frozenset({"NASDAQ", "NYSE", "AMEX", "ARCA", "BATS"})
+
 # docs/ideas.md: "`params` is rate-limited to 1 request per 15 minutes (cache it)".
 _SCANNER_PARAMS_TTL_SECONDS = 15 * 60.0
 
 # docs/ideas.md: "`run` to 1 request per second".
 _SCANNER_RUN_MIN_INTERVAL_SECONDS = 1.0
+
+# `backend-ibkr-primary-data-provider`'s checklist item 3: once IBKR can be this app's
+# *primary* data source, `app.api.dependencies.get_data_provider` needs to check "is IBKR
+# connected" on every single incoming request (unlike `get_ibkr_provider`'s existing
+# callers, which only ever call this a handful of times per request at most) -- caching
+# `get_gateway_status()` itself (rather than only `get_scanner_params`, the one existing
+# cached call) means that per-request check, and every data-fetching method's own
+# internal `_require_available()` guard, share one cached result instead of each costing
+# a separate live `GET /iserver/auth/status` round trip. 5 seconds (vs. `_SCANNER_PARAMS_
+# TTL_SECONDS`'s 15 minutes, which exists to respect an IBKR-documented per-endpoint rate
+# limit rather than for latency) is deliberately short: unlike the scanner params list,
+# there's no documented rate limit on `/iserver/auth/status` to respect, so this is a pure
+# latency/freshness trade-off, and the session's own live-gateway research for this task
+# observed the gateway's authenticated state change within *minutes* (not seconds) across
+# a resumed session -- a few seconds of staleness is a cost the whole point of this cache
+# is willing to pay (collapsing a request's own fan-out of several per-ticker data calls,
+# or a tight sequence of HTTP requests, into effectively one real status check) without
+# meaningfully risking a stale "available" surviving past the next request. This also
+# means `GET /api/ibkr/status` (app.api.routers.ibkr) can now serve a response up to this
+# many seconds stale -- accepted as a minor, documented trade-off rather than threading a
+# "bypass the cache" parameter through just for that one read-only status endpoint. See
+# this task's `decisions` entry.
+_GATEWAY_STATUS_TTL_SECONDS = 5.0
+
+# Same task's checklist item 2: an IBKR conid (`resolve_conid`) only changes on a genuine
+# listing event (a new IPO's conid, a re-listing after a symbol change) -- never
+# intraday -- so caching a resolution for a full day costs essentially no staleness risk
+# while saving a `/iserver/secdef/search` round trip (plus the ambiguity-scan work
+# `_resolve_stk_conid` does over its response) on every single call for a ticker this
+# process has already resolved. 24h matches `app.data.cache._CACHE_TTL`'s own OHLCV
+# freshness window -- there's no reason for this cache to be fresher than the OHLCV data
+# it's resolved in service of. A `None` (unknown/ambiguous) result is cached too, on the
+# same TTL: re-querying every call for a ticker IBKR has already definitively failed to
+# resolve would defeat the point of caching for exactly the tickers most likely to be
+# requested repeatedly (e.g. a cross-listed ticker a watchlist polls regularly -- see this
+# task's `decisions` entry on `_resolve_stk_conid`'s existing ambiguity behavior for a
+# live example found during this task's own research).
+_CONID_CACHE_TTL_SECONDS = 24 * 60 * 60.0
 
 GatewayState = Literal["available", "gateway_unreachable", "not_authenticated"]
 
@@ -322,6 +411,8 @@ class IBKRProvider:
         self._clock = clock
         self._scanner_params_cache: tuple[float, dict] | None = None
         self._last_scanner_run_at: float | None = None
+        self._gateway_status_cache: tuple[float, GatewayStatus] | None = None
+        self._conid_cache: dict[str, tuple[float, int | None]] = {}
 
     def close(self) -> None:
         """Release the underlying HTTP client -- a no-op if this instance was
@@ -343,16 +434,35 @@ class IBKRProvider:
         represented as a `GatewayStatus` value instead, since "is this optional feature
         usable right now" is exactly the kind of check a caller wants to make without a
         try/except.
+
+        Cached for `_GATEWAY_STATUS_TTL_SECONDS` (see that constant's own comment for the
+        full rationale) -- `backend-ibkr-primary-data-provider`'s checklist item 3. Every
+        other method on this class that gates on availability (`_require_available`)
+        calls this same method, so they transparently share this cache too: once
+        `app.api.dependencies.get_data_provider` has checked connectivity for a request,
+        an actual data-fetching call moments later doesn't pay for a second live round
+        trip to confirm the same thing again.
         """
+        cached = self._gateway_status_cache
+        if cached is not None:
+            cached_at, status = cached
+            if self._clock() - cached_at < _GATEWAY_STATUS_TTL_SECONDS:
+                return status
+
         try:
             payload = self._request("GET", "/iserver/auth/status")
         except IBKRUnavailableError as exc:
-            return GatewayStatus(state="gateway_unreachable", detail=str(exc))
+            status = GatewayStatus(state="gateway_unreachable", detail=str(exc))
+            self._gateway_status_cache = (self._clock(), status)
+            return status
 
         if not isinstance(payload, dict) or not payload.get("authenticated"):
             detail = payload.get("message") if isinstance(payload, dict) else None
-            return GatewayStatus(state="not_authenticated", detail=detail)
-        return GatewayStatus(state="available")
+            status = GatewayStatus(state="not_authenticated", detail=detail)
+        else:
+            status = GatewayStatus(state="available")
+        self._gateway_status_cache = (self._clock(), status)
+        return status
 
     def tickle(self) -> None:
         """Keep the gateway session alive via `GET /tickle`
@@ -464,6 +574,63 @@ class IBKRProvider:
 
         return sorted((bar for bar in collected.values() if bar.timestamp >= cutoff), key=lambda b: b.timestamp)
 
+    def get_daily_bars(self, conid: int) -> list[IBKRBar]:
+        """Daily OHLCV bars for IBKR contract id `conid` -- the data
+        `app.data.ibkr_data_provider.IBKRDataProvider.get_daily_ohlcv` needs
+        (`backend-ibkr-primary-data-provider`'s checklist items 1/5).
+
+        A single `/iserver/marketdata/history` call at `bar="1d"`/`period=_DAILY_BARS_
+        PERIOD` -- deliberately does **not** reuse `get_hourly_bars`'s pagination loop,
+        for two reasons this task's `decisions` entry records in full: (1) `_DAILY_BARS_
+        PERIOD` was chosen specifically because it already sits at or past IBKR's own
+        confirmed-live response ceiling for this bar size, so a second page would never
+        have anything left to return; and (2) `get_hourly_bars`'s own "a short page (fewer
+        than `_MAX_BARS_PER_PAGE` rows) means there's nothing further back" pagination-stop
+        heuristic was observed live to be actually wrong for `bar="1d"` specifically --
+        combining `startTime` with `period` on a follow-up request returned *additional*
+        older bars even though the first page's row count was already just under
+        `_MAX_BARS_PER_PAGE`. Inheriting that loop here would silently under-report history
+        by one page's worth in exactly the case this method exists to serve well; a single,
+        unpaginated request sidesteps that bug entirely rather than risk reproducing it, and
+        `docs/Analyse.md`'s own documented minimum (~200 trading days) is comfortably
+        covered by one page regardless (confirmed live: ~999 daily bars, ~4 calendar years).
+
+        Returns bars ordered oldest-first (`_parse_bars`' own ordering, matching every
+        source IBKR returns by default) -- the same ordering the `DataProvider` protocol
+        requires (app/data/base.py).
+
+        Raises:
+            IBKRUnavailableError: the gateway isn't `available` (see `get_gateway_status`),
+                or the request fails.
+        """
+        self._require_available()
+        payload = self._request(
+            "GET",
+            "/iserver/marketdata/history",
+            params={"conid": str(conid), "bar": "1d", "period": _DAILY_BARS_PERIOD},
+        )
+        return _parse_bars(payload)
+
+    def get_weekly_bars(self, conid: int) -> list[IBKRBar]:
+        """Weekly OHLCV bars for IBKR contract id `conid` -- `get_daily_bars`'s sibling for
+        `IBKRDataProvider.get_weekly_ohlcv`. Same single-request shape (`bar="1w"`,
+        `period=_WEEKLY_BARS_PERIOD`) and the same reasons for not pagination -- see
+        `get_daily_bars`'s own docstring; confirmed live to return up to 1,000 weekly bars
+        (~19 calendar years), comfortably past Screen 1's 26-week minimum
+        (`app.data.yfinance_provider._MIN_WEEKLY_BARS`).
+
+        Raises:
+            IBKRUnavailableError: the gateway isn't `available` (see `get_gateway_status`),
+                or the request fails.
+        """
+        self._require_available()
+        payload = self._request(
+            "GET",
+            "/iserver/marketdata/history",
+            params={"conid": str(conid), "bar": "1w", "period": _WEEKLY_BARS_PERIOD},
+        )
+        return _parse_bars(payload)
+
     def get_scanner_params(self) -> dict:
         """The market scanner's valid filter/instrument/location/scan-type options, from
         `/iserver/scanner/params` -- cached for `_SCANNER_PARAMS_TTL_SECONDS` (15 minutes,
@@ -533,21 +700,44 @@ class IBKRProvider:
         options/warrants/futures tied to the same underlying, and can return unrelated
         symbols as fuzzy/partial matches -- neither is a usable equity conid here).
 
-        Returns `None` -- never raises -- for both a **no-match** ticker and a
-        genuinely **ambiguous** one (more than one distinct stock conid for the same
-        symbol, e.g. the same ticker used by unrelated companies listed on different
-        exchanges): silently guessing among several candidate contracts risks resolving
-        to the wrong instrument entirely, which is worse than surfacing "could not
-        resolve automatically" and asking a human to supply a conid directly instead.
-        See this task's `decisions` entry.
+        When a bare symbol search returns more than one distinct stock conid -- confirmed
+        live to be the norm, not an edge case, for heavily-tracked US tickers (IBKR lists
+        AAPL/MSFT/GOOGL/etc. on several of its own international feeder-exchange programs
+        under the same symbol, alongside the primary US listing -- see `_US_PRIMARY_
+        EXCHANGES`'s own comment for the full live research) -- prefers the single
+        candidate whose search-result `description` names a primary US listing venue
+        (`_US_PRIMARY_EXCHANGES`) over degrading to `None`. Only falls back to `None` for a
+        true **no-match** ticker, or a genuinely **ambiguous** one where that preference
+        doesn't leave exactly one candidate (none of them is a recognized US venue, or --
+        not observed live, but structurally possible -- more than one is): silently
+        guessing among several still-ambiguous candidates risks resolving to the wrong
+        instrument entirely, which is worse than surfacing "could not resolve
+        automatically" and asking a human to supply a conid directly instead. See this
+        task's `decisions` entry.
+
+        Cached per (uppercased) ticker for `_CONID_CACHE_TTL_SECONDS` (see that constant's
+        own comment) -- `backend-ibkr-primary-data-provider`'s checklist item 2, once a
+        ticker-keyed `DataProvider` adapter built on top of this method
+        (`app.data.ibkr_data_provider.IBKRDataProvider`) could otherwise re-resolve the
+        same ticker's conid on every single request. Caches a `None` (unresolved/
+        ambiguous) result too, on the same TTL -- see that constant's own comment for why.
 
         Raises:
             IBKRUnavailableError: the gateway isn't `available` (see
                 `get_gateway_status`), or the request itself fails.
         """
+        cache_key = ticker.upper()
+        cached = self._conid_cache.get(cache_key)
+        if cached is not None:
+            cached_at, conid = cached
+            if self._clock() - cached_at < _CONID_CACHE_TTL_SECONDS:
+                return conid
+
         self._require_available()
         payload = self._request("GET", "/iserver/secdef/search", params={"symbol": ticker})
-        return _resolve_stk_conid(payload, ticker)
+        conid = _resolve_stk_conid(payload, ticker)
+        self._conid_cache[cache_key] = (self._clock(), conid)
+        return conid
 
     def get_account_positions(self) -> list[IBKRAccountPosition]:
         """The connected IBKR account's current equity positions
@@ -772,21 +962,26 @@ def _parse_account_positions(payload: object) -> list[IBKRAccountPosition]:
 
 
 def _resolve_stk_conid(payload: object, ticker: str) -> int | None:
-    """`[{"conid": "265598", "symbol": "AAPL", "sections": [{"secType": "STK"}, ...],
-    ...}, ...]` per `/iserver/secdef/search`'s documented shape (this task's `decisions`
-    entry) -- a list of candidate contracts, each potentially covering several asset
-    classes (`sections`) tied to the same underlying. Keeps only entries whose `symbol`
-    matches `ticker` exactly (case-insensitive) and which include a `"STK"` section
-    (skipping symbol matches that only exist as options/warrants/futures, and fuzzy
-    partial-symbol matches the endpoint can also return). Returns the single resulting
-    conid, or `None` if that leaves zero or more than one distinct candidate -- see
-    `IBKRProvider.resolve_conid`'s own docstring for why both degrade to the same `None`
-    rather than raising or guessing.
+    """`[{"conid": "265598", "symbol": "AAPL", "description": "NASDAQ",
+    "sections": [{"secType": "STK"}, ...], ...}, ...]` per `/iserver/secdef/search`'s
+    documented shape (this task's `decisions` entry) -- a list of candidate contracts,
+    each potentially covering several asset classes (`sections`) tied to the same
+    underlying. Keeps only entries whose `symbol` matches `ticker` exactly
+    (case-insensitive) and which include a `"STK"` section (skipping symbol matches that
+    only exist as options/warrants/futures, and fuzzy partial-symbol matches the endpoint
+    can also return).
+
+    Returns the single resulting conid; if more than one distinct candidate remains,
+    prefers the one listed on a primary US exchange (`_US_PRIMARY_EXCHANGES`, keyed off
+    each candidate's own top-level `description` field) before giving up -- see that
+    constant's own comment and `IBKRProvider.resolve_conid`'s docstring for the live
+    research this is based on and why a still-ambiguous result degrades to `None` rather
+    than raising or guessing further.
     """
     if not isinstance(payload, list):
         return None
     ticker_upper = ticker.upper()
-    candidates: set[int] = set()
+    candidates: dict[int, str | None] = {}
     for raw in payload:
         if not isinstance(raw, dict):
             continue
@@ -799,10 +994,18 @@ def _resolve_stk_conid(payload: object, ticker: str) -> int | None:
         if not any(isinstance(section, dict) and section.get("secType") == "STK" for section in sections):
             continue
         conid = _int_or_none(raw.get("conid"))
-        if conid is not None:
-            candidates.add(conid)
+        if conid is None:
+            continue
+        description = raw.get("description")
+        candidates[conid] = description if isinstance(description, str) else None
     if len(candidates) == 1:
         return next(iter(candidates))
+    if len(candidates) > 1:
+        primary_listings = {
+            conid for conid, description in candidates.items() if description in _US_PRIMARY_EXCHANGES
+        }
+        if len(primary_listings) == 1:
+            return next(iter(primary_listings))
     return None
 
 

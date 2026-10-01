@@ -161,7 +161,10 @@ def get_ibkr_status(
     `Settings.ibkr_enabled` is `False` (this app's default; `get_ibkr_provider` yields
     `None` in exactly that case, so no attempt to reach a gateway is made at all), otherwise
     whatever `IBKRProvider.get_gateway_status()` reports ('available' / 'gateway_unreachable'
-    / 'not_authenticated').
+    / 'not_authenticated'). Since `backend-ibkr-primary-data-provider`, that result can be up
+    to `app.data.ibkr_provider._GATEWAY_STATUS_TTL_SECONDS` (a few seconds) stale -- see that
+    constant's own docstring for why this endpoint accepts that trade-off rather than
+    bypassing the cache.
 
     Never raises for any gateway state: `get_gateway_status()` itself never raises (its own
     docstring's contract -- every failure mode it can observe is represented as a
