@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from backend-ibkr-primary-data-provider-followups's PR #370 review",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-ibkr-primary-data-provider-followups"],
   "references": [
     "docs/tasks/backend-ibkr-primary-data-provider-followups.json",
@@ -32,5 +32,12 @@
     "pr_number": 371,
     "pr_url": "https://github.com/rainoko/fintrade/pull/371",
     "pushed_at": "2026-10-01T22:09:19Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-01T22:14:39Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/371",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full backend suite + coverage: `pytest --cov=app --cov-fail-under=90` over the full `tests/` tree (not just `tests/unit`, which alone reports 84% since router/endpoint coverage lives in `tests/integration` -- not a regression) -- 1544 passed, 100.00% coverage. ruff check and mypy (scoped to app/ per pyproject.toml) both clean. scripts/check_profit_target_wording.py and scripts/validate_tasks.py both clean. Independently reproduced the mutation test myself (did not trust the self-report): reverted _resolve_stk_conid's duplicate-description guard in backend/app/data/ibkr_provider.py back to unconditional last-wins, reran TestResolveConid -- the new test failed exactly as claimed (resolve_conid('BAR') == 222, not None) while the other 24 tests stayed green; restored the fix and reran -- all 25 pass. The decisions entry is genuine and matches my independent reproduction. No UI surface (test file + task-board JSON only), so browser walkthrough/e2e suite are not applicable; no API/schema changes so no openapi.json regeneration needed; no new module/dependency/layer so architecture-review not applicable; area is backend/data (not signals/portfolio) and skill is null so verify-elder-signal not applicable. No blocking or non-blocking findings -- no followups task filed."
   }
 }
