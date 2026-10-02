@@ -37,7 +37,6 @@ import LegendToggle, {
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
-import { useSeriesVisibilityToggle } from '../hooks/useSeriesVisibilityToggle'
 import { useStockAnalysis } from '../hooks/useStockAnalysis'
 import { useStockHistory } from '../hooks/useStockHistory'
 import {
@@ -46,6 +45,7 @@ import {
   createBaseChart,
   isFiniteNumber,
   timeToDateString,
+  useSeriesVisibilityToggle,
 } from '../../../utils/chart'
 import {
   clickedDivergenceExtreme,

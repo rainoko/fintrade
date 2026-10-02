@@ -12,8 +12,11 @@ import LegendToggle from '../../../components/common/LegendToggle/LegendToggle'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
-import { useSeriesVisibilityToggle } from '../hooks/useSeriesVisibilityToggle'
-import { createBaseChart, isFiniteNumber } from '../../../utils/chart'
+import {
+  createBaseChart,
+  isFiniteNumber,
+  useSeriesVisibilityToggle,
+} from '../../../utils/chart'
 import { adxHelp, atrHelp, directionalSystemHelp } from './metricHelpContent'
 
 export interface TrendStrengthChartProps {
