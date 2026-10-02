@@ -2483,7 +2483,7 @@
       "id": "frontend-chart-fullscreen-resize-followups",
       "area": "frontend/stocks",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-chart-fullscreen-resize-followups.json"
     },
     {
