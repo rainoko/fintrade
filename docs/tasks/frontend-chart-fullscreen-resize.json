@@ -62,5 +62,11 @@
       "rationale": "The task explicitly called for verifying this assumption in practice rather than trusting it from the option's name, and the mocked-`lightweight-charts` unit test suite can't exercise this at all (the mock has no `<canvas>`/`ResizeObserver` concept). The ad hoc script drag-resized and maximized each of the four panes against the actual running app and confirmed the real `<canvas>` element's own height grew along with its container in every case, with no `chart.resize()`/`applyOptions({width,height})` call anywhere in this app's code -- this is also what caught the Dialog-remount bug recorded in the sibling `decisions` entry above. The added e2e spec (one new `test(...)` case) gives this a permanent, repeatable check beyond this one-off manual pass; it wasn't runnable end-to-end through `yarn test:e2e`'s own Playwright-managed webServer during this session because a separate, already-running dev-server pair occupied the suite's hardcoded ports 8000/5173 (a standing constraint for this task: that dev server was not to be touched), so the new spec's correctness was instead confirmed by matching its selectors/assertions 1:1 against the ad hoc script that *was* run successfully against that live server."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-chart-fullscreen-resize",
+    "pr_number": 373,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/373",
+    "pushed_at": "2026-10-02T19:34:33Z"
+  }
 }
