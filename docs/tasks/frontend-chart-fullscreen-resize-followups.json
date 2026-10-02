@@ -23,6 +23,10 @@
     {
       "step": "`ChartFrame.tsx`'s `MAXIMIZED_CHROME_ALLOWANCE_PX = 220` is a single constant shared across all four panes despite their chrome (controls/legend rows above the canvas) differing materially -- PriceChart's range/interval ToggleButtonGroups plus several MetricHelp legend rows are taller than Oscillators/VolumeIndicators/TrendStrength's single title row. The maximized overlay's own `overflow: 'auto'` is the documented fallback if the real chrome exceeds the estimate, and this held up fine in manual testing at a 900px-tall viewport, but wasn't checked at a smaller viewport height (e.g. a ~700px laptop screen) where PriceChart's taller chrome could push more of the canvas below the fold inside the maximized view. Worth a real-browser check at a shorter viewport.",
       "done": false
+    },
+    {
+      "step": "Flagged by an independent high-effort code-review pass against the same PR #373 diff: `ChartFrame.tsx`'s window-resize `useSyncExternalStore` subscription (`subscribeToWindowResize`/`computeMaximizedHeight`, ~line 186) stays active for the component's entire lifetime regardless of `isMaximized`, so every browser resize/orientation-change re-renders all four (legend/MetricHelp-heavy) chart panes even while none is maximized and the recomputed `maximizedHeight` is immediately discarded by `canvasHeight`'s non-maximized branch. Minor render-churn cost, not a correctness bug -- worth gating the subscription on `isMaximized` (or otherwise avoiding the unconditional re-render) if it shows up in practice.",
+      "done": false
     }
   ],
   "decisions": [],
