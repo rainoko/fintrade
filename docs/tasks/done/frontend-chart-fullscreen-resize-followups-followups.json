@@ -3,7 +3,7 @@
   "title": "Remaining deferred accessibility hardening from frontend-chart-fullscreen-resize-followups's PR #375",
   "area": "frontend/stocks",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-chart-fullscreen-resize-followups"],
   "references": [
     "docs/tasks/done/frontend-chart-fullscreen-resize-followups.json",
@@ -36,5 +36,48 @@
       "alternatives_considered": "Considered implementing the aria-hidden/inert half only (the 'small, well-contained change' the dispatch floated as a reasonable middle ground) by hiding ChartFrame's own immediate DOM siblings via a ref-based effect. Rejected: because the overlay isn't portaled to a fixed, shallow position (unlike a true Modal's root), ChartFrame's own immediate siblings at whatever depth it happens to be mounted at are usually just other elements within the same local layout (e.g. other cards in the same Grid row), not 'the rest of the page' -- a shallow one-level sibling hide would give a false sense of having fixed the gap while still leaving every ancestor level above that one fully reachable to assistive tech, which is worse than clearly documenting the gap as open."
     }
   ],
-  "questions": []
+  "questions": [],
+  "review": {
+    "reviewed_at": "2026-10-02T23:39:57Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/377",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "No source code changes in this PR (2 task-board JSON files only). Independently re-verified both re-verification claims the PR's decision rests on, rather than taking them at face value: (1) grepped frontend/src/features/stocks/components/metricHelpContent.ts and frontend/src/features/portfolio/components/metricHelpContent.ts for Button/<a /Link/onClick/href -- zero matches in either file; read both files in full and confirmed every entry's interpretValue returns a plain string with no JSX, consistent with InfoBalloon.tsx's content: ReactNode prop being fed only plain text today. (2) Re-read ChartFrame.tsx end to end: the Tab-trap's getFocusableElements(container) is still scoped strictly to frameRef's own subtree (no change), and the maximized overlay is still a single non-portaled Box whose sx toggles to { position: 'fixed', inset: 0, ... } (lines 516-540) -- the 'position:fixed blocks pointer/keyboard reach' reasoning still holds. Also confirmed PriceChart/OscillatorChart/VolumeIndicatorsChart/TrendStrengthChart remain the only 4 ChartFrame consumers. Both of the PR's central factual claims check out.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Ran backend pytest --cov=app --cov-fail-under=90: 1544 passed, 100.00% coverage. Ran frontend vitest run --coverage: 1031 passed (98 files), 99.77%/99.09%/99.83%/99.81% stmt/branch/func/line -- both well above the 90% gate, as expected for a PR with no source diff (baseline sanity check per the dispatch's request, not because a regression was plausible).",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Static analysis clean on both sides: backend ruff check . and mypy both report no issues; frontend yarn lint and yarn tsc -b --noEmit both clean; scripts/check_profit_target_wording.py reports no stale wording. python3 scripts/validate_tasks.py passes with 0 violations across 358 task files (confirms the index.json state/path mirror and decisions-entry shape requirements this PR's own edits satisfy).",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Ran ChartFrame.test.tsx directly: 24/24 passing, matching the PR description's claim exactly.",
+        "file": "frontend/src/components/common/ChartFrame/ChartFrame.test.tsx",
+        "line": null
+      },
+      {
+        "summary": "No API/schema changes (openapi.json n/a), no new module/dependency/layer (architecture-review n/a), no frontend component added or changed (placement-review n/a per step 7a -- nothing to assess), area is frontend/stocks not backend/signals|portfolio and skill is null, not verify-elder-signal (that check n/a). No UI surface touched by this PR (pure task-board JSON edit) -- browser walkthrough and the persisted e2e suite (frontend/tests/e2e) are both explicitly skipped for this reason, per the review process's own carve-out for a PR with no UI surface.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Decision memory: both closed checklist items have a corresponding decisions entry (task-worker, 2026-10-02T23:25:57Z) with decision + rationale + alternatives_considered, satisfying CLAUDE.md's decision-memory requirement -- no undecided-but-implemented judgment call here since both items are closed with an explicit no-change decision, not silently dropped.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Agree this is a genuinely reasonable 'no change needed' call, not a rubber-stamped carry-forward: both findings have now been independently re-confirmed as unreachable across three separate review passes (PR #373 round 2, PR #375, and this task), the reasoning for non-implementation is asymmetric-cost-vs-benefit and explicitly considered a middle-ground alternative (a shallow one-level aria-hidden) and rejected it with a concrete reason (would give a false sense of having fixed the gap while leaving higher DOM ancestors still reachable). Ran an independent code-review pass (medium effort) against the diff as well -- no findings.",
+        "file": null,
+        "line": null
+      }
+    ],
+    "notes": "Accepted. This PR makes no source code changes -- it closes out both of frontend-chart-fullscreen-resize-followups-followups's remaining checklist items with a documented decision not to implement, carrying forward findings already deferred across 2 prior review rounds (PR #373 round 2, PR #375). Independently re-verified (not just re-cited) the two factual claims underpinning that decision: metricHelpContent.ts has zero interactive elements in either features/stocks or features/portfolio, and ChartFrame.tsx's maximized overlay is still a non-portaled position:fixed Box with a Tab-trap scoped to frameRef's own subtree. Full backend+frontend test/coverage suites, static analysis (ruff/mypy/eslint/tsc/profit-target-wording-guard), validate_tasks.py, and a code-review pass all came back clean with no findings. No UI surface in this PR, so the browser walkthrough and persisted e2e suite steps are explicitly skipped rather than silently omitted. No non-blocking findings surfaced during this review, so no new follow-up task was created."
+  }
 }
