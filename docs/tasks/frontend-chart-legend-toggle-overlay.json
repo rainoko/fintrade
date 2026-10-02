@@ -3,7 +3,7 @@
   "title": "Stock Detail chart legends: clicking a line's label toggles that overlay's visibility",
   "area": "frontend/stocks",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "frontend/src/features/stocks/components/PriceChart.tsx",
@@ -65,5 +65,11 @@
       "rationale": "Matches this app's existing convention for a chart pane's own local UI state (e.g. `PriceChart.tsx`'s range/interval selection and its Fibonacci-swing state, all plain `useState` that resets on remount) -- there was no requirement or user request surfaced anywhere in this task for a toggled-off overlay to survive a navigation away and back, and the simpler default (reset on remount) avoids a whole extra persistence mechanism (and the questions that come with it -- per-ticker vs. global state, `localStorage` schema versioning) for a convenience the task never asked for. Recorded explicitly per the task's own checklist item calling for this choice to be made and recorded either way."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-chart-legend-toggle-overlay",
+    "pr_number": 374,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/374",
+    "pushed_at": "2026-10-02T21:18:32Z"
+  }
 }
