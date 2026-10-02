@@ -2476,8 +2476,8 @@
       "id": "frontend-chart-fullscreen-resize",
       "area": "frontend/stocks",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-chart-fullscreen-resize.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-chart-fullscreen-resize.json"
     },
     {
       "id": "frontend-chart-fullscreen-resize-followups",
