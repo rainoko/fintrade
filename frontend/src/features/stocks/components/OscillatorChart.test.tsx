@@ -27,10 +27,17 @@ const removeMock = vi.fn()
 const removeSeriesMock = vi.fn()
 const fitContentMock = vi.fn()
 const createPriceLineMock = vi.fn()
+const applyOptionsMock = vi.fn()
+// Stochastic and RSI share pane 0 (see this component's own doc comment), so
+// `paneIndex` alone can't tell their `applyOptions` calls apart the way it
+// can for `VolumeIndicatorsChart.test.tsx`'s own OBV/A-D (one pane each) --
+// keyed by each series' own `title` instead, same convention
+// `TrendStrengthChart.test.tsx` uses for its own pane-0-sharing trio.
 const addSeriesMock = vi.fn(
-  (_definition: unknown, _options: unknown, paneIndex?: number) => ({
+  (_definition: unknown, options: { title?: string }, paneIndex?: number) => ({
     setData: (data: unknown) => setDataMock(paneIndex, data),
-    createPriceLine: (options: unknown) => createPriceLineMock(paneIndex, options),
+    createPriceLine: (lineOptions: unknown) => createPriceLineMock(paneIndex, lineOptions),
+    applyOptions: (opts: unknown) => applyOptionsMock(options.title, opts),
   }),
 )
 const setMarkersMock = vi.fn()
@@ -293,6 +300,7 @@ describe('OscillatorChart', () => {
     createSeriesMarkersMock.mockClear()
     subscribeClickMock.mockClear()
     unsubscribeClickMock.mockClear()
+    applyOptionsMock.mockClear()
   })
 
   it('shows a loading state, then renders Stochastic/RSI/Force Index/MACD Histogram, Stochastic+RSI sharing one pane', async () => {
@@ -601,6 +609,40 @@ describe('OscillatorChart', () => {
     // Latest point (09-02): rsi 29.5, stochastic_k 24.3 -- current-value
     // interpretation, not just a static definition.
     expect(screen.getByText(/Currently 29\.5, oversold/)).toBeInTheDocument()
+  })
+
+  it('clicking the RSI legend label hides, then re-shows, the RSI series only (not Stochastic, which shares its pane)', async () => {
+    mockIndicators(indicatorPoints)
+    const user = userEvent.setup()
+
+    renderWithProviders(<OscillatorChart ticker="AAPL" range="1y" />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('oscillator-chart-canvas')).toBeInTheDocument(),
+    )
+    applyOptionsMock.mockClear()
+
+    const toggle = screen.getByRole('button', { name: 'Hide RSI (9) on the chart' })
+    expect(toggle).toHaveAttribute('aria-pressed', 'true')
+
+    await user.click(toggle)
+
+    expect(applyOptionsMock).toHaveBeenCalledWith('RSI (9)', { visible: false })
+    expect(applyOptionsMock).not.toHaveBeenCalledWith(
+      'Stochastic %K (5,3,3)',
+      expect.anything(),
+    )
+    expect(
+      screen.getByRole('button', { name: 'Show RSI (9) on the chart' }),
+    ).toHaveAttribute('aria-pressed', 'false')
+
+    await user.click(screen.getByRole('button', { name: 'Show RSI (9) on the chart' }))
+
+    expect(applyOptionsMock).toHaveBeenCalledWith('RSI (9)', { visible: true })
+
+    // The MetricHelp affordance next to the toggled label is unaffected.
+    await user.click(screen.getByRole('button', { name: 'RSI (9) help' }))
+    expect(screen.getByText(/less noisy/)).toBeInTheDocument()
   })
 
   it('reports the RSI value as unavailable when the latest bar is still inside the warm-up window', async () => {

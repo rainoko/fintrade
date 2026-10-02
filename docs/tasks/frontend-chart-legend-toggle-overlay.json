@@ -3,7 +3,7 @@
   "title": "Stock Detail chart legends: clicking a line's label toggles that overlay's visibility",
   "area": "frontend/stocks",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "frontend/src/features/stocks/components/PriceChart.tsx",
@@ -16,29 +16,54 @@
   "checklist": [
     {
       "step": "Research and decide the scope: which legend rows/overlays across the four chart panes (PriceChart's EMA/channel/support-resistance/divergence/Kangaroo-Tail/Tide-Region/Fibonacci legends, plus OscillatorChart/VolumeIndicatorsChart/TrendStrengthChart's own legends) become click-to-toggle in this pass, versus deferred to a follow-up task. Record as a `decisions` entry with rationale.",
-      "done": false
+      "done": true
     },
     {
       "step": "Research Lightweight Charts' actual hide/show API for each in-scope overlay type (series `applyOptions({ visible: false })` for area/baseline/line series vs. `removePriceLine`/re-add for the Fibonacci price-line overlay vs. whatever applies to each oscillator pane's own series) and record the mechanism per overlay type as a `decisions` entry -- don't assume one uniform toggle approach works everywhere.",
-      "done": false
+      "done": true
     },
     {
       "step": "Implement the click handler + toggle state per in-scope overlay, wired to the correct hide/show mechanism for that overlay's underlying series/price-line type, making sure the click target doesn't interfere with the existing `MetricHelp` popover icon already present in the same legend row.",
-      "done": false
+      "done": true
     },
     {
       "step": "Give the toggled state a clear visual affordance on the legend row itself (e.g. dimmed swatch + label, or a strikethrough) so a user can tell at a glance which overlays are currently hidden, plus `cursor: pointer` and keyboard/ARIA accessibility (role=\"button\", focusable, Enter/Space activates).",
-      "done": false
+      "done": true
     },
     {
       "step": "Decide and record whether toggle state resets on remount/navigation or persists (e.g. localStorage) -- implement accordingly.",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests (vitest/Testing Library, no live network calls): clicking a legend label toggles the corresponding series/price-line's visibility (mock the Lightweight Charts series API the same way existing PriceChart/OscillatorChart tests already do), the visual on/off affordance renders correctly in both states, and keyboard activation works. Storybook coverage if any new piece lands in `components/common/` per Frontend.md §3's placement rule (likely not needed here, given this is chart-library-specific toggle logic tightly coupled to each chart component, but check per that rule).",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-02T21:16:13Z",
+      "recorded_by": "task-worker",
+      "decision": "Scope: made click-to-toggle every legend row across all four chart panes that is backed by a continuous Lightweight Charts series (LineSeries/AreaSeries/BaselineSeries) or a self-contained price-line set -- PriceChart's Channel (Autoenvelope), Value Zone (EMA 13-26), Tide Background, and Support/Resistance Zones, plus the Fibonacci Retracement price lines; OscillatorChart's RSI (9); VolumeIndicatorsChart's On-Balance Volume and Accumulation/Distribution; TrendStrengthChart's +DI/-DI (toggled together as one row, matching how the legend already presents them as a single combined entry), ADX, and ATR. 11 toggle targets total. Deferred to a follow-up task: PriceChart's False Breakout, Divergence (both PriceChart and OscillatorChart), and Kangaroo Tail rows -- every one of these is a single-event overlay drawn via `createSeriesMarkers` (a marker array, not a series with a `visible` option) plus, for two of them, a `createPriceLine` stop/extreme marker, AND each already carries its own 'not in current range' dimmed-opacity state (PR #152/#158's own fix) that a second, user-driven on/off toggle would need to compose with in a way the task's own checklist doesn't specify (what does 'toggled off AND out of range' look like together, and does toggling off a marker mean clearing the whole `createSeriesMarkers` plugin instance or filtering its array). Rather than inventing that composed behavior ad hoc for four different rows at the tail end of an already-large pass, scoping this pass to the 11 structurally uniform overlays (continuous line/area/baseline series or a price-line set with no competing dimmed state) and filing the four event-marker overlays as a tracked, better-scoped follow-up keeps this PR's mechanism genuinely uniform rather than silently inconsistent across rows. The user's own example ('like fibonacci support lines') and the task's own suggested starting point (Fibonacci, support/resistance zone bands, channel/value-zone band) are all included.",
+      "rationale": "Toggling every legend row, including the four event-marker ones, would have required a second, materially different hide/show mechanism (marker-array swap, not `applyOptions`) invented without the task's own checklist specifying how it should interact with the existing out-of-range dimming those four rows already have -- doing that correctly for 4 more rows on top of the 11 already in scope would roughly double this pass's surface for overlays that are conceptually different (single historical events, not a continuous line a user tunes a chart's density by hiding) for comparatively little of the user's own stated want. A narrower, well-justified first pass with a documented follow-up (frontend-chart-legend-toggle-overlay-followups, filed per CLAUDE.md's non-blocking-finding convention) was explicitly called out as acceptable by this task's own description."
+    },
+    {
+      "timestamp": "2026-10-02T21:16:13Z",
+      "recorded_by": "task-worker",
+      "decision": "Hide/show mechanism per overlay type, confirmed against Lightweight Charts' real API surface (not assumed): every `LineSeries`/`AreaSeries`/`BaselineSeries` in scope toggles via `series.applyOptions({ visible })` -- a real, documented option on every series type's options object. The Fibonacci retracement levels (drawn via `series.createPriceLine(...)`, which has no `visible` option on `IPriceLine`) toggle by folding the toggle boolean directly into that effect's own dependency array and skipping price-line creation in its `drawLevels()` closure while hidden (the swing/bar-count computation still runs and still feeds the legend's own `MetricHelp` text, matching this chart's existing 'still describe it, just don't draw it' convention for an out-of-range divergence/Kangaroo-Tail). For every series-backed overlay, a toggle is applied via a ref onto the currently-drawn series (populated by that overlay's own drawing effect) plus a SEPARATE, small 'apply the current toggle state' `useEffect` -- deliberately not by adding the toggle boolean straight to the (often shared, e.g. PriceChart's Channel+Value-Zone+EMA13/26) drawing effect's own dependency array, since that would tear down and redraw every series in that effect (including the EMA13/EMA26 lines, which have no legend/toggle of their own) on every single toggle click. `PriceChart`'s existing `zoneSeriesRef` (already tracking the support/resistance zone bands for a different purpose, z-order reassertion between independently-resolving effects) is reused as a read source for the Support/Resistance Zones toggle rather than duplicated, but a NEW, separate `channelSeriesRef`/`valueZoneSeriesRef`/`tideRegionSeriesRef` were added rather than overloading `zoneSeriesRef` for those, since z-order-reassertion-membership and toggle-visibility-membership are orthogonal concerns that happen to coincide only for the zone bands today.",
+      "rationale": "`applyOptions({ visible })` is the real Lightweight Charts mechanism for every series type used here (verified by reading the library's own type definitions, not assumed uniform) -- using it via a ref + small dedicated effect (rather than a shared drawing effect's own dependency array) keeps a toggle click's cost proportional to the one overlay actually being toggled, avoiding visible flicker/teardown of unrelated series sharing the same effect purely because of how this component happens to be organized today. Folding the Fibonacci toggle into its own already-isolated effect (rather than a ref+secondary-effect, which is what every series-backed overlay uses) was chosen because that effect has no sibling overlay to avoid disturbing, so re-running it in full on every toggle has no collateral cost, and because `IPriceLine` genuinely has no `visible` option to apply in the first place."
+    },
+    {
+      "timestamp": "2026-10-02T21:16:13Z",
+      "recorded_by": "task-worker",
+      "decision": "New `components/common/LegendToggle/LegendToggle.tsx`: wraps an existing legend row's swatch + `Typography` caption (not the `MetricHelp` icon, which every call site keeps as a structural SIBLING, never a child, of this component) in a real `<button>` (MUI `ButtonBase`) with `aria-pressed` reflecting the current on/off state and an `aria-label` of 'Hide/Show <label> on the chart'. Visual affordance is a single dimmed `opacity` (0.45 when hidden) applied to the whole wrapped content -- chosen over a strikethrough as the sole affordance, since `opacity` uniformly dims both a swatch `Box` and a `Typography` caption without the cross-element text-decoration-inheritance questions a strikethrough would raise for a multi-element swatch (e.g. the Tide Background row's three-color swatch, or TrendStrengthChart's two-color +DI/-DI swatch). Domain-agnostic (no stocks/portfolio concept in its props), so it lives in `components/common/` per Frontend.md §3's placement test, with its own colocated test + Storybook story (Frontend.md §4).",
+      "rationale": "A real `<button>` element gives native Enter/Space activation and focus management for free, which is exactly the keyboard-accessibility requirement the task's own checklist calls for, without reimplementing `role=\"button\"`/`tabIndex`/`onKeyDown` by hand. Keeping `MetricHelp` as a structural sibling (never nested inside `LegendToggle`'s own clickable children) means the two affordances can never intercept each other's click regardless of event-propagation behavior -- there is no nesting for a click to bubble through in the first place, which is a stronger guarantee than relying on `stopPropagation` inside either component. A single `opacity` affordance was chosen over a strikethrough (or opacity-plus-strikethrough) because a strikethrough drawn only on the `Typography` text would leave a multi-swatch row's color boxes looking unchanged, reading as inconsistent with the label right next to them; opacity dims every element in the row uniformly with one CSS property, confirmed visually correct via a live browser walkthrough across every in-scope row (single-color swatches, the Tide Background's three-color swatch, and TrendStrengthChart's two-color +DI/-DI swatch)."
+    },
+    {
+      "timestamp": "2026-10-02T21:16:13Z",
+      "recorded_by": "task-worker",
+      "decision": "Toggle state lifetime: plain `useState(true)` per overlay (11 separate booleans total across the four components), reset on every remount/navigation -- no `localStorage` or other cross-session persistence.",
+      "rationale": "Matches this app's existing convention for a chart pane's own local UI state (e.g. `PriceChart.tsx`'s range/interval selection and its Fibonacci-swing state, all plain `useState` that resets on remount) -- there was no requirement or user request surfaced anywhere in this task for a toggled-off overlay to survive a navigation away and back, and the simpler default (reset on remount) avoids a whole extra persistence mechanism (and the questions that come with it -- per-ticker vs. global state, `localStorage` schema versioning) for a convenience the task never asked for. Recorded explicitly per the task's own checklist item calling for this choice to be made and recorded either way."
+    }
+  ],
   "questions": []
 }

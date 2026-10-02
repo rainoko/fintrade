@@ -2,12 +2,13 @@ import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import { useTheme } from '@mui/material/styles'
-import { LineSeries, type IChartApi, type Time } from 'lightweight-charts'
-import { useEffect, useRef } from 'react'
+import { LineSeries, type IChartApi, type ISeriesApi, type Time } from 'lightweight-charts'
+import { useEffect, useRef, useState } from 'react'
 import type { IndicatorHistoryPoint, IndicatorHistoryResponse } from '../../../api/stocks'
 import ChartFrame from '../../../components/common/ChartFrame/ChartFrame'
 import EmptyState from '../../../components/common/EmptyState/EmptyState'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
+import LegendToggle from '../../../components/common/LegendToggle/LegendToggle'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
@@ -178,6 +179,16 @@ function buildTrendStrengthSeriesData(
  * threshold with no textual support. That rule is instead stated explicitly,
  * and evaluated against this ticker's own current data, in `adxHelp`'s
  * `interpretValue` (per this task's own description).
+ *
+ * All three legend rows are click-to-toggle (frontend-chart-legend-toggle-
+ * overlay): the "+DI / -DI" row toggles BOTH underlying series together
+ * (one row, one swatch pair, one click target -- matching how the row
+ * already presents them as a single combined legend entry, not two), while
+ * ADX and ATR each toggle their own single series independently. Same
+ * ref + dedicated small effect pattern `VolumeIndicatorsChart.tsx` uses for
+ * OBV/A-D -- see that component's own doc comment and this task's
+ * `decisions` entry for why a toggle doesn't belong in the chart-creation
+ * effect's own dependency array.
  */
 export default function TrendStrengthChart({
   ticker,
@@ -188,6 +199,13 @@ export default function TrendStrengthChart({
   const theme = useTheme()
   const containerRef = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<IChartApi | null>(null)
+  const plusDiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const minusDiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const adxSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const atrSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const [diVisible, setDiVisible] = useState(true)
+  const [adxVisible, setAdxVisible] = useState(true)
+  const [atrVisible, setAtrVisible] = useState(true)
 
   const indicatorsQuery = useIndicatorHistory(ticker, { range }, { enabled })
   const points = indicatorsQuery.data?.points ?? []
@@ -235,6 +253,8 @@ export default function TrendStrengthChart({
       0,
     )
     minusDiSeries.setData(minusDi)
+    plusDiSeriesRef.current = plusDiSeries
+    minusDiSeriesRef.current = minusDiSeries
 
     const adxSeries = chart.addSeries(
       LineSeries,
@@ -248,6 +268,7 @@ export default function TrendStrengthChart({
       0,
     )
     adxSeries.setData(adx)
+    adxSeriesRef.current = adxSeries
 
     const atrSeries = chart.addSeries(
       LineSeries,
@@ -261,6 +282,7 @@ export default function TrendStrengthChart({
       1,
     )
     atrSeries.setData(atr)
+    atrSeriesRef.current = atrSeries
 
     chart.timeScale().fitContent()
     chartRef.current = chart
@@ -268,8 +290,28 @@ export default function TrendStrengthChart({
     return () => {
       chart.remove()
       chartRef.current = null
+      plusDiSeriesRef.current = null
+      minusDiSeriesRef.current = null
+      adxSeriesRef.current = null
+      atrSeriesRef.current = null
     }
   }, [indicatorsQuery.data, enabled, theme])
+
+  // Applies the current +DI/-DI/ADX/ATR toggle state onto whichever series
+  // instances the effect above currently has refs for -- see
+  // `VolumeIndicatorsChart.tsx`'s own identical pattern/rationale.
+  useEffect(() => {
+    plusDiSeriesRef.current?.applyOptions({ visible: diVisible })
+    minusDiSeriesRef.current?.applyOptions({ visible: diVisible })
+  }, [diVisible, indicatorsQuery.data, enabled, theme])
+
+  useEffect(() => {
+    adxSeriesRef.current?.applyOptions({ visible: adxVisible })
+  }, [adxVisible, indicatorsQuery.data, enabled, theme])
+
+  useEffect(() => {
+    atrSeriesRef.current?.applyOptions({ visible: atrVisible })
+  }, [atrVisible, indicatorsQuery.data, enabled, theme])
 
   // `/indicators` is daily-cadence only (see the `enabled` prop's own doc
   // comment) — while a weekly interval is selected upstream, this pane has
@@ -300,25 +342,31 @@ export default function TrendStrengthChart({
           {indicatorsQuery.isSuccess && hasPoints && (
             <Stack spacing={0.5}>
               <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                <Box
-                  sx={{
-                    width: 14,
-                    height: 0,
-                    borderTop: '2px solid',
-                    borderColor: 'signal.buy',
-                  }}
-                />
-                <Box
-                  sx={{
-                    width: 14,
-                    height: 0,
-                    borderTop: '2px solid',
-                    borderColor: 'signal.sell',
-                  }}
-                />
-                <Typography variant="caption" color="text.secondary">
-                  +DI / -DI (13)
-                </Typography>
+                <LegendToggle
+                  active={diVisible}
+                  label="+DI / -DI (13)"
+                  onToggle={() => setDiVisible((visible) => !visible)}
+                >
+                  <Box
+                    sx={{
+                      width: 14,
+                      height: 0,
+                      borderTop: '2px solid',
+                      borderColor: 'signal.buy',
+                    }}
+                  />
+                  <Box
+                    sx={{
+                      width: 14,
+                      height: 0,
+                      borderTop: '2px solid',
+                      borderColor: 'signal.sell',
+                    }}
+                  />
+                  <Typography variant="caption" color="text.secondary">
+                    +DI / -DI (13)
+                  </Typography>
+                </LegendToggle>
                 <MetricHelp
                   metricLabel={directionalSystemHelp.metricLabel}
                   definition={directionalSystemHelp.definition}
@@ -330,17 +378,23 @@ export default function TrendStrengthChart({
                 />
               </Stack>
               <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                <Box
-                  sx={{
-                    width: 14,
-                    height: 0,
-                    borderTop: '2px solid',
-                    borderColor: 'primary.main',
-                  }}
-                />
-                <Typography variant="caption" color="text.secondary">
-                  ADX (13)
-                </Typography>
+                <LegendToggle
+                  active={adxVisible}
+                  label="ADX (13)"
+                  onToggle={() => setAdxVisible((visible) => !visible)}
+                >
+                  <Box
+                    sx={{
+                      width: 14,
+                      height: 0,
+                      borderTop: '2px solid',
+                      borderColor: 'primary.main',
+                    }}
+                  />
+                  <Typography variant="caption" color="text.secondary">
+                    ADX (13)
+                  </Typography>
+                </LegendToggle>
                 <MetricHelp
                   metricLabel={adxHelp.metricLabel}
                   definition={adxHelp.definition}
@@ -349,17 +403,23 @@ export default function TrendStrengthChart({
                 />
               </Stack>
               <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                <Box
-                  sx={{
-                    width: 14,
-                    height: 0,
-                    borderTop: '2px solid',
-                    borderColor: 'secondary.main',
-                  }}
-                />
-                <Typography variant="caption" color="text.secondary">
-                  ATR (13)
-                </Typography>
+                <LegendToggle
+                  active={atrVisible}
+                  label="ATR (13)"
+                  onToggle={() => setAtrVisible((visible) => !visible)}
+                >
+                  <Box
+                    sx={{
+                      width: 14,
+                      height: 0,
+                      borderTop: '2px solid',
+                      borderColor: 'secondary.main',
+                    }}
+                  />
+                  <Typography variant="caption" color="text.secondary">
+                    ATR (13)
+                  </Typography>
+                </LegendToggle>
                 <MetricHelp
                   metricLabel={atrHelp.metricLabel}
                   definition={atrHelp.definition}

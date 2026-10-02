@@ -23,6 +23,7 @@ import { AnchoredInfoBalloon } from '../../../components/common/InfoBalloon/Info
 import ChartFrame from '../../../components/common/ChartFrame/ChartFrame'
 import EmptyState from '../../../components/common/EmptyState/EmptyState'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
+import LegendToggle from '../../../components/common/LegendToggle/LegendToggle'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
@@ -328,6 +329,15 @@ export default function OscillatorChart({
   const theme = useTheme()
   const containerRef = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<IChartApi | null>(null)
+  // RSI legend click-to-toggle (frontend-chart-legend-toggle-overlay): see
+  // `VolumeIndicatorsChart.tsx`'s own identical ref + dedicated small effect
+  // pattern/rationale. Stochastic/Force Index/MACD Histogram have no legend
+  // row of their own on this chart (only RSI does -- see this component's
+  // own doc comment on why), so there is nothing else here to toggle this
+  // pass; Divergence (below) is deferred, same as on every other chart pane
+  // (this task's `decisions` entry).
+  const rsiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const [rsiVisible, setRsiVisible] = useState(true)
 
   const indicatorsQuery = useIndicatorHistory(ticker, { range }, { enabled })
   const points = indicatorsQuery.data?.points ?? []
@@ -436,6 +446,7 @@ export default function OscillatorChart({
       0,
     )
     rsiSeries.setData(rsi)
+    rsiSeriesRef.current = rsiSeries
 
     addZeroBaselineHistogramPane(chart, 1, 'Force Index (2-EMA)', forceIndex, theme)
     addZeroBaselineHistogramPane(chart, 2, 'MACD Histogram (Daily)', macdHistogram, theme)
@@ -446,8 +457,16 @@ export default function OscillatorChart({
     return () => {
       chart.remove()
       chartRef.current = null
+      rsiSeriesRef.current = null
     }
   }, [indicatorsQuery.data, enabled, theme])
+
+  // Applies the current RSI toggle state onto whichever series instance the
+  // effect above currently has a ref for -- see
+  // `VolumeIndicatorsChart.tsx`'s own identical pattern/rationale.
+  useEffect(() => {
+    rsiSeriesRef.current?.applyOptions({ visible: rsiVisible })
+  }, [rsiVisible, indicatorsQuery.data, enabled, theme])
 
   // Divergence overlay (frontend-divergence-markers): the single
   // currently-qualifying divergence, drawn as a connecting `LineSeries`
@@ -590,17 +609,23 @@ export default function OscillatorChart({
       */}
           {indicatorsQuery.isSuccess && hasPoints && (
             <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-              <Box
-                sx={{
-                  width: 14,
-                  height: 0,
-                  borderTop: '2px dashed',
-                  borderColor: 'secondary.main',
-                }}
-              />
-              <Typography variant="caption" color="text.secondary">
-                RSI (9)
-              </Typography>
+              <LegendToggle
+                active={rsiVisible}
+                label="RSI (9)"
+                onToggle={() => setRsiVisible((visible) => !visible)}
+              >
+                <Box
+                  sx={{
+                    width: 14,
+                    height: 0,
+                    borderTop: '2px dashed',
+                    borderColor: 'secondary.main',
+                  }}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  RSI (9)
+                </Typography>
+              </LegendToggle>
               <MetricHelp
                 metricLabel={rsiHelp.metricLabel}
                 definition={rsiHelp.definition}

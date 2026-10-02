@@ -54,6 +54,14 @@ vi.mock('lightweight-charts', () => ({
           setData: () => {},
           createPriceLine: () => ({}),
           removePriceLine: () => {},
+          // Legend click-to-toggle (frontend-chart-legend-toggle-overlay):
+          // this file doesn't exercise the toggle behavior itself (see
+          // PriceChart.test.tsx/OscillatorChart.test.tsx/
+          // VolumeIndicatorsChart.test.tsx/TrendStrengthChart.test.tsx for
+          // that), it just needs every chart's own small "apply the current
+          // toggle state" effect (which every one of those components now
+          // runs unconditionally on mount) to not throw.
+          applyOptions: () => {},
           priceScale: () => ({ applyOptions: () => {} }),
           setSeriesOrder: (index: number) => {
             const currentIndex = paneSeries.indexOf(created)
