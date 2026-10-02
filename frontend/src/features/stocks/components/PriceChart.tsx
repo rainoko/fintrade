@@ -28,6 +28,7 @@ import type {
   SupportResistanceZone,
 } from '../../../api/stocks'
 import { AnchoredInfoBalloon } from '../../../components/common/InfoBalloon/InfoBalloon'
+import ChartFrame from '../../../components/common/ChartFrame/ChartFrame'
 import EmptyState from '../../../components/common/EmptyState/EmptyState'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
@@ -486,9 +487,10 @@ const ZONE_RELEVANCE_MIN_VISIBLE_SPAN_RATIO = 0.1
  * across every currently visible bar (not just the first/last, since a
  * mid-range spike/dip is still part of what's actually on screen), used by
  * `isZoneRelevant`'s span-based window above. */
-function visibleBarPriceSpan(
-  bars: readonly { high: number; low: number }[],
-): { low: number; high: number } {
+function visibleBarPriceSpan(bars: readonly { high: number; low: number }[]): {
+  low: number
+  high: number
+} {
   let low = Infinity
   let high = -Infinity
   for (const bar of bars) {
@@ -521,8 +523,10 @@ function isZoneRelevant(
     visibleSpan.high - visibleSpan.low,
     referencePrice * ZONE_RELEVANCE_MIN_VISIBLE_SPAN_RATIO,
   )
-  const spanWindowMin = visibleSpan.low - ZONE_RELEVANCE_VISIBLE_SPAN_MULTIPLE * effectiveSpan
-  const spanWindowMax = visibleSpan.high + ZONE_RELEVANCE_VISIBLE_SPAN_MULTIPLE * effectiveSpan
+  const spanWindowMin =
+    visibleSpan.low - ZONE_RELEVANCE_VISIBLE_SPAN_MULTIPLE * effectiveSpan
+  const spanWindowMax =
+    visibleSpan.high + ZONE_RELEVANCE_VISIBLE_SPAN_MULTIPLE * effectiveSpan
   const windowMin = Math.max(ratioWindowMin, spanWindowMin)
   const windowMax = Math.min(ratioWindowMax, spanWindowMax)
   return zone.upper >= windowMin && zone.lower <= windowMax
@@ -643,7 +647,11 @@ function isFalseBreakoutInRange(
   firstDate: string,
   lastDate: string,
 ): breakout is NonNullable<SupportResistanceZone['false_breakout']> {
-  return breakout != null && breakout.reentry_date >= firstDate && breakout.reentry_date <= lastDate
+  return (
+    breakout != null &&
+    breakout.reentry_date >= firstDate &&
+    breakout.reentry_date <= lastDate
+  )
 }
 
 /**
@@ -733,8 +741,20 @@ function buildDivergencePriceOverlay(
       },
     ],
     markers: [
-      { time: divergence.first_extreme_date as Time, position, shape: 'circle', color, text: label },
-      { time: divergence.second_extreme_date as Time, position, shape: 'circle', color, text: label },
+      {
+        time: divergence.first_extreme_date as Time,
+        position,
+        shape: 'circle',
+        color,
+        text: label,
+      },
+      {
+        time: divergence.second_extreme_date as Time,
+        position,
+        shape: 'circle',
+        color,
+        text: label,
+      },
     ],
   }
 }
@@ -776,8 +796,12 @@ function isKangarooTailInRange(
  * the event's own side -- this marker sits right at the pattern itself, so
  * it belongs on the same side the tail protrudes toward).
  */
-function buildKangarooTailMarker(tail: KangarooTailOut, color: string): SeriesMarker<Time> {
-  const label = tail.direction === 'up' ? 'Kangaroo Tail (bearish)' : 'Kangaroo Tail (bullish)'
+function buildKangarooTailMarker(
+  tail: KangarooTailOut,
+  color: string,
+): SeriesMarker<Time> {
+  const label =
+    tail.direction === 'up' ? 'Kangaroo Tail (bearish)' : 'Kangaroo Tail (bullish)'
   return {
     time: tail.tail_date as Time,
     position: tail.direction === 'up' ? 'aboveBar' : 'belowBar',
@@ -1994,133 +2018,142 @@ export default function PriceChart({
       : undefined
 
   return (
-    <Stack spacing={2}>
-      <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap' }}>
-        <ToggleButtonGroup
-          size="small"
-          value={range}
-          exclusive
-          onChange={handleRangeChange}
-          aria-label="Price history range"
-        >
-          {RANGE_OPTIONS.map((option) => (
-            <ToggleButton key={option.value} value={option.value}>
-              {option.label}
-            </ToggleButton>
-          ))}
-        </ToggleButtonGroup>
+    <ChartFrame label="Price chart" defaultHeight={CHART_HEIGHT}>
+      {({ canvasHeight, maximizeToggle, resizeHandle }) => (
+        <Stack spacing={2}>
+          <Stack
+            direction="row"
+            spacing={2}
+            useFlexGap
+            sx={{ flexWrap: 'wrap', alignItems: 'center' }}
+          >
+            <ToggleButtonGroup
+              size="small"
+              value={range}
+              exclusive
+              onChange={handleRangeChange}
+              aria-label="Price history range"
+            >
+              {RANGE_OPTIONS.map((option) => (
+                <ToggleButton key={option.value} value={option.value}>
+                  {option.label}
+                </ToggleButton>
+              ))}
+            </ToggleButtonGroup>
 
-        <ToggleButtonGroup
-          size="small"
-          value={interval}
-          exclusive
-          onChange={handleIntervalChange}
-          aria-label="Price history interval"
-        >
-          <ToggleButton value="daily">Daily</ToggleButton>
-          <ToggleButton value="weekly">Weekly</ToggleButton>
-        </ToggleButtonGroup>
-      </Stack>
+            <ToggleButtonGroup
+              size="small"
+              value={interval}
+              exclusive
+              onChange={handleIntervalChange}
+              aria-label="Price history interval"
+            >
+              <ToggleButton value="daily">Daily</ToggleButton>
+              <ToggleButton value="weekly">Weekly</ToggleButton>
+            </ToggleButtonGroup>
 
-      {/*
+            <Box sx={{ ml: 'auto' }}>{maximizeToggle}</Box>
+          </Stack>
+
+          {/*
         Channel/value-zone legend + MetricHelp affordances (frontend-
         channel-overlay). Gated the same as the rest of the overlay (daily
         interval, indicators loaded, at least one point) since both plotted
         elements come from `/indicators`, same as the EMA13/EMA26 overlay
         above them on this same chart.
       */}
-      {showOverlaySection && indicatorsQuery.isSuccess && latestIndicatorPoint && (
-        <Stack direction="row" spacing={3} useFlexGap sx={{ flexWrap: 'wrap' }}>
-          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-            <Box
-              sx={{
-                width: 14,
-                height: 0,
-                borderTop: '2px dashed',
-                borderColor: 'info.main',
-              }}
-            />
-            <Typography variant="caption" color="text.secondary">
-              Channel (Autoenvelope)
-            </Typography>
-            <MetricHelp
-              metricLabel={channelHelp.metricLabel}
-              definition={channelHelp.definition}
-              elderContext={channelHelp.elderContext}
-              valueInterpretation={channelHelp.interpretValue(
-                latestIndicatorPoint.channel_upper,
-                latestIndicatorPoint.channel_lower,
-                latestClose,
-              )}
-            />
-          </Stack>
-          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-            <Box
-              sx={{
-                width: 14,
-                height: 14,
-                bgcolor: `${theme.palette.info.main}33`,
-                border: '1px solid',
-                borderColor: 'info.main',
-              }}
-            />
-            <Typography variant="caption" color="text.secondary">
-              Value Zone (EMA 13-26)
-            </Typography>
-            <MetricHelp
-              metricLabel={valueZoneHelp.metricLabel}
-              definition={valueZoneHelp.definition}
-              elderContext={valueZoneHelp.elderContext}
-              valueInterpretation={valueZoneHelp.interpretValue(
-                latestIndicatorPoint.ema_13,
-                latestIndicatorPoint.ema_26,
-              )}
-            />
-          </Stack>
-          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-            <Stack direction="row" spacing={0.25}>
-              <Box
-                sx={{
-                  width: 10,
-                  height: 14,
-                  bgcolor: `${theme.palette.signal.buy}${TIDE_REGION_FILL_ALPHA}`,
-                  border: '1px solid',
-                  borderColor: 'signal.buy',
-                }}
-              />
-              <Box
-                sx={{
-                  width: 10,
-                  height: 14,
-                  bgcolor: `${theme.palette.signal.hold}${TIDE_REGION_FILL_ALPHA}`,
-                  border: '1px solid',
-                  borderColor: 'signal.hold',
-                }}
-              />
-              <Box
-                sx={{
-                  width: 10,
-                  height: 14,
-                  bgcolor: `${theme.palette.signal.sell}${TIDE_REGION_FILL_ALPHA}`,
-                  border: '1px solid',
-                  borderColor: 'signal.sell',
-                }}
-              />
+          {showOverlaySection && indicatorsQuery.isSuccess && latestIndicatorPoint && (
+            <Stack direction="row" spacing={3} useFlexGap sx={{ flexWrap: 'wrap' }}>
+              <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                <Box
+                  sx={{
+                    width: 14,
+                    height: 0,
+                    borderTop: '2px dashed',
+                    borderColor: 'info.main',
+                  }}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  Channel (Autoenvelope)
+                </Typography>
+                <MetricHelp
+                  metricLabel={channelHelp.metricLabel}
+                  definition={channelHelp.definition}
+                  elderContext={channelHelp.elderContext}
+                  valueInterpretation={channelHelp.interpretValue(
+                    latestIndicatorPoint.channel_upper,
+                    latestIndicatorPoint.channel_lower,
+                    latestClose,
+                  )}
+                />
+              </Stack>
+              <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                <Box
+                  sx={{
+                    width: 14,
+                    height: 14,
+                    bgcolor: `${theme.palette.info.main}33`,
+                    border: '1px solid',
+                    borderColor: 'info.main',
+                  }}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  Value Zone (EMA 13-26)
+                </Typography>
+                <MetricHelp
+                  metricLabel={valueZoneHelp.metricLabel}
+                  definition={valueZoneHelp.definition}
+                  elderContext={valueZoneHelp.elderContext}
+                  valueInterpretation={valueZoneHelp.interpretValue(
+                    latestIndicatorPoint.ema_13,
+                    latestIndicatorPoint.ema_26,
+                  )}
+                />
+              </Stack>
+              <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                <Stack direction="row" spacing={0.25}>
+                  <Box
+                    sx={{
+                      width: 10,
+                      height: 14,
+                      bgcolor: `${theme.palette.signal.buy}${TIDE_REGION_FILL_ALPHA}`,
+                      border: '1px solid',
+                      borderColor: 'signal.buy',
+                    }}
+                  />
+                  <Box
+                    sx={{
+                      width: 10,
+                      height: 14,
+                      bgcolor: `${theme.palette.signal.hold}${TIDE_REGION_FILL_ALPHA}`,
+                      border: '1px solid',
+                      borderColor: 'signal.hold',
+                    }}
+                  />
+                  <Box
+                    sx={{
+                      width: 10,
+                      height: 14,
+                      bgcolor: `${theme.palette.signal.sell}${TIDE_REGION_FILL_ALPHA}`,
+                      border: '1px solid',
+                      borderColor: 'signal.sell',
+                    }}
+                  />
+                </Stack>
+                <Typography variant="caption" color="text.secondary">
+                  Tide Background (Bullish / Neutral / Bearish)
+                </Typography>
+                <MetricHelp
+                  metricLabel={tideRegionHelp.metricLabel}
+                  definition={tideRegionHelp.definition}
+                  elderContext={tideRegionHelp.elderContext}
+                  valueInterpretation={tideRegionHelp.interpretValue(tideRegionPoints)}
+                />
+              </Stack>
             </Stack>
-            <Typography variant="caption" color="text.secondary">
-              Tide Background (Bullish / Neutral / Bearish)
-            </Typography>
-            <MetricHelp
-              metricLabel={tideRegionHelp.metricLabel}
-              definition={tideRegionHelp.definition}
-              elderContext={tideRegionHelp.elderContext}
-              valueInterpretation={tideRegionHelp.interpretValue(tideRegionPoints)}
-            />
-          </Stack>
-        </Stack>
-      )}
+          )}
 
-      {/*
+          {/*
         Support/resistance zone legend + MetricHelp affordances (frontend-
         support-resistance-overlay). Gated on the chart itself having bars
         and at least one zone actually DISPLAYED (`displayedZones`, not the
@@ -2131,65 +2164,65 @@ export default function PriceChart({
         since zones come from `/analysis` (interval-agnostic), not
         `/indicators`.
       */}
-      {historyQuery.isSuccess &&
-        hasBars &&
-        analysisQuery.isSuccess &&
-        displayedZones.length > 0 && (
-          <Stack direction="row" spacing={3} useFlexGap sx={{ flexWrap: 'wrap' }}>
-            <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-              <Box
-                sx={{
-                  width: 14,
-                  height: 14,
-                  bgcolor: `${theme.palette.signal.sell}33`,
-                  border: '1px solid',
-                  borderColor: 'signal.sell',
-                }}
-              />
-              <Typography variant="caption" color="text.secondary">
-                Support/Resistance Zones
-              </Typography>
-              <MetricHelp
-                metricLabel={supportResistanceZoneHelp.metricLabel}
-                definition={supportResistanceZoneHelp.definition}
-                elderContext={supportResistanceZoneHelp.elderContext}
-                valueInterpretation={supportResistanceZoneHelp.interpretValue(
-                  zones,
-                  displayedZones,
-                  latestClose,
-                )}
-              />
-            </Stack>
-            <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-              <Box
-                sx={{
-                  width: 14,
-                  height: 0,
-                  borderTop: '2px dashed',
-                  borderColor: 'warning.main',
-                  opacity: falseBreakoutInVisibleRange ? 1 : 0.4,
-                }}
-              />
-              <Typography variant="caption" color="text.secondary">
-                False Breakout
-                {mostRecentBreakoutZone != null &&
-                  !falseBreakoutInVisibleRange &&
-                  ' (not in current range)'}
-              </Typography>
-              <MetricHelp
-                metricLabel={falseBreakoutHelp.metricLabel}
-                definition={falseBreakoutHelp.definition}
-                elderContext={falseBreakoutHelp.elderContext}
-                valueInterpretation={falseBreakoutHelp.interpretValue(
-                  displayedZones,
-                  falseBreakoutInVisibleRange,
-                )}
-              />
-            </Stack>
-          </Stack>
-        )}
+          {historyQuery.isSuccess &&
+            hasBars &&
+            analysisQuery.isSuccess &&
+            displayedZones.length > 0 && (
+              <Stack direction="row" spacing={3} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                  <Box
+                    sx={{
+                      width: 14,
+                      height: 14,
+                      bgcolor: `${theme.palette.signal.sell}33`,
+                      border: '1px solid',
+                      borderColor: 'signal.sell',
+                    }}
+                  />
+                  <Typography variant="caption" color="text.secondary">
+                    Support/Resistance Zones
+                  </Typography>
+                  <MetricHelp
+                    metricLabel={supportResistanceZoneHelp.metricLabel}
+                    definition={supportResistanceZoneHelp.definition}
+                    elderContext={supportResistanceZoneHelp.elderContext}
+                    valueInterpretation={supportResistanceZoneHelp.interpretValue(
+                      zones,
+                      displayedZones,
+                      latestClose,
+                    )}
+                  />
+                </Stack>
+                <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                  <Box
+                    sx={{
+                      width: 14,
+                      height: 0,
+                      borderTop: '2px dashed',
+                      borderColor: 'warning.main',
+                      opacity: falseBreakoutInVisibleRange ? 1 : 0.4,
+                    }}
+                  />
+                  <Typography variant="caption" color="text.secondary">
+                    False Breakout
+                    {mostRecentBreakoutZone != null &&
+                      !falseBreakoutInVisibleRange &&
+                      ' (not in current range)'}
+                  </Typography>
+                  <MetricHelp
+                    metricLabel={falseBreakoutHelp.metricLabel}
+                    definition={falseBreakoutHelp.definition}
+                    elderContext={falseBreakoutHelp.elderContext}
+                    valueInterpretation={falseBreakoutHelp.interpretValue(
+                      displayedZones,
+                      falseBreakoutInVisibleRange,
+                    )}
+                  />
+                </Stack>
+              </Stack>
+            )}
 
-      {/*
+          {/*
         Divergence legend + MetricHelp affordance (frontend-divergence-
         markers). Reads `analysisQuery.data.divergence` directly -- the
         exact same value the divergence-overlay effect above draws from,
@@ -2211,33 +2244,33 @@ export default function PriceChart({
         relevance filter is; hiding it here would read as "no divergence
         exists" rather than "not shown at this range".
       */}
-      {historyQuery.isSuccess && hasBars && analysisQuery.isSuccess && divergence && (
-        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-          <Box
-            sx={{
-              width: 12,
-              height: 12,
-              borderRadius: '50%',
-              bgcolor: 'divergence.main',
-              opacity: divergenceInVisibleRange ? 1 : 0.4,
-            }}
-          />
-          <Typography variant="caption" color="text.secondary">
-            Divergence{!divergenceInVisibleRange && ' (not in current range)'}
-          </Typography>
-          <MetricHelp
-            metricLabel={divergenceHelp.metricLabel}
-            definition={divergenceHelp.definition}
-            elderContext={divergenceHelp.elderContext}
-            valueInterpretation={divergenceHelp.interpretValue(
-              divergence,
-              divergenceInVisibleRange,
-            )}
-          />
-        </Stack>
-      )}
+          {historyQuery.isSuccess && hasBars && analysisQuery.isSuccess && divergence && (
+            <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+              <Box
+                sx={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: '50%',
+                  bgcolor: 'divergence.main',
+                  opacity: divergenceInVisibleRange ? 1 : 0.4,
+                }}
+              />
+              <Typography variant="caption" color="text.secondary">
+                Divergence{!divergenceInVisibleRange && ' (not in current range)'}
+              </Typography>
+              <MetricHelp
+                metricLabel={divergenceHelp.metricLabel}
+                definition={divergenceHelp.definition}
+                elderContext={divergenceHelp.elderContext}
+                valueInterpretation={divergenceHelp.interpretValue(
+                  divergence,
+                  divergenceInVisibleRange,
+                )}
+              />
+            </Stack>
+          )}
 
-      {/*
+          {/*
         Kangaroo Tail legend + MetricHelp affordance (frontend-kangaroo-
         tail-markers). Same "reads directly from `/analysis`, no separate
         filtered variant, stays visible even when out of the current range"
@@ -2247,33 +2280,36 @@ export default function PriceChart({
         out-of-range-ness is a temporary range-selection state, not a
         permanent exclusion).
       */}
-      {historyQuery.isSuccess && hasBars && analysisQuery.isSuccess && kangarooTail && (
-        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-          <Box
-            sx={{
-              width: 12,
-              height: 12,
-              bgcolor: 'kangarooTail.main',
-              opacity: kangarooTailInVisibleRange ? 1 : 0.4,
-            }}
-          />
-          <Typography variant="caption" color="text.secondary">
-            Kangaroo Tail{!kangarooTailInVisibleRange && ' (not in current range)'}
-          </Typography>
-          <MetricHelp
-            metricLabel={kangarooTailHelp.metricLabel}
-            definition={kangarooTailHelp.definition}
-            elderContext={kangarooTailHelp.elderContext}
-            valueInterpretation={kangarooTailHelp.interpretValue(
-              kangarooTail,
-              kangarooTailBar,
-              kangarooTailInVisibleRange,
+          {historyQuery.isSuccess &&
+            hasBars &&
+            analysisQuery.isSuccess &&
+            kangarooTail && (
+              <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                <Box
+                  sx={{
+                    width: 12,
+                    height: 12,
+                    bgcolor: 'kangarooTail.main',
+                    opacity: kangarooTailInVisibleRange ? 1 : 0.4,
+                  }}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  Kangaroo Tail{!kangarooTailInVisibleRange && ' (not in current range)'}
+                </Typography>
+                <MetricHelp
+                  metricLabel={kangarooTailHelp.metricLabel}
+                  definition={kangarooTailHelp.definition}
+                  elderContext={kangarooTailHelp.elderContext}
+                  valueInterpretation={kangarooTailHelp.interpretValue(
+                    kangarooTail,
+                    kangarooTailBar,
+                    kangarooTailInVisibleRange,
+                  )}
+                />
+              </Stack>
             )}
-          />
-        </Stack>
-      )}
 
-      {/*
+          {/*
         Fibonacci auto-retracement legend + MetricHelp affordance
         (frontend-fibonacci-auto-levels). Gated on `historyQuery.isSuccess &&
         hasBars` alone -- unlike the channel/value-zone legend above, NOT on
@@ -2285,60 +2321,63 @@ export default function PriceChart({
         for 2+ visible bars, and `fibonacciHelp.interpretValue` itself
         explains the two degenerate cases when there isn't one right now).
       */}
-      {historyQuery.isSuccess && hasBars && (
-        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-          <Box
-            sx={{
-              width: 14,
-              height: 0,
-              borderTop: '2px dotted',
-              borderColor: 'fibonacci.main',
-            }}
-          />
-          <Typography variant="caption" color="text.secondary">
-            Fibonacci Retracement
-          </Typography>
-          <MetricHelp
-            metricLabel={fibonacciHelp.metricLabel}
-            definition={fibonacciHelp.definition}
-            elderContext={fibonacciHelp.elderContext}
-            valueInterpretation={fibonacciHelp.interpretValue(
-              fibonacciSwing,
-              fibonacciVisibleBarsCount,
-            )}
-          />
-        </Stack>
-      )}
+          {historyQuery.isSuccess && hasBars && (
+            <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+              <Box
+                sx={{
+                  width: 14,
+                  height: 0,
+                  borderTop: '2px dotted',
+                  borderColor: 'fibonacci.main',
+                }}
+              />
+              <Typography variant="caption" color="text.secondary">
+                Fibonacci Retracement
+              </Typography>
+              <MetricHelp
+                metricLabel={fibonacciHelp.metricLabel}
+                definition={fibonacciHelp.definition}
+                elderContext={fibonacciHelp.elderContext}
+                valueInterpretation={fibonacciHelp.interpretValue(
+                  fibonacciSwing,
+                  fibonacciVisibleBarsCount,
+                )}
+              />
+            </Stack>
+          )}
 
-      {historyQuery.isLoading && (
-        <LoadingState message={`Loading price history for ${ticker}...`} />
-      )}
+          {historyQuery.isLoading && (
+            <LoadingState message={`Loading price history for ${ticker}...`} />
+          )}
 
-      {historyQuery.isError && <ErrorState error={historyQuery.error} />}
+          {historyQuery.isError && <ErrorState error={historyQuery.error} />}
 
-      {historyQuery.isSuccess && !hasBars && (
-        <EmptyState message={`No price history available for ${ticker}.`} />
-      )}
+          {historyQuery.isSuccess && !hasBars && (
+            <EmptyState message={`No price history available for ${ticker}.`} />
+          )}
 
-      {historyQuery.isSuccess && hasBars && (
-        <Box
-          ref={containerRef}
-          data-testid="price-chart-canvas"
-          sx={{ width: '100%', height: CHART_HEIGHT }}
-        />
-      )}
+          {historyQuery.isSuccess && hasBars && (
+            <>
+              <Box
+                ref={containerRef}
+                data-testid="price-chart-canvas"
+                sx={{ width: '100%', height: canvasHeight }}
+              />
+              {resizeHandle}
+            </>
+          )}
 
-      {/*
+          {/*
         Signal-overlay states, gated on `showOverlaySection` above. These
         never block the candlestick chart itself from rendering: a slow/
         failed/empty `/indicators` response degrades to "no overlay", not
         "no chart" — the chart's own OHLCV data is the primary content here.
       */}
-      {showOverlaySection && indicatorsQuery.isLoading && (
-        <LoadingState message={`Loading signal overlay for ${ticker}...`} />
-      )}
+          {showOverlaySection && indicatorsQuery.isLoading && (
+            <LoadingState message={`Loading signal overlay for ${ticker}...`} />
+          )}
 
-      {/*
+          {/*
         Post-review fix (frontend-position-risk-columns-followups-followups-
         followups-followups): the indicators-ErrorState below is gated on
         `overlayEnabled` alone, NOT `showOverlaySection` (which also requires
@@ -2364,17 +2403,17 @@ export default function PriceChart({
         — see that entry for the alternative considered and why this was
         chosen instead.
       */}
-      {overlayEnabled && indicatorsQuery.isError && (
-        <ErrorState error={indicatorsQuery.error} />
-      )}
+          {overlayEnabled && indicatorsQuery.isError && (
+            <ErrorState error={indicatorsQuery.error} />
+          )}
 
-      {showOverlaySection &&
-        indicatorsQuery.isSuccess &&
-        indicatorsQuery.data.points.length === 0 && (
-          <EmptyState message={`No signal history available for ${ticker}.`} />
-        )}
+          {showOverlaySection &&
+            indicatorsQuery.isSuccess &&
+            indicatorsQuery.data.points.length === 0 && (
+              <EmptyState message={`No signal history available for ${ticker}.`} />
+            )}
 
-      {/*
+          {/*
         Divergence-marker click-to-explain balloon (frontend-divergence-
         markers). Same `divergenceHelp.interpretValue` content as the legend
         row above -- one explanation source, two ways to reach it (the
@@ -2383,20 +2422,22 @@ export default function PriceChart({
         the ticker/data changed since the balloon was opened and no longer
         has a divergence, there's nothing left to explain.
       */}
-      <AnchoredInfoBalloon
-        open={divergenceBalloonAnchor !== null && divergence !== null}
-        anchorPosition={divergenceBalloonAnchor}
-        onClose={() => setDivergenceBalloonAnchor(null)}
-        title={divergenceHelp.metricLabel}
-        ariaLabel="Divergence details"
-        content={
-          <Typography variant="body2">
-            {divergence
-              ? divergenceHelp.interpretValue(divergence, divergenceInVisibleRange)
-              : null}
-          </Typography>
-        }
-      />
-    </Stack>
+          <AnchoredInfoBalloon
+            open={divergenceBalloonAnchor !== null && divergence !== null}
+            anchorPosition={divergenceBalloonAnchor}
+            onClose={() => setDivergenceBalloonAnchor(null)}
+            title={divergenceHelp.metricLabel}
+            ariaLabel="Divergence details"
+            content={
+              <Typography variant="body2">
+                {divergence
+                  ? divergenceHelp.interpretValue(divergence, divergenceInVisibleRange)
+                  : null}
+              </Typography>
+            }
+          />
+        </Stack>
+      )}
+    </ChartFrame>
   )
 }

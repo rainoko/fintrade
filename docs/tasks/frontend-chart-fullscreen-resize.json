@@ -3,7 +3,7 @@
   "title": "Stock Detail chart panes: allow enlarging to full screen or dragging taller",
   "area": "frontend/stocks",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "frontend/src/features/stocks/components/PriceChart.tsx",
@@ -17,25 +17,50 @@
   "checklist": [
     {
       "step": "Research and decide the interaction model: full-screen toggle, drag-to-resize height handle, or both. For a full-screen toggle, decide between the native Fullscreen API and a CSS-only full-viewport overlay. For drag-to-resize, decide min/max height bounds and whether the resized height persists (e.g. localStorage) across reloads/navigation or resets every mount. Record as a `decisions` entry with rationale.",
-      "done": false
+      "done": true
     },
     {
       "step": "Decide and record the component-placement/reuse shape: a shared `components/common/` wrapper or hook that each of the four chart panes (`PriceChart`, `OscillatorChart`, `VolumeIndicatorsChart`, `TrendStrengthChart`) opts into, versus a per-component implementation -- given all four already share `createBaseChart`'s `autoSize: true` behavior and the same fixed-`CHART_HEIGHT` pattern, prefer a shared mechanism unless something concrete about `PriceChart`'s extra range/interval selector UI genuinely rules that out.",
-      "done": false
+      "done": true
     },
     {
       "step": "Implement the chosen affordance(s) on all four chart panes (or record a narrower, deliberate scope decision if genuinely warranted), relying on Lightweight Charts' existing `autoSize: true` to handle the actual chart redraw once the container's size changes -- verify this assumption holds in practice (the chart should resize itself without any manual `chart.resize()` call) rather than just assuming it from the option name.",
-      "done": false
+      "done": true
     },
     {
       "step": "Handle narrow/mobile viewports sensibly for whichever affordance is chosen (e.g. a drag handle needs a reasonable touch-friendly hit target; a full-screen overlay needs to actually fit a small viewport without its own scroll/layout breaking).",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests (vitest/Testing Library, no live network calls): the toggle/drag interaction itself (simulated pointer events for drag-resize, simulated click + state check for a fullscreen toggle), the min/max height clamping if drag-resize is implemented, and Storybook coverage for any new piece that lands in `components/common/` per Frontend.md §3's placement rule.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-02T19:31:37Z",
+      "recorded_by": "task-worker",
+      "decision": "Implement BOTH a full-screen toggle AND an independent drag-to-resize height handle on every chart pane, rather than picking just one. The full-screen toggle is a CSS-only \"maximize within the page\" overlay, not the native browser Fullscreen API. Drag-resize is clamped to [200px, 900px] (`CHART_FRAME_MIN_HEIGHT`/`CHART_FRAME_MAX_HEIGHT` in `components/common/ChartFrame/ChartFrame.tsx`) and is plain `useState` -- NOT persisted to `localStorage` -- so it resets on an actual remount (page reload, or navigating away and back if the route unmounts the chart) but survives a ticker change within the same mounted chart component.",
+      "rationale": "The user's own phrasing ('enlarge to full screen OR drag bigger in height') left both affordances on the table rather than picking one, and the two solve genuinely different problems (full screen for a deep, distraction-free look; drag-resize for a quick 'give me 100 more pixels' without leaving the rest of the page) -- implementing both cost little extra given the shared `ChartFrame` wrapper (decided separately below) does most of the work once. Native `element.requestFullscreen()` was considered and rejected for the full-screen toggle: it needs a direct user-gesture call stack (awkward once routed through a `Tooltip`/`IconButton` click handler), its exact behavior/permission UX varies across browsers and embedded webviews, and it wouldn't have been testable at all in this app's jsdom-based vitest suite -- a CSS-only overlay (`position: fixed; inset: 0`) gets the same practical 'see this chart much bigger' outcome with none of that, at the cost of not being literal OS-level fullscreen. 200px/900px bounds: 200px is short enough to meaningfully shrink a pane but still tall enough to read candles/lines on; 900px is comfortably larger than every existing `CHART_HEIGHT` (320/420) without being so tall a single pane could exceed most monitors' usable height before a drag even reaches the point of needing full screen instead. No `localStorage` persistence: a dragged height is treated as a transient viewing preference for the current page visit, not a durable per-chart setting worth the added complexity of a storage key per pane (4 panes, potentially per-ticker) and a migration story if the key shape ever changed -- this can be revisited as a follow-up if real usage shows people want it to stick across reloads."
+    },
+    {
+      "timestamp": "2026-10-02T19:31:37Z",
+      "recorded_by": "task-worker",
+      "decision": "Built a single shared `components/common/ChartFrame/ChartFrame.tsx` wrapper (a render-prop component, not a bare hook) that all four chart panes (`PriceChart`, `OscillatorChart`, `VolumeIndicatorsChart`, `TrendStrengthChart`) wrap their existing returned JSX in, rather than a per-component implementation or a narrower scope (e.g. `PriceChart` only).",
+      "rationale": "`ChartFrame` is domain-agnostic (Frontend.md Sec 3's common/-vs-feature-specific placement test): it takes a `label` string and a `defaultHeight` number, with zero reference to tickers/indicators/signals, and every one of the four panes needs the identical maximize/drag-resize mechanics on top of the identical `createBaseChart`/`autoSize: true`/fixed-`CHART_HEIGHT` pattern they already shared -- a textbook case for a shared `common/` component rather than four copies of the same state machine. A render-prop (`children: (args) => ReactNode`) was chosen over wrapping a fixed children subtree because each pane needs two different things threaded into two different places in its own markup: the current `canvasHeight` into its own chart-container `Box`'s `sx.height` (replacing its own `CHART_HEIGHT` constant), and the `maximizeToggle` button placed inline within its own existing controls row (`PriceChart`'s range/interval `ToggleButtonGroup` row; the other three panes' plain title row). `PriceChart`'s extra range/interval selector UI, flagged in the task description as a possible reason to scope this narrower, turned out not to rule out the shared wrapper at all -- the full-screen view just carries that selector UI along inside the maximized pane (it's rendered by the same `children` call either way), which reads naturally: a user maximizing the price chart almost certainly still wants to change the range/interval while looking at it."
+    },
+    {
+      "timestamp": "2026-10-02T19:31:37Z",
+      "recorded_by": "task-worker",
+      "decision": "The full-screen overlay is a single `Box` that is ALWAYS rendered at the same position in `ChartFrame`'s own React tree (never conditionally swapped for a `Dialog`/`Modal`), with only its `sx`/ARIA props toggling between in-flow and `{ position: 'fixed', inset: 0, ... }` maximized styling. An initial implementation used MUI's `Dialog` (`fullScreen` + portaled, mount-on-`open`) instead, and had to be reverted after discovering a real bug.",
+      "rationale": "`PriceChart`/`OscillatorChart`/`VolumeIndicatorsChart`/`TrendStrengthChart` each create their Lightweight Charts instance in a `useEffect` keyed only on their own query data (`historyQuery.data`/`indicatorsQuery.data`), on the implicit assumption that their own `containerRef` div stays mounted for the chart's whole lifetime -- none of those effects depend on this task's new maximize state. Wrapping the pane's content in a conditionally-rendered `Dialog` changes that content's ancestor chain (nothing, vs. `Dialog > DialogContent`) between the non-maximized and maximized renders; React treats that as the child subtree moving to a different position in the tree, so it unmounts the OLD subtree (destroying the DOM node `containerRef` pointed at, including the chart's own canvas) and mounts a brand NEW one -- but the chart-creation effect's own dependencies hadn't changed, so it never re-ran, leaving the freshly-mounted maximized container with no chart in it at all. This was caught by a real-browser Playwright walkthrough against the actual running dev server (ad hoc, not committed) per this task's explicit instruction to verify the `autoSize` assumption in practice rather than trust it from the option's name -- the mocked `lightweight-charts` unit tests never exercise a real container element, so they never would have caught it. Switching to one persistent `Box` whose own `sx` toggles between normal in-flow layout and a fixed full-viewport overlay keeps the chart's container div mounted the entire time; only its ANCESTOR's CSS position changes, which is exactly the kind of container-size change Lightweight Charts' `autoSize`/internal `ResizeObserver` already handles correctly (confirmed in the same real-browser walkthrough: the `<canvas>` element Lightweight Charts draws onto grew along with the resized/maximized container in every one of the four panes, with zero manual `chart.resize()` calls anywhere in this app's code). The tradeoff: losing `Dialog`'s free scroll-lock/Escape-handling/focus-placement, reimplemented directly in `ChartFrame`'s own `useEffect` (body `overflow: hidden` while maximized, a `keydown` listener for Escape, initial focus on the overlay) instead."
+    },
+    {
+      "timestamp": "2026-10-02T19:31:37Z",
+      "recorded_by": "task-worker",
+      "decision": "Verified the `autoSize: true` / internal `ResizeObserver` assumption in practice via an ad hoc Playwright script driven against the live dev server (not committed to the repo -- run and deleted during implementation), for all four chart panes, in addition to an added permanent Playwright e2e spec (`frontend/tests/e2e/stock-analysis.spec.ts`, the price-chart case) and the mocked vitest/Testing Library suite.",
+      "rationale": "The task explicitly called for verifying this assumption in practice rather than trusting it from the option's name, and the mocked-`lightweight-charts` unit test suite can't exercise this at all (the mock has no `<canvas>`/`ResizeObserver` concept). The ad hoc script drag-resized and maximized each of the four panes against the actual running app and confirmed the real `<canvas>` element's own height grew along with its container in every case, with no `chart.resize()`/`applyOptions({width,height})` call anywhere in this app's code -- this is also what caught the Dialog-remount bug recorded in the sibling `decisions` entry above. The added e2e spec (one new `test(...)` case) gives this a permanent, repeatable check beyond this one-off manual pass; it wasn't runnable end-to-end through `yarn test:e2e`'s own Playwright-managed webServer during this session because a separate, already-running dev-server pair occupied the suite's hardcoded ports 8000/5173 (a standing constraint for this task: that dev server was not to be touched), so the new spec's correctness was instead confirmed by matching its selectors/assertions 1:1 against the ad hoc script that *was* run successfully against that live server."
+    }
+  ],
   "questions": []
 }

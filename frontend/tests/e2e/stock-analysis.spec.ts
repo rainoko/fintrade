@@ -183,6 +183,70 @@ test.describe('stock analysis page', () => {
     await expect(page.getByText('Something went wrong')).not.toBeVisible()
   })
 
+  test('chart panes can be dragged taller and toggled full screen (frontend-chart-fullscreen-resize)', async ({
+    page,
+  }) => {
+    await page.goto('/stocks/AAPL')
+    const canvasContainer = page.getByTestId('price-chart-canvas')
+    await expect(canvasContainer).toBeVisible()
+
+    const initialBox = await canvasContainer.boundingBox()
+    expect(initialBox).not.toBeNull()
+
+    // Drag-resize (common/ChartFrame): dragging the handle below the chart
+    // grows the container `Box`'s own height. This app never calls
+    // `chart.resize()`/`applyOptions({ width, height })` anywhere -- the
+    // chart is created once via `utils/chart.ts`'s `createBaseChart`, which
+    // sets Lightweight Charts' own `autoSize: true` and relies entirely on
+    // the library's internal `ResizeObserver` to redraw once the container
+    // resizes out from under it. Asserting that the real `<canvas>`
+    // Lightweight Charts draws onto (nested inside the container div) grows
+    // along with the container -- not just the container div itself -- is
+    // this task's actual verification that the `autoSize` assumption holds
+    // in a real browser, not just something trusted from the option's name.
+    const handle = page.getByRole('separator', { name: 'Resize Price chart height' })
+    // The handle sits below the whole price chart pane, often below the
+    // fold on first load -- `page.mouse.*` operates on raw viewport
+    // coordinates (unlike `locator.click()`, it doesn't auto-scroll), so
+    // this scrolls it into view first.
+    await handle.scrollIntoViewIfNeeded()
+    const handleBox = await handle.boundingBox()
+    expect(handleBox).not.toBeNull()
+    await page.mouse.move(
+      handleBox!.x + handleBox!.width / 2,
+      handleBox!.y + handleBox!.height / 2,
+    )
+    await page.mouse.down()
+    await page.mouse.move(
+      handleBox!.x + handleBox!.width / 2,
+      handleBox!.y + handleBox!.height / 2 + 150,
+      { steps: 5 },
+    )
+    await page.mouse.up()
+
+    const resizedBox = await canvasContainer.boundingBox()
+    expect(resizedBox!.height).toBeGreaterThan(initialBox!.height + 100)
+
+    const canvasElement = canvasContainer.locator('canvas').first()
+    await expect(canvasElement).toBeVisible()
+    const canvasElementBox = await canvasElement.boundingBox()
+    expect(canvasElementBox!.height).toBeGreaterThan(initialBox!.height + 100)
+
+    // Full-screen toggle (common/ChartFrame): a CSS-only full-viewport
+    // dialog, not the native Fullscreen API (this task's `decisions` entry)
+    // -- the same chart canvas (and its own range/interval controls) is
+    // still present inside it, and a visible toggle (now reading "Exit full
+    // screen") provides the way back out, in addition to Escape.
+    await page.getByRole('button', { name: 'View Price chart full screen' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Price chart full screen' })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByTestId('price-chart-canvas')).toBeVisible()
+
+    await page.getByRole('button', { name: 'Exit full screen (Price chart)' }).click()
+    await expect(dialog).not.toBeVisible()
+    await expect(page.getByTestId('price-chart-canvas')).toBeVisible()
+  })
+
   test('looking up an unknown ticker shows a not-found error state', async ({ page }) => {
     await page.goto('/')
     await page.getByLabel('Look up a ticker').fill('ZZZZINVALID')
