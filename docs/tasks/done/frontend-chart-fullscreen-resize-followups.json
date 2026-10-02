@@ -3,7 +3,7 @@
   "title": "Follow-ups from frontend-chart-fullscreen-resize's PR #373 review",
   "area": "frontend/stocks",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-chart-fullscreen-resize"],
   "references": [
     "docs/tasks/frontend-chart-fullscreen-resize.json",
@@ -63,5 +63,53 @@
     "pr_number": 375,
     "pr_url": "https://github.com/rainoko/fintrade/pull/375",
     "pushed_at": "2026-10-02T22:17:25Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-02T22:28:59Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/375",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Full frontend suite: 98 test files / 1031 tests passed; coverage 99.77%/99.09%/99.83%/99.81% (stmt/branch/func/line), matching the PR description exactly. `yarn lint` and `yarn tsc -b --noEmit` both clean. `scripts/check_profit_target_wording.py` clean. No blocking findings.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Mutation-tested the isMaximized gating fix myself: temporarily reverted ChartFrame.tsx's `subscribe` useCallback to always call `subscribeToWindowResize` unconditionally (removing the `isMaximized ? ... : noopUnsubscribe` branch), reran the two new ChartFrame.test.tsx resize-subscription tests -- both failed exactly as expected (one asserting no 'resize' listener while unmaximized, one asserting exactly one add/remove across a maximize/exit cycle). Restored the original code (`git diff` confirmed byte-identical afterward) and reran -- both pass again. The tests genuinely exercise the behavioral change, not just a coincidental pass.",
+        "file": "frontend/src/components/common/ChartFrame/ChartFrame.tsx",
+        "line": 286
+      },
+      {
+        "summary": "Real-browser walkthrough (throwaway Playwright script against a freshly-started make backend/make frontend pair, not committed) of VolumeIndicatorsChart -- one of the three newly-tested components -- on /stocks/AAPL: maximize opened a dialog with the real canvas (11 real <canvas> elements) correctly visible and sized inside it (1248x500 bounding box), exit full screen correctly removed the dialog and left the canvas back in-flow, and drag-resize via realistic pointerdown/move/up with small pauses between moves correctly grew the container from 420px to 570px (aria-valuenow tracked the change). Zero console errors throughout. This independently corroborates the new per-component tests actually reflect real app behavior, not just mocked/synthetic behavior.",
+        "file": "frontend/src/features/stocks/components/VolumeIndicatorsChart.tsx",
+        "line": null
+      },
+      {
+        "summary": "Ran the persisted e2e suite (`make e2e`): all 27 specs passed across all 4 spec files, including 'chart panes can be dragged taller and toggled full screen (frontend-chart-fullscreen-resize)' in stock-analysis.spec.ts. No regression from this PR's change to the window-resize subscription gating.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Verified the MAXIMIZED_CHROME_ALLOWANCE_PX=220 investigation's methodology is sound: the decisions entry describes measuring PriceChart's real chart-container bounding box against the viewport at 900/700/600px heights via Playwright, finding the real chrome (~222.6px) tracks the constant closely, with only ~2-3px clipped at the shortest height tested -- well within the overlay's existing overflow:auto fallback. This is a real, reproducible measurement methodology (not just an assertion), and the documented numbers are internally consistent (99.6/99.5/99.3% canvas visibility at 900/700/600px, consistent with a near-constant ~222px chrome height against shrinking viewports). No code change needed, matching the PR's own conclusion.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Checked the deferred-scope reasoning for items 5 and 6 (nested-portaled-popover Tab-swallowing; uncoordinated per-instance focus traps + missing aria-hidden/inert): confirmed independently that none of the four chart panes' MetricHelp/InfoBalloon content (metricHelpContent.ts and the components themselves) contains any Button/anchor/onClick/Link -- the 'no live reachable defect today' claim still holds, and nothing in this PR's diff touches that content or the maximized-overlay stacking/z-index behavior, so the prior rounds' reachability analysis is unaffected by this change. Agree deferring further hardening is reasonable rather than rubber-stamping -- see the new follow-up task below for tracking these two remaining items going forward.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Did not independently observe the 50-60+ second /history endpoint slowness task-worker reported during its own browser testing: a fresh backend+frontend start in this review session returned /api/stocks/AAPL/history and /api/stocks/MSFT/history in well under 1 second each via curl, and a full stock-detail page load (including the history/indicators/analysis calls) completed in ~5.5-6.5 seconds via Playwright, with IBKR's own /api/ibkr/status responding in ~0.5s despite FINTRADE_IBKR_ENABLED=true and no live IBKR gateway reachable. Possibly a cold-start/DNS-resolution-timeout effect specific to task-worker's session that had already resolved (e.g. a fast circuit-breaker/cached failure) by the time of this review, or environment-specific. Noting per the dispatch's request, not filed as a task since it's unreproduced and out of this PR's scope.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Carried forward the 2 checklist items this PR deliberately left deferred (nested-portaled-popover Tab-swallowing; uncoordinated per-instance focus traps + missing aria-hidden/inert) to a new follow-up task so they stay visible/actionable rather than sitting as `done: false` entries inside this now-done task's file.",
+        "file": "docs/tasks/frontend-chart-fullscreen-resize-followups-followups.json",
+        "line": null
+      }
+    ],
+    "notes": "Accepted. Full-suite coverage, static analysis, code-review pass, e2e suite, a self-run mutation test on the behavioral change (isMaximized resize-subscription gating), and a real-browser walkthrough of one of the three newly-tested components all came back clean with no blocking findings. The PR's own claims (test counts, coverage percentages, measurement methodology) were independently verified rather than taken at face value. Items 5-6 of this task's own checklist remain genuinely deferred (not newly found) -- spun off into frontend-chart-fullscreen-resize-followups-followups.json per CLAUDE.md's 'every finding stays a tracked task, not a PR comment' convention, rather than left to go stale as false checklist entries inside a done/ file."
   }
 }
