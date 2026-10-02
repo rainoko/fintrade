@@ -1,0 +1,30 @@
+{
+  "id": "frontend-chart-fullscreen-resize-followups",
+  "title": "Follow-ups from frontend-chart-fullscreen-resize's PR #373 review",
+  "area": "frontend/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-chart-fullscreen-resize"],
+  "references": [
+    "docs/tasks/frontend-chart-fullscreen-resize.json",
+    "https://github.com/rainoko/fintrade/pull/373",
+    "frontend/src/components/common/ChartFrame/ChartFrame.tsx"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #373 (frontend-chart-fullscreen-resize), recorded here per CLAUDE.md's convention so they aren't lost once the PR merges. The PR's blocking finding (missing focus trap in the maximized overlay) is tracked on the parent task's own `review.comments`/re-opened checklist, not here -- this file is only the non-blocking items.",
+  "checklist": [
+    {
+      "step": "common/ChartFrame's drag-to-resize handle (role=\"separator\" at ChartFrame.tsx ~line 271) has no keyboard equivalent at all: it has no `tabIndex`, isn't reachable via Tab, and has no `onKeyDown` handler. Confirmed via real-browser walkthrough (Tab from the maximize toggle skips straight past the handle to the next MetricHelp button). Per the WAI-ARIA separator/window-splitter pattern, an interactive separator should be focusable (`tabIndex={0}`) and support ArrowUp/ArrowDown to adjust the height, with `aria-valuenow`/`aria-valuemin`/`aria-valuemax` reflecting the current/clamped height. Non-blocking because the full-screen toggle (a real, keyboard-accessible `<button>`) already gives keyboard users an alternative way to see the chart bigger, but the resize affordance itself is currently mouse/touch-only, which is a real WCAG 2.1.1 gap worth closing.",
+      "done": false
+    },
+    {
+      "step": "No per-component (vitest/Testing Library) test asserts the maximize-toggle/drag-resize wiring specifically for OscillatorChart, VolumeIndicatorsChart, or TrendStrengthChart -- only ChartFrame's own generic unit tests (against a synthetic test double) and one e2e spec scoped to PriceChart exercise this interaction against real component code. The three other panes' wiring (passing `canvasHeight` into their own chart-container `Box`, placing `maximizeToggle` in their own title row) is currently verified only by my own manual real-browser walkthrough during PR #373's review, not by anything that runs on every future change. Add either a lightweight render-time assertion per component (maximize toggle renders, clicking it doesn't throw, canvas height prop reflects `canvasHeight`) or extend the e2e spec to touch at least one of the other three panes.",
+      "done": false
+    },
+    {
+      "step": "`ChartFrame.tsx`'s `MAXIMIZED_CHROME_ALLOWANCE_PX = 220` is a single constant shared across all four panes despite their chrome (controls/legend rows above the canvas) differing materially -- PriceChart's range/interval ToggleButtonGroups plus several MetricHelp legend rows are taller than Oscillators/VolumeIndicators/TrendStrength's single title row. The maximized overlay's own `overflow: 'auto'` is the documented fallback if the real chrome exceeds the estimate, and this held up fine in manual testing at a 900px-tall viewport, but wasn't checked at a smaller viewport height (e.g. a ~700px laptop screen) where PriceChart's taller chrome could push more of the canvas below the fold inside the maximized view. Worth a real-browser check at a shorter viewport.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

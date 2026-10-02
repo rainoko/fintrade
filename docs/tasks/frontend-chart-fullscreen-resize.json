@@ -3,7 +3,7 @@
   "title": "Stock Detail chart panes: allow enlarging to full screen or dragging taller",
   "area": "frontend/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "frontend/src/features/stocks/components/PriceChart.tsx",
@@ -68,5 +68,33 @@
     "pr_number": 373,
     "pr_url": "https://github.com/rainoko/fintrade/pull/373",
     "pushed_at": "2026-10-02T19:34:33Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-02T19:51:20Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/373",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "BLOCKING: the full-screen overlay declares `role=\"dialog\"` + `aria-modal=\"true\"` but implements no focus trap, so keyboard focus can Tab straight out of the maximized overlay into the underlying page content that sits behind it (visually hidden by the opaque, fixed, full-viewport Box, but still present in the DOM and still focusable). Reproduced in a real browser: maximizing the Price chart pane and pressing Tab 11 times moves focus to the Oscillators pane's own 'View Oscillators full screen' button, which is not inside the dialog and is not visible on screen (confirmed via screenshot: the button's computed style is visibility:visible/display:flex but it sits entirely underneath the opaque overlay). A keyboard user can press Enter on that invisible, focused control without any visual indication of what will happen. The decisions entry for the Dialog-removal fix explicitly lists 'scroll-lock/Escape-handling/focus-placement' as the three Dialog behaviors reimplemented, but a focus trap (keeping Tab cycling confined to the open dialog) isn't one of them and isn't present anywhere in ChartFrame.tsx.",
+        "file": "frontend/src/components/common/ChartFrame/ChartFrame.tsx",
+        "line": 200
+      },
+      {
+        "summary": "Non-blocking (tracked as docs/tasks/frontend-chart-fullscreen-resize-followups.json): the drag-to-resize handle (role=\"separator\") has no keyboard equivalent at all -- not even focusable via Tab, let alone operable with arrow keys. The full-screen toggle gives keyboard users an alternative way to see a chart bigger, so this doesn't block, but it's a real WCAG 2.1.1 gap in the resize affordance itself.",
+        "file": "frontend/src/components/common/ChartFrame/ChartFrame.tsx",
+        "line": 271
+      },
+      {
+        "summary": "Non-blocking (tracked as docs/tasks/frontend-chart-fullscreen-resize-followups.json): no per-component test (vitest/Testing Library) exercises the maximize/resize wiring specifically for OscillatorChart, VolumeIndicatorsChart, or TrendStrengthChart -- only ChartFrame's own generic unit tests and one e2e spec scoped to PriceChart cover this in practice; the other three panes' wiring was verified only by this review's manual browser walkthrough.",
+        "file": "frontend/src/components/common/ChartFrame/ChartFrame.tsx",
+        "line": null
+      },
+      {
+        "summary": "Non-blocking (tracked as docs/tasks/frontend-chart-fullscreen-resize-followups.json): MAXIMIZED_CHROME_ALLOWANCE_PX=220 is one constant shared across all four panes despite PriceChart's own chrome (range/interval controls + several legend rows) being visibly taller than the other three panes' single title row; the overflow:auto fallback covers this today (confirmed fine at a 900px viewport) but wasn't checked at a shorter (~700px) viewport height.",
+        "file": "frontend/src/components/common/ChartFrame/ChartFrame.tsx",
+        "line": 39
+      }
+    ],
+    "notes": "Full review performed: frontend vitest suite (1002/1002 passing, 99.66%/99.01%/99.65%/99.75% stmt/branch/func/line coverage, ChartFrame.tsx itself 100%), backend pytest suite unaffected (1544/1544 passing, 100% coverage -- this PR touches no backend files), eslint/tsc clean on both the frontend diff and backend, storybook build succeeds (new Common/ChartFrame story), profit-target wording guard clean. Ran the persisted e2e suite (`make e2e`) after stopping the orchestrator's leftover dev-server pair on 8000/5173 and restarting fresh against this PR's branch -- all 27 specs pass, including the new fullscreen/resize case in stock-analysis.spec.ts. Did a real-browser walkthrough (Playwright driven via a throwaway script, not the MCP tool) of all four chart panes: confirmed the chart genuinely stays rendered and the real <canvas> element's own bounding box grows/shrinks with its container across maximize/restore and drag-resize for every pane (the autoSize claim holds), confirmed the claimed Dialog-remount bug is genuinely avoided (canvas count on the page is unchanged before/after each maximize/restore cycle, and the container Box's conditional-render gate in each of the four components -- `historyQuery.isSuccess && hasBars` / `indicatorsQuery.isSuccess && hasPoints` -- is independent of `isMaximized`, confirmed by reading the diff), confirmed Escape closes the overlay and body scroll-lock is correctly applied/released, and confirmed the drag-resize handle clamps to exactly [200px, 900px] when dragged far past either bound. Found one blocking issue (missing focus trap, see above) during the keyboard-focus-handling check the task explicitly called for. Component placement (`components/common/ChartFrame/`) is correct against Frontend.md §3: the component takes only `label`/`defaultHeight`/a render-prop and has zero reference to tickers/signals/positions. All 4 `decisions` entries are genuine and verified against the diff (the render-prop rationale, the Dialog-remount root-cause/fix, the autoSize verification, and the both-affordances/clamp-bounds/no-localStorage choices all match what's actually implemented). No API/schema changes in this PR, so the OpenAPI-snapshot check doesn't apply. Re-dispatch to task-worker to add a focus trap to ChartFrame's maximized overlay (e.g. a minimal Tab/Shift+Tab wraparound confined to the dialog's own focusable descendants, or reaching for a small trap-focus utility) before re-review."
   }
 }
