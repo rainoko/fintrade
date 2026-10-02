@@ -3,7 +3,7 @@
   "title": "Follow-ups from frontend-chart-legend-toggle-overlay's PR #374 review",
   "area": "frontend/stocks",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-chart-legend-toggle-overlay"],
   "references": [
     "docs/tasks/done/frontend-chart-legend-toggle-overlay.json",
@@ -45,5 +45,43 @@
     "pr_number": 376,
     "pr_url": "https://github.com/rainoko/fintrade/pull/376",
     "pushed_at": "2026-10-02T22:56:40Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-02T23:10:13Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/376",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified both claims directly rather than trusting the PR description: the computed `opacity` style on LegendToggle (and the pre-existing PriceChart/OscillatorChart 0.4 call sites) is exactly `0.4` via a real-browser check; all 10 call sites across PriceChart/OscillatorChart/VolumeIndicatorsChart/TrendStrengthChart now route through `useSeriesVisibilityToggle` with their exact original per-site dependency arrays preserved (diffed line-by-line). No stale `0.45` references remain anywhere in frontend/src.",
+        "file": "frontend/src/components/common/LegendToggle/LegendToggle.tsx",
+        "line": 14
+      },
+      {
+        "summary": "Mutation-tested the new hook directly (not just trusting the 100%-coverage claim): (1) inverted the applied `visible` value -> 7 tests failed across all 4 chart components' toggle-click specs; (2) changed the forEach to only apply to series[0] (breaking the tuple/array/two-refs cases) -> 5 tests failed covering Value Zone (tuple), Tide Background (array), Support/Resistance Zones (array), and +DI/-DI (two independent refs from one boolean). Both mutations were caught by the existing per-component tests and both were restored afterward (working tree left clean). This confirms the refactor is behavior-preserving across all 3 distinct ref shapes plus the one-boolean-drives-two-refs case.",
+        "file": "frontend/src/features/stocks/hooks/useSeriesVisibilityToggle.ts",
+        "line": 37
+      },
+      {
+        "summary": "Verified the `react-hooks/exhaustive-deps` eslint-disable is genuinely necessary, not decorative: removing it and running `eslint` on the file reproduces exactly the two warnings the comment claims (`missing dependency: 'getSeries'` and `spread element in dependency array`).",
+        "file": "frontend/src/features/stocks/hooks/useSeriesVisibilityToggle.ts",
+        "line": 42
+      },
+      {
+        "summary": "Real-browser walkthrough (Playwright, fixture data provider) against /stocks/AAPL covering 4 of the 10 call sites spanning all distinct ref shapes: Channel (nullable tuple-ref), Support/Resistance Zones (growing-array ref), +DI/-DI (one boolean driving two independent single-refs), and OBV (single ref). All four toggled their legend opacity (1 <-> 0.4, confirmed via computed style), their aria-pressed state, and the actual chart overlay rendering (screenshot diff confirmed the OBV line visually disappears/reappears) -- no console errors, no failed network requests.",
+        "file": null,
+        "line": 0
+      },
+      {
+        "summary": "Full frontend vitest+coverage run: 1031/1031 passing, 99.77%/99.09%/99.83%/99.81% stmt/branch/func/line, matching the PR description exactly. useSeriesVisibilityToggle.ts itself at 100% on all four metrics. yarn lint and yarn tsc -b --noEmit both clean. Backend ruff/mypy clean (unaffected by this frontend-only diff, re-run for completeness). scripts/check_profit_target_wording.py and scripts/validate_tasks.py both pass. Full persisted e2e suite (make e2e): all 27 specs across 8 files passed, including stock-analysis.spec.ts which exercises the Stock Detail page these chart panes live on.",
+        "file": null,
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking: the new `useSeriesVisibilityToggle` hook is domain-agnostic (operates on a generic `{ applyOptions }` series interface, with no reference to ticker/position/signal), which is the same placement test `utils/chart.ts`'s `createBaseChart`/`isFiniteNumber` cite for living in `utils/` despite also starting with every caller under `features/stocks/` (see that file's own doc comment and the frontend-oscillator-chart-followups decision). This PR's own decisions entries justify the opacity constant's placement on LegendToggle.tsx over utils/chart.ts, but don't address the hook's placement under features/stocks/hooks/ versus utils/ at all, and Frontend.md §3 doesn't clearly resolve it either (its 'hooks live under the feature they serve' rule is framed around API-concern hooks; its utils/ domain-agnostic test is framed around non-hook plain functions). A genuinely arguable case, not a clear-cut miss -- tracked as a follow-up rather than blocking.",
+        "file": "frontend/src/features/stocks/hooks/useSeriesVisibilityToggle.ts",
+        "line": 1
+      }
+    ],
+    "notes": "Full review of PR #376. Both task-worker decisions entries are well-documented with genuine rationale (including the explicit utils/ vs LegendToggle.tsx placement call for the opacity constant). code-review skill (high effort) run against the diff independently found no correctness bugs. architecture-review skill run against the diff found one genuinely arguable (non-blocking) placement question for the new hook -- see comments. No backend/API changes in this diff, so no openapi.json regeneration is needed (confirmed absent from the diff) and verify-elder-signal doesn't apply (area is frontend/stocks, skill is null). area touches frontend components (LegendToggle is common/, the four chart panes are features/stocks/) -- assessed per-component placement per step 7a: LegendToggle's change is a constant addition to an existing, correctly-placed common/ component, not a new component; the four chart panes are pre-existing, correctly-placed features/stocks/ components with no placement question of their own. Filed docs/tasks/frontend-chart-legend-toggle-overlay-followups-followups.json for the one non-blocking finding above."
   }
 }
