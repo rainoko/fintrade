@@ -74,6 +74,17 @@ const addSeriesMock = vi.fn((..._args: unknown[]) => ({
   setSeriesOrder: setSeriesOrderMock,
   createPriceLine: createPriceLineMock,
   removePriceLine: removePriceLineMock,
+  // Legend click-to-toggle (frontend-chart-legend-toggle-overlay): a FRESH
+  // `vi.fn()` per returned series object (not one shared spy, unlike
+  // `setSeriesOrderMock` above) -- this chart calls `applyOptions({
+  // visible })` on several different series (channel/value-zone/tide-
+  // region/zone-band pairs and lists), so a test needs to tell one series'
+  // own calls apart from another's. Same "find the call by its `options`,
+  // then read `addSeriesMock.mock.results[i].value`" lookup pattern this
+  // file already uses elsewhere (see e.g. the baseline-zone-band tests
+  // below) -- `.value.applyOptions` on the looked-up result is this
+  // series' own, distinct mock.
+  applyOptions: vi.fn(),
   // `series.priceScale()` (frontend-tide-region-chart-shading) -- see
   // `priceScaleApplyOptionsMock`'s own comment above for why this is a
   // per-series method here, not `chart.priceScale(id)`.
@@ -1217,6 +1228,95 @@ describe('PriceChart', () => {
       expect(setSeriesOrderMock).toHaveBeenNthCalledWith(3, 8)
     })
 
+    it('clicking the Channel legend label hides BOTH channel-band series (upper + lower) via applyOptions, independent of Value Zone', async () => {
+      mockHistory(twoBars)
+      const user = userEvent.setup()
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
+
+      const channelUpperIndex = addSeriesMock.mock.calls.findIndex(
+        ([, options]) => (options as { title?: string } | undefined)?.title === 'Channel Upper',
+      )
+      const channelLowerIndex = addSeriesMock.mock.calls.findIndex(
+        ([, options]) => (options as { title?: string } | undefined)?.title === 'Channel Lower',
+      )
+      const valueZoneIndex = addSeriesMock.mock.calls.findIndex(
+        ([, options]) => (options as { title?: string } | undefined)?.title === 'Value Zone',
+      )
+      const channelUpperSeries = addSeriesMock.mock.results[channelUpperIndex]!
+        .value as { applyOptions: (options: unknown) => void }
+      const channelLowerSeries = addSeriesMock.mock.results[channelLowerIndex]!
+        .value as { applyOptions: (options: unknown) => void }
+      const valueZoneSeries = addSeriesMock.mock.results[valueZoneIndex]!.value as {
+        applyOptions: (options: unknown) => void
+      }
+
+      const toggle = screen.getByRole('button', {
+        name: 'Hide Channel (Autoenvelope) on the chart',
+      })
+      expect(toggle).toHaveAttribute('aria-pressed', 'true')
+
+      await user.click(toggle)
+
+      expect(channelUpperSeries.applyOptions).toHaveBeenCalledWith({ visible: false })
+      expect(channelLowerSeries.applyOptions).toHaveBeenCalledWith({ visible: false })
+      expect(valueZoneSeries.applyOptions).not.toHaveBeenCalledWith({ visible: false })
+      expect(
+        screen.getByRole('button', { name: 'Show Channel (Autoenvelope) on the chart' }),
+      ).toHaveAttribute('aria-pressed', 'false')
+
+      await user.click(
+        screen.getByRole('button', { name: 'Show Channel (Autoenvelope) on the chart' }),
+      )
+
+      expect(channelUpperSeries.applyOptions).toHaveBeenCalledWith({ visible: true })
+      expect(channelLowerSeries.applyOptions).toHaveBeenCalledWith({ visible: true })
+
+      // The MetricHelp affordance next to the toggled label is unaffected.
+      await user.click(
+        screen.getByRole('button', { name: 'Channel (Autoenvelope) help' }),
+      )
+      expect(screen.getByText(/inside the channel/)).toBeInTheDocument()
+    })
+
+    it('clicking the Value Zone legend label hides both of its AreaSeries (fill + mask) via applyOptions, independent of Channel', async () => {
+      mockHistory(twoBars)
+      const user = userEvent.setup()
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
+
+      // `zoneTopSeries` (title 'Value Zone') and the immediately-following
+      // `zoneBottomMaskSeries` (deliberately untitled -- see
+      // PriceChart.tsx's own comment on why naming it would add an unwanted
+      // axis-label badge) are always added back-to-back by the same effect,
+      // before any other series -- see this effect's own doc comment.
+      const valueZoneTopIndex = addSeriesMock.mock.calls.findIndex(
+        ([, options]) => (options as { title?: string } | undefined)?.title === 'Value Zone',
+      )
+      const valueZoneTopSeries = addSeriesMock.mock.results[valueZoneTopIndex]!.value as {
+        applyOptions: (options: unknown) => void
+      }
+      const valueZoneMaskSeries = addSeriesMock.mock.results[valueZoneTopIndex + 1]!
+        .value as { applyOptions: (options: unknown) => void }
+      const channelUpperIndex = addSeriesMock.mock.calls.findIndex(
+        ([, options]) => (options as { title?: string } | undefined)?.title === 'Channel Upper',
+      )
+      const channelUpperSeries = addSeriesMock.mock.results[channelUpperIndex]!
+        .value as { applyOptions: (options: unknown) => void }
+
+      await user.click(
+        screen.getByRole('button', { name: 'Hide Value Zone (EMA 13-26) on the chart' }),
+      )
+
+      expect(valueZoneTopSeries.applyOptions).toHaveBeenCalledWith({ visible: false })
+      expect(valueZoneMaskSeries.applyOptions).toHaveBeenCalledWith({ visible: false })
+      expect(channelUpperSeries.applyOptions).not.toHaveBeenCalledWith({ visible: false })
+    })
+
     it('does not show the channel/value-zone legend while the overlay has not resolved', async () => {
       mockHistory(twoBars)
       mockIndicators({
@@ -1517,6 +1617,48 @@ describe('PriceChart', () => {
       expect(screen.getByText(/25% Bearish/)).toBeInTheDocument()
       expect(screen.getByText(/25% Neutral/)).toBeInTheDocument()
       expect(screen.getByText(/Bearish \(red\)/)).toBeInTheDocument()
+    })
+
+    it('clicking the Tide Background legend label hides every segment AreaSeries via applyOptions, then re-shows them', async () => {
+      mockHistory(mixedTideBars)
+      mockIndicators(mixedTideIndicators)
+      const user = userEvent.setup()
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
+
+      const tideSeriesResults = addSeriesMock.mock.calls
+        .map((call, i) => ({ options: call[1], result: addSeriesMock.mock.results[i]! }))
+        .filter(
+          ({ options }) =>
+            (options as { priceScaleId?: string } | undefined)?.priceScaleId ===
+            'tide-region-shading',
+        )
+        .map(({ result }) => result.value as { applyOptions: (options: unknown) => void })
+      // mixedTideBars/mixedTideIndicators span Bullish -> Neutral -> Bearish
+      // (3 contiguous segments) -- see this describe block's own fixture
+      // comment.
+      expect(tideSeriesResults.length).toBeGreaterThanOrEqual(3)
+
+      const toggle = screen.getByRole('button', {
+        name: 'Hide Tide Background (Bullish / Neutral / Bearish) on the chart',
+      })
+      await user.click(toggle)
+
+      tideSeriesResults.forEach((result) => {
+        expect(result.applyOptions).toHaveBeenCalledWith({ visible: false })
+      })
+
+      await user.click(
+        screen.getByRole('button', {
+          name: 'Show Tide Background (Bullish / Neutral / Bearish) on the chart',
+        }),
+      )
+
+      tideSeriesResults.forEach((result) => {
+        expect(result.applyOptions).toHaveBeenCalledWith({ visible: true })
+      })
     })
 
     it('removes the previous tide-region series and adds new ones when only the indicators query refetches', async () => {
@@ -1899,6 +2041,52 @@ describe('PriceChart', () => {
       expect(
         screen.getByRole('button', { name: 'False Breakout help' }),
       ).toBeInTheDocument()
+    })
+
+    it('clicking the Support/Resistance Zones legend label hides every zone BaselineSeries via applyOptions, without touching the (deferred) False Breakout marker/price line', async () => {
+      mockHistory(twoBars)
+      mockAnalysis([
+        buildZone({ role: 'resistance', upper: 231.0, lower: 229.9, broken: false }),
+        buildZone({
+          role: 'support',
+          upper: 210.0,
+          lower: 205.0,
+          false_breakout: {
+            direction: 'down',
+            breakout_date: '2026-08-20',
+            reentry_date: '2026-09-02',
+            extreme_price: 203.5,
+          },
+        }),
+      ])
+      const user = userEvent.setup()
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(screen.getByText('Support/Resistance Zones')).toBeInTheDocument(),
+      )
+      createPriceLineMock.mockClear()
+
+      const baselineResults = addSeriesMock.mock.calls
+        .map((call, i) => ({ definition: call[0], result: addSeriesMock.mock.results[i]! }))
+        .filter(({ definition }) => definition === 'BaselineSeries-definition')
+        .map(({ result }) => result.value as { applyOptions: (options: unknown) => void })
+      expect(baselineResults).toHaveLength(2)
+
+      await user.click(
+        screen.getByRole('button', { name: 'Hide Support/Resistance Zones on the chart' }),
+      )
+
+      baselineResults.forEach((result) => {
+        expect(result.applyOptions).toHaveBeenCalledWith({ visible: false })
+      })
+      // The False Breakout price line/marker (a deferred, event-marker
+      // overlay -- this task's `decisions` entry) is unaffected by this
+      // toggle: no NEW price line is created or removed as a side effect of
+      // this click, and its own legend row stays at full opacity.
+      expect(createPriceLineMock).not.toHaveBeenCalled()
+      expect(screen.getByText('False Breakout')).toBeInTheDocument()
     })
 
     it('opens the Support/Resistance Zones MetricHelp balloon with the zone nearest the latest close', async () => {
@@ -2875,6 +3063,61 @@ describe('PriceChart', () => {
       ).toBeInTheDocument()
       expect(screen.getByText(/an uptrend swing/)).toBeInTheDocument()
       expect(screen.getByText(/61.8% 228.06/)).toBeInTheDocument()
+    })
+
+    it('clicking the Fibonacci Retracement legend label removes the 7 price lines, and clicking it again redraws them -- the swing legend text still updates while hidden', async () => {
+      const user = userEvent.setup()
+      mockHistory(twoBars)
+      mockAnalysis([])
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(createPriceLineMock).toHaveBeenCalledTimes(FIBONACCI_PRICE_LINE_COUNT),
+      )
+      createPriceLineMock.mockClear()
+
+      const toggle = screen.getByRole('button', {
+        name: 'Hide Fibonacci Retracement on the chart',
+      })
+      await user.click(toggle)
+
+      // `IPriceLine` has no `visible` option (this task's `decisions`
+      // entry) -- toggling off removes every existing line and creates none
+      // while hidden.
+      expect(removePriceLineMock).toHaveBeenCalledTimes(FIBONACCI_PRICE_LINE_COUNT)
+      expect(createPriceLineMock).not.toHaveBeenCalled()
+      expect(
+        screen.getByRole('button', { name: 'Show Fibonacci Retracement on the chart' }),
+      ).toHaveAttribute('aria-pressed', 'false')
+
+      // The legend text itself still describes the current swing while
+      // hidden -- only the on-chart price lines are suppressed.
+      await user.click(screen.getByRole('button', { name: 'Fibonacci Retracement help' }))
+      expect(
+        screen.getByText(
+          /swing low 226\.80 \(2026-09-01\) to the swing high 230\.10 \(2026-09-02\)/,
+        ),
+      ).toBeInTheDocument()
+      // Close the MetricHelp popover (MUI marks the rest of the page
+      // aria-hidden while it's open, same as every other balloon-then-
+      // continue-interacting test in this file -- see e.g. the divergence
+      // balloon's own Escape-to-close test below) before querying for
+      // another button by role.
+      await user.keyboard('{Escape}')
+
+      await user.click(
+        screen.getByRole('button', { name: 'Show Fibonacci Retracement on the chart' }),
+      )
+
+      await waitFor(() =>
+        expect(createPriceLineMock).toHaveBeenCalledTimes(FIBONACCI_PRICE_LINE_COUNT),
+      )
+      expectedTwoBarsLevels.forEach(({ ratio, price }) => {
+        expect(createPriceLineMock).toHaveBeenCalledWith(
+          expect.objectContaining({ price, title: `Fib ${ratio}` }),
+        )
+      })
     })
 
     it('recalculates the levels (debounced) from the narrower bar range after a simulated zoom/pan', async () => {

@@ -2,12 +2,13 @@ import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import { useTheme } from '@mui/material/styles'
-import { LineSeries, type IChartApi, type Time } from 'lightweight-charts'
-import { useEffect, useRef } from 'react'
+import { LineSeries, type IChartApi, type ISeriesApi, type Time } from 'lightweight-charts'
+import { useEffect, useRef, useState } from 'react'
 import type { IndicatorHistoryPoint, IndicatorHistoryResponse } from '../../../api/stocks'
 import ChartFrame from '../../../components/common/ChartFrame/ChartFrame'
 import EmptyState from '../../../components/common/EmptyState/EmptyState'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
+import LegendToggle from '../../../components/common/LegendToggle/LegendToggle'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
@@ -171,6 +172,20 @@ function buildVolumeIndicatorsSeriesData(
  * separate follow-up (it depends on `app.signals.swing_points`, computed
  * but not yet run against OBV/A-D); this component surfaces the raw series
  * only, per this task's own checklist.
+ *
+ * Both legend rows are click-to-toggle (frontend-chart-legend-toggle-
+ * overlay): clicking either one's swatch/label hides or re-shows that one
+ * series via `series.applyOptions({ visible })` (see `obvVisible`/
+ * `adVisible` below) -- kept as separate `useState`s, each reset on
+ * remount/navigation rather than persisted, matching this app's existing
+ * "local UI state resets on remount" convention for a chart pane's own
+ * controls (e.g. `PriceChart.tsx`'s range/interval selection). Applied via a
+ * dedicated small effect reading `obvSeriesRef`/`adSeriesRef` (populated by
+ * the chart-creation effect below), not by adding the toggle booleans to
+ * that effect's own dependency array -- toggling one series' visibility has
+ * no reason to tear down and recreate BOTH series (and refetch nothing), the
+ * same "ref + small dedicated effect" pattern this task's `decisions` entry
+ * documents for every series-backed overlay across all four chart panes.
  */
 export default function VolumeIndicatorsChart({
   ticker,
@@ -181,6 +196,10 @@ export default function VolumeIndicatorsChart({
   const theme = useTheme()
   const containerRef = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<IChartApi | null>(null)
+  const obvSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const adSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const [obvVisible, setObvVisible] = useState(true)
+  const [adVisible, setAdVisible] = useState(true)
 
   const indicatorsQuery = useIndicatorHistory(ticker, { range }, { enabled })
   const points = indicatorsQuery.data?.points ?? []
@@ -213,6 +232,7 @@ export default function VolumeIndicatorsChart({
       0,
     )
     obvSeries.setData(obv)
+    obvSeriesRef.current = obvSeries
 
     const adSeries = chart.addSeries(
       LineSeries,
@@ -226,6 +246,7 @@ export default function VolumeIndicatorsChart({
       1,
     )
     adSeries.setData(accumulationDistribution)
+    adSeriesRef.current = adSeries
 
     chart.timeScale().fitContent()
     chartRef.current = chart
@@ -233,8 +254,24 @@ export default function VolumeIndicatorsChart({
     return () => {
       chart.remove()
       chartRef.current = null
+      obvSeriesRef.current = null
+      adSeriesRef.current = null
     }
   }, [indicatorsQuery.data, enabled, theme])
+
+  // Applies the current OBV/A-D toggle state onto whichever series instance
+  // the effect above currently has refs for -- re-runs on every toggle click
+  // AND whenever the effect above recreates the series (same dependency list
+  // plus `obvVisible`/`adVisible`), so a freshly recreated series always
+  // starts out respecting whatever this pane's current toggle state already
+  // was, not reset to visible (see this component's own doc comment).
+  useEffect(() => {
+    obvSeriesRef.current?.applyOptions({ visible: obvVisible })
+  }, [obvVisible, indicatorsQuery.data, enabled, theme])
+
+  useEffect(() => {
+    adSeriesRef.current?.applyOptions({ visible: adVisible })
+  }, [adVisible, indicatorsQuery.data, enabled, theme])
 
   // `/indicators` is daily-cadence only (see the `enabled` prop's own doc
   // comment) — while a weekly interval is selected upstream, this pane has
@@ -264,17 +301,23 @@ export default function VolumeIndicatorsChart({
           {indicatorsQuery.isSuccess && hasPoints && (
             <Stack spacing={0.5}>
               <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                <Box
-                  sx={{
-                    width: 14,
-                    height: 0,
-                    borderTop: '2px solid',
-                    borderColor: 'primary.main',
-                  }}
-                />
-                <Typography variant="caption" color="text.secondary">
-                  On-Balance Volume (OBV)
-                </Typography>
+                <LegendToggle
+                  active={obvVisible}
+                  label="On-Balance Volume (OBV)"
+                  onToggle={() => setObvVisible((visible) => !visible)}
+                >
+                  <Box
+                    sx={{
+                      width: 14,
+                      height: 0,
+                      borderTop: '2px solid',
+                      borderColor: 'primary.main',
+                    }}
+                  />
+                  <Typography variant="caption" color="text.secondary">
+                    On-Balance Volume (OBV)
+                  </Typography>
+                </LegendToggle>
                 <MetricHelp
                   metricLabel={obvHelp.metricLabel}
                   definition={obvHelp.definition}
@@ -283,17 +326,23 @@ export default function VolumeIndicatorsChart({
                 />
               </Stack>
               <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                <Box
-                  sx={{
-                    width: 14,
-                    height: 0,
-                    borderTop: '2px solid',
-                    borderColor: 'secondary.main',
-                  }}
-                />
-                <Typography variant="caption" color="text.secondary">
-                  Accumulation/Distribution (A/D)
-                </Typography>
+                <LegendToggle
+                  active={adVisible}
+                  label="Accumulation/Distribution (A/D)"
+                  onToggle={() => setAdVisible((visible) => !visible)}
+                >
+                  <Box
+                    sx={{
+                      width: 14,
+                      height: 0,
+                      borderTop: '2px solid',
+                      borderColor: 'secondary.main',
+                    }}
+                  />
+                  <Typography variant="caption" color="text.secondary">
+                    Accumulation/Distribution (A/D)
+                  </Typography>
+                </LegendToggle>
                 <MetricHelp
                   metricLabel={accumulationDistributionHelp.metricLabel}
                   definition={accumulationDistributionHelp.definition}

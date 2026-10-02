@@ -31,6 +31,7 @@ import { AnchoredInfoBalloon } from '../../../components/common/InfoBalloon/Info
 import ChartFrame from '../../../components/common/ChartFrame/ChartFrame'
 import EmptyState from '../../../components/common/EmptyState/EmptyState'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
+import LegendToggle from '../../../components/common/LegendToggle/LegendToggle'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
@@ -958,6 +959,47 @@ export default function PriceChart({
   // candlestick series, but that fix only special-cased the candlestick,
   // never the zone bands.
   const zoneSeriesRef = useRef<ISeriesApi<'Baseline'>[]>([])
+  // Legend click-to-toggle overlay visibility (frontend-chart-legend-toggle-
+  // overlay): refs onto the currently-drawn series for each IN-SCOPE
+  // overlay (Channel, Value Zone, Tide Background, Support/Resistance
+  // Zones -- see this task's `decisions` entry for the full in/out-of-scope
+  // list and why False Breakout/Divergence/Kangaroo Tail are deferred), kept
+  // separately from `zoneSeriesRef` above even though that ref ALSO already
+  // tracks the zone bands -- `zoneSeriesRef` exists for a different purpose
+  // (z-order reassertion between independently-resolving effects) and
+  // reusing it here would conflate "what z-order needs reasserting" with
+  // "what the user has toggled off", two orthogonal concerns that happen to
+  // read the same series list today but have no reason to stay coupled.
+  // Populated by each overlay's own drawing effect; read by this overlay's
+  // own small "apply the current toggle state" effect declared right after
+  // that drawing effect -- same ref + dedicated-small-effect pattern
+  // `VolumeIndicatorsChart.tsx`/`OscillatorChart.tsx`/
+  // `TrendStrengthChart.tsx` all use for their own simpler (single-effect)
+  // charts, needed here too even though this chart splits its overlays
+  // across several effects: a toggle flip has no reason to tear down and
+  // redraw an overlay OTHER than the one actually being toggled, which is
+  // exactly what adding the toggle boolean straight to a shared effect's own
+  // dependency array would do for the channel/value-zone pair (both drawn by
+  // the single signal-overlay effect below, alongside EMA13/EMA26, which
+  // have no legend row/toggle of their own).
+  const channelSeriesRef = useRef<[ISeriesApi<'Line'>, ISeriesApi<'Line'>] | null>(null)
+  const valueZoneSeriesRef = useRef<[ISeriesApi<'Area'>, ISeriesApi<'Area'>] | null>(
+    null,
+  )
+  const tideRegionSeriesRef = useRef<ISeriesApi<'Area'>[]>([])
+  const [channelVisible, setChannelVisible] = useState(true)
+  const [valueZoneVisible, setValueZoneVisible] = useState(true)
+  const [tideVisible, setTideVisible] = useState(true)
+  const [zonesVisible, setZonesVisible] = useState(true)
+  // Fibonacci retracement levels have no `visible` series option to toggle
+  // (they're `IPriceLine`s, not a series -- see this task's `decisions`
+  // entry) -- this boolean instead gates whether the Fibonacci effect's own
+  // `drawLevels()` actually creates price lines, folded directly into that
+  // effect's dependency array (see its own updated doc comment below) rather
+  // than a ref + secondary effect, since that effect is already fully
+  // self-contained (no sibling overlay sharing it, unlike channel/value
+  // zone) and cheap to re-run in full.
+  const [fibonacciVisible, setFibonacciVisible] = useState(true)
   // Divergence-marker click-to-explain (frontend-divergence-markers): page
   // coordinates of the last divergence-marker click, or `null` before any
   // click / once the balloon is closed -- fed into `AnchoredInfoBalloon`
@@ -1161,6 +1203,7 @@ export default function PriceChart({
       crosshairMarkerVisible: false,
     })
     zoneBottomMaskSeries.setData(valueZoneBottom)
+    valueZoneSeriesRef.current = [zoneTopSeries, zoneBottomMaskSeries]
 
     // Bug fixed post-review (frontend-support-zones-disappear-after-
     // oscillators): `zoneBottomMaskSeries` above is an OPAQUE fill (the
@@ -1242,6 +1285,7 @@ export default function PriceChart({
       lastValueVisible: false,
     })
     channelLowerSeries.setData(channelLower)
+    channelSeriesRef.current = [channelUpperSeries, channelLowerSeries]
 
     const markersPlugin = createSeriesMarkers(series, markers)
 
@@ -1258,8 +1302,34 @@ export default function PriceChart({
       chart.removeSeries(channelUpperSeries)
       chart.removeSeries(channelLowerSeries)
       markersPlugin.detach()
+      valueZoneSeriesRef.current = null
+      channelSeriesRef.current = null
     }
   }, [historyQuery.data, indicatorsQuery.data, overlayEnabled, theme])
+
+  // Legend click-to-toggle (frontend-chart-legend-toggle-overlay): applies
+  // the current Channel/Value Zone toggle state onto whichever series
+  // instances the effect above currently has refs for -- a SEPARATE, small
+  // effect (not added to that effect's own dependency array) specifically so
+  // toggling one of these two overlays doesn't tear down and redraw BOTH of
+  // them plus the (legend-less) EMA13/EMA26 lines they're bundled together
+  // with there -- see `channelSeriesRef`'s own doc comment above for the
+  // full rationale and the `VolumeIndicatorsChart.tsx` precedent this
+  // mirrors. Depends on the same data/theme deps as that effect (so a freshly
+  // recreated series immediately gets the current toggle state applied,
+  // rather than defaulting back to visible) plus the toggle booleans
+  // themselves.
+  useEffect(() => {
+    const [upper, lower] = channelSeriesRef.current ?? []
+    upper?.applyOptions({ visible: channelVisible })
+    lower?.applyOptions({ visible: channelVisible })
+  }, [channelVisible, historyQuery.data, indicatorsQuery.data, overlayEnabled, theme])
+
+  useEffect(() => {
+    const [top, bottomMask] = valueZoneSeriesRef.current ?? []
+    top?.applyOptions({ visible: valueZoneVisible })
+    bottomMask?.applyOptions({ visible: valueZoneVisible })
+  }, [valueZoneVisible, historyQuery.data, indicatorsQuery.data, overlayEnabled, theme])
 
   // Tide (Screen 1) background shading (frontend-tide-region-chart-shading):
   // adds one `AreaSeries` per contiguous same-trend segment (see
@@ -1370,6 +1440,15 @@ export default function PriceChart({
       scaleMargins: { top: 0, bottom: 0 },
     })
 
+    // Published for this overlay's own legend click-to-toggle effect below
+    // (frontend-chart-legend-toggle-overlay) -- same "ref published here,
+    // applied by a separate small effect" pattern `channelSeriesRef`/
+    // `valueZoneSeriesRef` use above, chosen over adding `tideVisible`
+    // straight to this effect's own dependency array since re-running this
+    // whole effect (price-scale setup included) on every toggle click is
+    // more work than a toggle needs.
+    tideRegionSeriesRef.current = regionSeriesList
+
     // Same z-order fix as the signal-overlay effect above (this task's
     // `decisions` entry): re-assert the support/resistance zone bands' own
     // order (as a group, via `bringSeriesGroupToFront` -- see that helper's
@@ -1397,8 +1476,26 @@ export default function PriceChart({
         return
       }
       regionSeriesList.forEach((regionSeries) => chart.removeSeries(regionSeries))
+      // Same "don't clobber a newer value" guard `zoneSeriesRef`'s own
+      // cleanup already documents -- a subsequent run of this effect may
+      // have already published its own newer list by the time this stale
+      // cleanup runs.
+      if (tideRegionSeriesRef.current === regionSeriesList) {
+        tideRegionSeriesRef.current = []
+      }
     }
   }, [historyQuery.data, indicatorsQuery.data, overlayEnabled, theme])
+
+  // Legend click-to-toggle (frontend-chart-legend-toggle-overlay): applies
+  // the current Tide Background toggle state onto whichever region series
+  // the effect above currently has refs for -- see `channelSeriesRef`'s own
+  // doc comment for why this is a separate effect rather than a dependency
+  // on the (expensive, price-scale-configuring) effect above.
+  useEffect(() => {
+    tideRegionSeriesRef.current.forEach((regionSeries) =>
+      regionSeries.applyOptions({ visible: tideVisible }),
+    )
+  }, [tideVisible, historyQuery.data, indicatorsQuery.data, overlayEnabled, theme])
 
   // Support/resistance zones (frontend-support-resistance-overlay): adds
   // the horizontal `BaselineSeries` bands, false-breakout markers, and
@@ -1564,6 +1661,22 @@ export default function PriceChart({
       }
     }
   }, [historyQuery.data, analysisQuery.data, theme])
+
+  // Legend click-to-toggle (frontend-chart-legend-toggle-overlay): applies
+  // the current Support/Resistance Zones toggle state onto whichever zone
+  // band series `zoneSeriesRef` currently holds -- reuses that existing ref
+  // (populated above) purely as a read source here; see this component's own
+  // `channelSeriesRef`/etc. doc comment for why toggling these bands is a
+  // separate small effect rather than added to the (also z-order-sensitive)
+  // effect above. Deliberately does NOT also hide the False Breakout
+  // markers/price line sharing this same effect -- that overlay is out of
+  // scope for this pass (this task's `decisions` entry: event/marker
+  // overlays are deferred), so it stays visible regardless of this toggle.
+  useEffect(() => {
+    zoneSeriesRef.current.forEach((zoneSeries) =>
+      zoneSeries.applyOptions({ visible: zonesVisible }),
+    )
+  }, [zonesVisible, historyQuery.data, analysisQuery.data, theme])
 
   // Divergence overlay (frontend-divergence-markers): the single currently-
   // qualifying divergence (`AnalysisResponse.divergence`, or nothing when
@@ -1819,7 +1932,17 @@ export default function PriceChart({
       const swing = findFibonacciSwing(visibleBars)
       setFibonacciSwing(swing)
       setFibonacciVisibleBarsCount(visibleBars.length)
-      if (!swing) {
+      // Legend click-to-toggle (frontend-chart-legend-toggle-overlay): the
+      // swing/bar-count computation above still runs (and still updates the
+      // state the legend's own `fibonacciHelp.interpretValue` reads) even
+      // while toggled off -- only the actual price-line drawing is skipped,
+      // the same "still describe it, just don't draw it" posture this
+      // chart's divergence/Kangaroo Tail legends already take for their own
+      // out-of-visible-range case. `IPriceLine` has no `visible` option to
+      // toggle (unlike a series -- see this task's `decisions` entry), so
+      // this folds the toggle directly into `drawLevels()` itself rather
+      // than a ref + secondary effect.
+      if (!swing || !fibonacciVisible) {
         return
       }
 
@@ -1863,7 +1986,13 @@ export default function PriceChart({
       }
       currentPriceLines.forEach((priceLine) => series.removePriceLine(priceLine))
     }
-  }, [historyQuery.data, theme])
+    // `fibonacciVisible` is a dependency so toggling it re-runs this whole
+    // effect (fresh subscribe + an immediate `drawLevels()` call) -- safe to
+    // do unconditionally here (unlike folding a toggle into the signal-
+    // overlay effect above would be) since this effect is already fully
+    // self-contained: nothing else on this chart shares it, so re-running it
+    // in full on a toggle flip has no collateral effect on any other overlay.
+  }, [historyQuery.data, theme, fibonacciVisible])
 
   function handleRangeChange(_event: ReactMouseEvent<HTMLElement>, value: string | null) {
     if (value !== null) {
@@ -2065,17 +2194,23 @@ export default function PriceChart({
           {showOverlaySection && indicatorsQuery.isSuccess && latestIndicatorPoint && (
             <Stack direction="row" spacing={3} useFlexGap sx={{ flexWrap: 'wrap' }}>
               <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                <Box
-                  sx={{
-                    width: 14,
-                    height: 0,
-                    borderTop: '2px dashed',
-                    borderColor: 'info.main',
-                  }}
-                />
-                <Typography variant="caption" color="text.secondary">
-                  Channel (Autoenvelope)
-                </Typography>
+                <LegendToggle
+                  active={channelVisible}
+                  label="Channel (Autoenvelope)"
+                  onToggle={() => setChannelVisible((visible) => !visible)}
+                >
+                  <Box
+                    sx={{
+                      width: 14,
+                      height: 0,
+                      borderTop: '2px dashed',
+                      borderColor: 'info.main',
+                    }}
+                  />
+                  <Typography variant="caption" color="text.secondary">
+                    Channel (Autoenvelope)
+                  </Typography>
+                </LegendToggle>
                 <MetricHelp
                   metricLabel={channelHelp.metricLabel}
                   definition={channelHelp.definition}
@@ -2088,18 +2223,24 @@ export default function PriceChart({
                 />
               </Stack>
               <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                <Box
-                  sx={{
-                    width: 14,
-                    height: 14,
-                    bgcolor: `${theme.palette.info.main}33`,
-                    border: '1px solid',
-                    borderColor: 'info.main',
-                  }}
-                />
-                <Typography variant="caption" color="text.secondary">
-                  Value Zone (EMA 13-26)
-                </Typography>
+                <LegendToggle
+                  active={valueZoneVisible}
+                  label="Value Zone (EMA 13-26)"
+                  onToggle={() => setValueZoneVisible((visible) => !visible)}
+                >
+                  <Box
+                    sx={{
+                      width: 14,
+                      height: 14,
+                      bgcolor: `${theme.palette.info.main}33`,
+                      border: '1px solid',
+                      borderColor: 'info.main',
+                    }}
+                  />
+                  <Typography variant="caption" color="text.secondary">
+                    Value Zone (EMA 13-26)
+                  </Typography>
+                </LegendToggle>
                 <MetricHelp
                   metricLabel={valueZoneHelp.metricLabel}
                   definition={valueZoneHelp.definition}
@@ -2111,38 +2252,44 @@ export default function PriceChart({
                 />
               </Stack>
               <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                <Stack direction="row" spacing={0.25}>
-                  <Box
-                    sx={{
-                      width: 10,
-                      height: 14,
-                      bgcolor: `${theme.palette.signal.buy}${TIDE_REGION_FILL_ALPHA}`,
-                      border: '1px solid',
-                      borderColor: 'signal.buy',
-                    }}
-                  />
-                  <Box
-                    sx={{
-                      width: 10,
-                      height: 14,
-                      bgcolor: `${theme.palette.signal.hold}${TIDE_REGION_FILL_ALPHA}`,
-                      border: '1px solid',
-                      borderColor: 'signal.hold',
-                    }}
-                  />
-                  <Box
-                    sx={{
-                      width: 10,
-                      height: 14,
-                      bgcolor: `${theme.palette.signal.sell}${TIDE_REGION_FILL_ALPHA}`,
-                      border: '1px solid',
-                      borderColor: 'signal.sell',
-                    }}
-                  />
-                </Stack>
-                <Typography variant="caption" color="text.secondary">
-                  Tide Background (Bullish / Neutral / Bearish)
-                </Typography>
+                <LegendToggle
+                  active={tideVisible}
+                  label="Tide Background (Bullish / Neutral / Bearish)"
+                  onToggle={() => setTideVisible((visible) => !visible)}
+                >
+                  <Stack direction="row" spacing={0.25}>
+                    <Box
+                      sx={{
+                        width: 10,
+                        height: 14,
+                        bgcolor: `${theme.palette.signal.buy}${TIDE_REGION_FILL_ALPHA}`,
+                        border: '1px solid',
+                        borderColor: 'signal.buy',
+                      }}
+                    />
+                    <Box
+                      sx={{
+                        width: 10,
+                        height: 14,
+                        bgcolor: `${theme.palette.signal.hold}${TIDE_REGION_FILL_ALPHA}`,
+                        border: '1px solid',
+                        borderColor: 'signal.hold',
+                      }}
+                    />
+                    <Box
+                      sx={{
+                        width: 10,
+                        height: 14,
+                        bgcolor: `${theme.palette.signal.sell}${TIDE_REGION_FILL_ALPHA}`,
+                        border: '1px solid',
+                        borderColor: 'signal.sell',
+                      }}
+                    />
+                  </Stack>
+                  <Typography variant="caption" color="text.secondary">
+                    Tide Background (Bullish / Neutral / Bearish)
+                  </Typography>
+                </LegendToggle>
                 <MetricHelp
                   metricLabel={tideRegionHelp.metricLabel}
                   definition={tideRegionHelp.definition}
@@ -2170,18 +2317,24 @@ export default function PriceChart({
             displayedZones.length > 0 && (
               <Stack direction="row" spacing={3} useFlexGap sx={{ flexWrap: 'wrap' }}>
                 <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                  <Box
-                    sx={{
-                      width: 14,
-                      height: 14,
-                      bgcolor: `${theme.palette.signal.sell}33`,
-                      border: '1px solid',
-                      borderColor: 'signal.sell',
-                    }}
-                  />
-                  <Typography variant="caption" color="text.secondary">
-                    Support/Resistance Zones
-                  </Typography>
+                  <LegendToggle
+                    active={zonesVisible}
+                    label="Support/Resistance Zones"
+                    onToggle={() => setZonesVisible((visible) => !visible)}
+                  >
+                    <Box
+                      sx={{
+                        width: 14,
+                        height: 14,
+                        bgcolor: `${theme.palette.signal.sell}33`,
+                        border: '1px solid',
+                        borderColor: 'signal.sell',
+                      }}
+                    />
+                    <Typography variant="caption" color="text.secondary">
+                      Support/Resistance Zones
+                    </Typography>
+                  </LegendToggle>
                   <MetricHelp
                     metricLabel={supportResistanceZoneHelp.metricLabel}
                     definition={supportResistanceZoneHelp.definition}
@@ -2323,17 +2476,23 @@ export default function PriceChart({
       */}
           {historyQuery.isSuccess && hasBars && (
             <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-              <Box
-                sx={{
-                  width: 14,
-                  height: 0,
-                  borderTop: '2px dotted',
-                  borderColor: 'fibonacci.main',
-                }}
-              />
-              <Typography variant="caption" color="text.secondary">
-                Fibonacci Retracement
-              </Typography>
+              <LegendToggle
+                active={fibonacciVisible}
+                label="Fibonacci Retracement"
+                onToggle={() => setFibonacciVisible((visible) => !visible)}
+              >
+                <Box
+                  sx={{
+                    width: 14,
+                    height: 0,
+                    borderTop: '2px dotted',
+                    borderColor: 'fibonacci.main',
+                  }}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  Fibonacci Retracement
+                </Typography>
+              </LegendToggle>
               <MetricHelp
                 metricLabel={fibonacciHelp.metricLabel}
                 definition={fibonacciHelp.definition}

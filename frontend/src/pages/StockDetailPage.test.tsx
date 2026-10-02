@@ -32,6 +32,13 @@ vi.mock('lightweight-charts', () => ({
       // value-zone fill/mask and support/resistance zone band series — see
       // PriceChart.test.tsx's own mock for the fuller explanation.
       setSeriesOrder: () => {},
+      // Legend click-to-toggle (frontend-chart-legend-toggle-overlay): an
+      // empty stub is enough here too -- this file doesn't assert on the
+      // toggle behavior itself (see PriceChart.test.tsx/
+      // OscillatorChart.test.tsx/VolumeIndicatorsChart.test.tsx/
+      // TrendStrengthChart.test.tsx for that), it just needs every chart's
+      // own small "apply the current toggle state" effect to not throw.
+      applyOptions: () => {},
       // `series.priceScale()` (frontend-tide-region-chart-shading) — an
       // empty stub is enough here too, same "this file doesn't assert on
       // it" rationale as `panes` below. Must be a per-series method (not

@@ -14,9 +14,16 @@ import TrendStrengthChart from './TrendStrengthChart'
 const setDataMock = vi.fn()
 const removeMock = vi.fn()
 const fitContentMock = vi.fn()
+const applyOptionsMock = vi.fn()
+// Three of this chart's four series (+DI/-DI/ADX) share pane 0 (see the
+// component's own doc comment), so `paneIndex` alone can't tell them apart
+// the way it does for `VolumeIndicatorsChart.test.tsx`'s own OBV/A-D (one
+// pane each) -- keyed by each series' own `title` instead, which is unique
+// per series on this chart.
 const addSeriesMock = vi.fn(
-  (_definition: unknown, _options: { title?: string }, paneIndex?: number) => ({
+  (_definition: unknown, options: { title?: string }, paneIndex?: number) => ({
     setData: (data: unknown) => setDataMock(paneIndex, data),
+    applyOptions: (opts: unknown) => applyOptionsMock(options.title, opts),
   }),
 )
 const createChartMock = vi.fn(() => ({
@@ -115,6 +122,7 @@ describe('TrendStrengthChart', () => {
     fitContentMock.mockClear()
     addSeriesMock.mockClear()
     createChartMock.mockClear()
+    applyOptionsMock.mockClear()
   })
 
   it('shows a loading state, then renders +DI/-DI/ADX on pane 0 and ATR on pane 1', async () => {
@@ -314,6 +322,55 @@ describe('TrendStrengthChart', () => {
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'ADX (13) help' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'ATR (13) help' })).toBeInTheDocument()
+  })
+
+  it('clicking the +DI/-DI legend label hides BOTH series together via applyOptions', async () => {
+    mockIndicators(indicatorPoints)
+    const user = userEvent.setup()
+
+    renderWithProviders(<TrendStrengthChart ticker="AAPL" range="1y" />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('trend-strength-chart-canvas')).toBeInTheDocument(),
+    )
+    applyOptionsMock.mockClear()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Hide +DI / -DI (13) on the chart' }),
+    )
+
+    expect(applyOptionsMock).toHaveBeenCalledWith('+DI (13)', { visible: false })
+    expect(applyOptionsMock).toHaveBeenCalledWith('-DI (13)', { visible: false })
+    expect(applyOptionsMock).not.toHaveBeenCalledWith('ADX (13)', { visible: false })
+    expect(applyOptionsMock).not.toHaveBeenCalledWith('ATR (13)', { visible: false })
+  })
+
+  it('clicking ADX and ATR legend labels toggles each series independently', async () => {
+    mockIndicators(indicatorPoints)
+    const user = userEvent.setup()
+
+    renderWithProviders(<TrendStrengthChart ticker="AAPL" range="1y" />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('trend-strength-chart-canvas')).toBeInTheDocument(),
+    )
+    applyOptionsMock.mockClear()
+
+    await user.click(screen.getByRole('button', { name: 'Hide ADX (13) on the chart' }))
+
+    expect(applyOptionsMock).toHaveBeenCalledWith('ADX (13)', { visible: false })
+    expect(applyOptionsMock).not.toHaveBeenCalledWith('ATR (13)', { visible: false })
+    expect(
+      screen.getByRole('button', { name: 'Hide ATR (13) on the chart' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+
+    await user.click(screen.getByRole('button', { name: 'Hide ATR (13) on the chart' }))
+
+    expect(applyOptionsMock).toHaveBeenCalledWith('ATR (13)', { visible: false })
+
+    await user.click(screen.getByRole('button', { name: 'Show ADX (13) on the chart' }))
+
+    expect(applyOptionsMock).toHaveBeenCalledWith('ADX (13)', { visible: true })
   })
 
   it('opens the +DI/-DI MetricHelp balloon naming which direction currently leads', async () => {

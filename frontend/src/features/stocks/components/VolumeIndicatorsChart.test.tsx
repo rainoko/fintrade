@@ -14,9 +14,11 @@ import VolumeIndicatorsChart from './VolumeIndicatorsChart'
 const setDataMock = vi.fn()
 const removeMock = vi.fn()
 const fitContentMock = vi.fn()
+const applyOptionsMock = vi.fn()
 const addSeriesMock = vi.fn(
   (_definition: unknown, _options: { title?: string }, paneIndex?: number) => ({
     setData: (data: unknown) => setDataMock(paneIndex, data),
+    applyOptions: (options: unknown) => applyOptionsMock(paneIndex, options),
   }),
 )
 const createChartMock = vi.fn(() => ({
@@ -102,6 +104,7 @@ describe('VolumeIndicatorsChart', () => {
     fitContentMock.mockClear()
     addSeriesMock.mockClear()
     createChartMock.mockClear()
+    applyOptionsMock.mockClear()
   })
 
   it('shows a loading state, then renders OBV and A/D on separate panes', async () => {
@@ -280,6 +283,68 @@ describe('VolumeIndicatorsChart', () => {
     expect(
       screen.getByRole('button', { name: 'Accumulation/Distribution (A/D) help' }),
     ).toBeInTheDocument()
+  })
+
+  it('clicking the OBV legend label hides, then re-shows, the OBV series via applyOptions', async () => {
+    mockIndicators(indicatorPoints)
+    const user = userEvent.setup()
+
+    renderWithProviders(<VolumeIndicatorsChart ticker="AAPL" range="1y" />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('volume-indicators-chart-canvas')).toBeInTheDocument(),
+    )
+    applyOptionsMock.mockClear()
+
+    const toggle = screen.getByRole('button', {
+      name: 'Hide On-Balance Volume (OBV) on the chart',
+    })
+    expect(toggle).toHaveAttribute('aria-pressed', 'true')
+
+    await user.click(toggle)
+
+    expect(applyOptionsMock).toHaveBeenCalledWith(0, { visible: false })
+    expect(
+      screen.getByRole('button', { name: 'Show On-Balance Volume (OBV) on the chart' }),
+    ).toHaveAttribute('aria-pressed', 'false')
+
+    await user.click(
+      screen.getByRole('button', { name: 'Show On-Balance Volume (OBV) on the chart' }),
+    )
+
+    expect(applyOptionsMock).toHaveBeenCalledWith(0, { visible: true })
+  })
+
+  it('clicking the A/D legend label hides the A/D series only, leaving OBV visible', async () => {
+    mockIndicators(indicatorPoints)
+    const user = userEvent.setup()
+
+    renderWithProviders(<VolumeIndicatorsChart ticker="AAPL" range="1y" />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('volume-indicators-chart-canvas')).toBeInTheDocument(),
+    )
+    applyOptionsMock.mockClear()
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Hide Accumulation/Distribution (A/D) on the chart',
+      }),
+    )
+
+    expect(applyOptionsMock).toHaveBeenCalledWith(1, { visible: false })
+    expect(applyOptionsMock).not.toHaveBeenCalledWith(0, { visible: false })
+    expect(
+      screen.getByRole('button', { name: 'Hide On-Balance Volume (OBV) on the chart' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+
+    // The MetricHelp affordance next to the toggled label is unaffected --
+    // still opens its own balloon rather than being intercepted by the
+    // sibling toggle's click handler.
+    await user.click(
+      screen.getByRole('button', { name: 'Accumulation/Distribution (A/D) help' }),
+    )
+    expect(screen.getByText(/A\/D has fallen/)).toBeInTheDocument()
   })
 
   it('opens the OBV MetricHelp balloon warning the raw number is meaningless and describing the current pattern', async () => {

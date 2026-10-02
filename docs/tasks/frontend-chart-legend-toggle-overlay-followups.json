@@ -1,0 +1,30 @@
+{
+  "id": "frontend-chart-legend-toggle-overlay-followups",
+  "title": "Follow-ups from frontend-chart-legend-toggle-overlay's PR #374 review",
+  "area": "frontend/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-chart-legend-toggle-overlay"],
+  "references": [
+    "docs/tasks/done/frontend-chart-legend-toggle-overlay.json",
+    "https://github.com/rainoko/fintrade/pull/374",
+    "frontend/src/components/common/LegendToggle/LegendToggle.tsx",
+    "frontend/src/features/stocks/components/PriceChart.tsx",
+    "frontend/src/features/stocks/components/OscillatorChart.tsx",
+    "frontend/src/features/stocks/components/VolumeIndicatorsChart.tsx",
+    "frontend/src/features/stocks/components/TrendStrengthChart.tsx"
+  ],
+  "description": "Non-blocking findings from the full review of PR #374 (frontend-chart-legend-toggle-overlay) -- the PR itself was accepted (tests/coverage/lint/typecheck/storybook/e2e all clean, a real-browser walkthrough across every distinct toggle mechanism and a ChartFrame fullscreen/resize stress test all confirmed correct behavior), but two minor items are worth tracking rather than losing once PR #374's comment thread disappears from view.",
+  "checklist": [
+    {
+      "step": "Reconcile LegendToggle's dimmed-state opacity (0.45, in LegendToggle.tsx) with the pre-existing 'out of range' dimming convention already used elsewhere in these same four chart panes for divergence/false-breakout/Kangaroo-Tail legend rows (opacity: 0.4, e.g. PriceChart.tsx's `falseBreakoutInVisibleRange ? 1 : 0.4` / `divergenceInVisibleRange ? 1 : 0.4` / `kangarooTailInVisibleRange ? 1 : 0.4`). Not a visible/functional bug (0.45 is still clearly legible and if anything slightly higher-contrast than the existing 0.4 convention), but the two different magic numbers for what reads as the same 'this legend row is currently not showing on the chart' affordance is worth consolidating into one shared constant (or deliberately documenting why they differ) so a future reader doesn't have to guess whether the difference is intentional.",
+      "done": false
+    },
+    {
+      "step": "Consider extracting the repeated 'ref onto the currently-drawn series + small dedicated useEffect applying { visible }' pattern (independently hand-written once per toggle: PriceChart's Channel/Value Zone/Tide Background/Support-Resistance Zones, OscillatorChart's RSI, VolumeIndicatorsChart's OBV/A-D, TrendStrengthChart's +DI-DI/ADX/ATR -- 10 near-identical small effects across 4 files) into a small shared hook (e.g. `useSeriesVisibilityToggle(seriesRef, visible)` returning nothing, just applying the effect) to reduce duplicated boilerplate. The task's own `decisions` entry explains why the *toggle mechanism itself* needed to be per-overlay-type (series applyOptions vs. price-line skip), but doesn't separately weigh whether the series-backed cases' own repeated ref+effect wiring could still be factored out despite that. A genuinely arguable case (each call site's effect has a slightly different dependency list tied to its own drawing effect, so a one-size hook would need to accept that dependency array too), not a clear-cut miss -- worth a deliberate look, not an automatic fix.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
