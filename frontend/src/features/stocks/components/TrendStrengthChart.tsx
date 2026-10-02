@@ -5,6 +5,7 @@ import { useTheme } from '@mui/material/styles'
 import { LineSeries, type IChartApi, type Time } from 'lightweight-charts'
 import { useEffect, useRef } from 'react'
 import type { IndicatorHistoryPoint, IndicatorHistoryResponse } from '../../../api/stocks'
+import ChartFrame from '../../../components/common/ChartFrame/ChartFrame'
 import EmptyState from '../../../components/common/EmptyState/EmptyState'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
@@ -283,89 +284,97 @@ export default function TrendStrengthChart({
   }
 
   return (
-    <Stack spacing={1}>
-      <Typography variant="subtitle2" color="text.secondary">
-        Trend Strength (Informational)
-      </Typography>
-
-      {indicatorsQuery.isSuccess && hasPoints && (
-        <Stack spacing={0.5}>
-          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-            <Box
-              sx={{
-                width: 14,
-                height: 0,
-                borderTop: '2px solid',
-                borderColor: 'signal.buy',
-              }}
-            />
-            <Box
-              sx={{
-                width: 14,
-                height: 0,
-                borderTop: '2px solid',
-                borderColor: 'signal.sell',
-              }}
-            />
-            <Typography variant="caption" color="text.secondary">
-              +DI / -DI (13)
+    <ChartFrame label="Trend strength" defaultHeight={CHART_HEIGHT}>
+      {({ canvasHeight, maximizeToggle, resizeHandle }) => (
+        <Stack spacing={1}>
+          <Stack
+            direction="row"
+            sx={{ alignItems: 'center', justifyContent: 'space-between' }}
+          >
+            <Typography variant="subtitle2" color="text.secondary">
+              Trend Strength (Informational)
             </Typography>
-            <MetricHelp
-              metricLabel={directionalSystemHelp.metricLabel}
-              definition={directionalSystemHelp.definition}
-              elderContext={directionalSystemHelp.elderContext}
-              valueInterpretation={directionalSystemHelp.interpretValue(
-                latestPoint?.trend_strength?.plus_di,
-                latestPoint?.trend_strength?.minus_di,
-              )}
-            />
+            {maximizeToggle}
           </Stack>
-          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-            <Box
-              sx={{
-                width: 14,
-                height: 0,
-                borderTop: '2px solid',
-                borderColor: 'primary.main',
-              }}
-            />
-            <Typography variant="caption" color="text.secondary">
-              ADX (13)
-            </Typography>
-            <MetricHelp
-              metricLabel={adxHelp.metricLabel}
-              definition={adxHelp.definition}
-              elderContext={adxHelp.elderContext}
-              valueInterpretation={adxHelp.interpretValue(points)}
-            />
-          </Stack>
-          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-            <Box
-              sx={{
-                width: 14,
-                height: 0,
-                borderTop: '2px solid',
-                borderColor: 'secondary.main',
-              }}
-            />
-            <Typography variant="caption" color="text.secondary">
-              ATR (13)
-            </Typography>
-            <MetricHelp
-              metricLabel={atrHelp.metricLabel}
-              definition={atrHelp.definition}
-              elderContext={atrHelp.elderContext}
-              valueInterpretation={atrHelp.interpretValue(points)}
-            />
-          </Stack>
-        </Stack>
-      )}
 
-      {indicatorsQuery.isLoading && (
-        <LoadingState message={`Loading trend strength history for ${ticker}...`} />
-      )}
+          {indicatorsQuery.isSuccess && hasPoints && (
+            <Stack spacing={0.5}>
+              <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                <Box
+                  sx={{
+                    width: 14,
+                    height: 0,
+                    borderTop: '2px solid',
+                    borderColor: 'signal.buy',
+                  }}
+                />
+                <Box
+                  sx={{
+                    width: 14,
+                    height: 0,
+                    borderTop: '2px solid',
+                    borderColor: 'signal.sell',
+                  }}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  +DI / -DI (13)
+                </Typography>
+                <MetricHelp
+                  metricLabel={directionalSystemHelp.metricLabel}
+                  definition={directionalSystemHelp.definition}
+                  elderContext={directionalSystemHelp.elderContext}
+                  valueInterpretation={directionalSystemHelp.interpretValue(
+                    latestPoint?.trend_strength?.plus_di,
+                    latestPoint?.trend_strength?.minus_di,
+                  )}
+                />
+              </Stack>
+              <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                <Box
+                  sx={{
+                    width: 14,
+                    height: 0,
+                    borderTop: '2px solid',
+                    borderColor: 'primary.main',
+                  }}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  ADX (13)
+                </Typography>
+                <MetricHelp
+                  metricLabel={adxHelp.metricLabel}
+                  definition={adxHelp.definition}
+                  elderContext={adxHelp.elderContext}
+                  valueInterpretation={adxHelp.interpretValue(points)}
+                />
+              </Stack>
+              <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                <Box
+                  sx={{
+                    width: 14,
+                    height: 0,
+                    borderTop: '2px solid',
+                    borderColor: 'secondary.main',
+                  }}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  ATR (13)
+                </Typography>
+                <MetricHelp
+                  metricLabel={atrHelp.metricLabel}
+                  definition={atrHelp.definition}
+                  elderContext={atrHelp.elderContext}
+                  valueInterpretation={atrHelp.interpretValue(points)}
+                />
+              </Stack>
+            </Stack>
+          )}
 
-      {/*
+          {indicatorsQuery.isLoading && (
+            <LoadingState message={`Loading trend strength history for ${ticker}...`} />
+          )}
+
+          {/*
         common/ErrorState on indicatorsQuery.isError, UNLESS the caller
         passes errorSurfacedBySibling (see that prop's own doc comment).
         This chart shares the exact same useIndicatorHistory hook/query key
@@ -380,21 +389,26 @@ export default function TrendStrengthChart({
         (frontend-position-risk-columns-followups-followups-followups-
         followups).
       */}
-      {!errorSurfacedBySibling && indicatorsQuery.isError && (
-        <ErrorState error={indicatorsQuery.error} />
-      )}
+          {!errorSurfacedBySibling && indicatorsQuery.isError && (
+            <ErrorState error={indicatorsQuery.error} />
+          )}
 
-      {indicatorsQuery.isSuccess && !hasPoints && (
-        <EmptyState message={`No trend strength history available for ${ticker}.`} />
-      )}
+          {indicatorsQuery.isSuccess && !hasPoints && (
+            <EmptyState message={`No trend strength history available for ${ticker}.`} />
+          )}
 
-      {indicatorsQuery.isSuccess && hasPoints && (
-        <Box
-          ref={containerRef}
-          data-testid="trend-strength-chart-canvas"
-          sx={{ width: '100%', height: CHART_HEIGHT }}
-        />
+          {indicatorsQuery.isSuccess && hasPoints && (
+            <>
+              <Box
+                ref={containerRef}
+                data-testid="trend-strength-chart-canvas"
+                sx={{ width: '100%', height: canvasHeight }}
+              />
+              {resizeHandle}
+            </>
+          )}
+        </Stack>
       )}
-    </Stack>
+    </ChartFrame>
   )
 }

@@ -5,6 +5,7 @@ import { useTheme } from '@mui/material/styles'
 import { LineSeries, type IChartApi, type Time } from 'lightweight-charts'
 import { useEffect, useRef } from 'react'
 import type { IndicatorHistoryPoint, IndicatorHistoryResponse } from '../../../api/stocks'
+import ChartFrame from '../../../components/common/ChartFrame/ChartFrame'
 import EmptyState from '../../../components/common/EmptyState/EmptyState'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
@@ -87,7 +88,8 @@ function buildVolumeIndicatorsSeriesData(
   points: readonly IndicatorHistoryPoint[],
 ): VolumeIndicatorSeriesData {
   const obv: VolumeIndicatorSeriesData['obv'] = []
-  const accumulationDistribution: VolumeIndicatorSeriesData['accumulationDistribution'] = []
+  const accumulationDistribution: VolumeIndicatorSeriesData['accumulationDistribution'] =
+    []
   for (const point of points) {
     const time = point.date as Time
     if (isFiniteValue(point.obv)) {
@@ -246,59 +248,69 @@ export default function VolumeIndicatorsChart({
   }
 
   return (
-    <Stack spacing={1}>
-      <Typography variant="subtitle2" color="text.secondary">
-        Volume Indicators (Informational)
-      </Typography>
-
-      {indicatorsQuery.isSuccess && hasPoints && (
-        <Stack spacing={0.5}>
-          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-            <Box
-              sx={{
-                width: 14,
-                height: 0,
-                borderTop: '2px solid',
-                borderColor: 'primary.main',
-              }}
-            />
-            <Typography variant="caption" color="text.secondary">
-              On-Balance Volume (OBV)
+    <ChartFrame label="Volume indicators" defaultHeight={CHART_HEIGHT}>
+      {({ canvasHeight, maximizeToggle, resizeHandle }) => (
+        <Stack spacing={1}>
+          <Stack
+            direction="row"
+            sx={{ alignItems: 'center', justifyContent: 'space-between' }}
+          >
+            <Typography variant="subtitle2" color="text.secondary">
+              Volume Indicators (Informational)
             </Typography>
-            <MetricHelp
-              metricLabel={obvHelp.metricLabel}
-              definition={obvHelp.definition}
-              elderContext={obvHelp.elderContext}
-              valueInterpretation={obvHelp.interpretValue(points)}
-            />
+            {maximizeToggle}
           </Stack>
-          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-            <Box
-              sx={{
-                width: 14,
-                height: 0,
-                borderTop: '2px solid',
-                borderColor: 'secondary.main',
-              }}
-            />
-            <Typography variant="caption" color="text.secondary">
-              Accumulation/Distribution (A/D)
-            </Typography>
-            <MetricHelp
-              metricLabel={accumulationDistributionHelp.metricLabel}
-              definition={accumulationDistributionHelp.definition}
-              elderContext={accumulationDistributionHelp.elderContext}
-              valueInterpretation={accumulationDistributionHelp.interpretValue(points)}
-            />
-          </Stack>
-        </Stack>
-      )}
 
-      {indicatorsQuery.isLoading && (
-        <LoadingState message={`Loading volume indicator history for ${ticker}...`} />
-      )}
+          {indicatorsQuery.isSuccess && hasPoints && (
+            <Stack spacing={0.5}>
+              <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                <Box
+                  sx={{
+                    width: 14,
+                    height: 0,
+                    borderTop: '2px solid',
+                    borderColor: 'primary.main',
+                  }}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  On-Balance Volume (OBV)
+                </Typography>
+                <MetricHelp
+                  metricLabel={obvHelp.metricLabel}
+                  definition={obvHelp.definition}
+                  elderContext={obvHelp.elderContext}
+                  valueInterpretation={obvHelp.interpretValue(points)}
+                />
+              </Stack>
+              <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                <Box
+                  sx={{
+                    width: 14,
+                    height: 0,
+                    borderTop: '2px solid',
+                    borderColor: 'secondary.main',
+                  }}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  Accumulation/Distribution (A/D)
+                </Typography>
+                <MetricHelp
+                  metricLabel={accumulationDistributionHelp.metricLabel}
+                  definition={accumulationDistributionHelp.definition}
+                  elderContext={accumulationDistributionHelp.elderContext}
+                  valueInterpretation={accumulationDistributionHelp.interpretValue(
+                    points,
+                  )}
+                />
+              </Stack>
+            </Stack>
+          )}
 
-      {/*
+          {indicatorsQuery.isLoading && (
+            <LoadingState message={`Loading volume indicator history for ${ticker}...`} />
+          )}
+
+          {/*
         common/ErrorState on indicatorsQuery.isError, UNLESS the caller
         passes errorSurfacedBySibling (see that prop's own doc comment).
         This chart shares the exact same useIndicatorHistory hook/query key
@@ -313,21 +325,28 @@ export default function VolumeIndicatorsChart({
         (frontend-position-risk-columns-followups-followups-followups-
         followups).
       */}
-      {!errorSurfacedBySibling && indicatorsQuery.isError && (
-        <ErrorState error={indicatorsQuery.error} />
-      )}
+          {!errorSurfacedBySibling && indicatorsQuery.isError && (
+            <ErrorState error={indicatorsQuery.error} />
+          )}
 
-      {indicatorsQuery.isSuccess && !hasPoints && (
-        <EmptyState message={`No volume indicator history available for ${ticker}.`} />
-      )}
+          {indicatorsQuery.isSuccess && !hasPoints && (
+            <EmptyState
+              message={`No volume indicator history available for ${ticker}.`}
+            />
+          )}
 
-      {indicatorsQuery.isSuccess && hasPoints && (
-        <Box
-          ref={containerRef}
-          data-testid="volume-indicators-chart-canvas"
-          sx={{ width: '100%', height: CHART_HEIGHT }}
-        />
+          {indicatorsQuery.isSuccess && hasPoints && (
+            <>
+              <Box
+                ref={containerRef}
+                data-testid="volume-indicators-chart-canvas"
+                sx={{ width: '100%', height: canvasHeight }}
+              />
+              {resizeHandle}
+            </>
+          )}
+        </Stack>
       )}
-    </Stack>
+    </ChartFrame>
   )
 }

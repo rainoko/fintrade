@@ -20,6 +20,7 @@ import type {
   IndicatorHistoryResponse,
 } from '../../../api/stocks'
 import { AnchoredInfoBalloon } from '../../../components/common/InfoBalloon/InfoBalloon'
+import ChartFrame from '../../../components/common/ChartFrame/ChartFrame'
 import EmptyState from '../../../components/common/EmptyState/EmptyState'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
@@ -249,8 +250,20 @@ function buildDivergenceIndicatorOverlay(
       },
     ],
     markers: [
-      { time: divergence.first_extreme_date as Time, position, shape: 'circle', color, text: label },
-      { time: divergence.second_extreme_date as Time, position, shape: 'circle', color, text: label },
+      {
+        time: divergence.first_extreme_date as Time,
+        position,
+        shape: 'circle',
+        color,
+        text: label,
+      },
+      {
+        time: divergence.second_extreme_date as Time,
+        position,
+        shape: 'circle',
+        color,
+        text: label,
+      },
     ],
   }
 }
@@ -490,7 +503,10 @@ export default function OscillatorChart({
     }
 
     const color = theme.palette.divergence.main
-    const { paneIndex, line, markers } = buildDivergenceIndicatorOverlay(divergence, color)
+    const { paneIndex, line, markers } = buildDivergenceIndicatorOverlay(
+      divergence,
+      color,
+    )
     const divergenceSeries = chart.addSeries(
       LineSeries,
       {
@@ -551,12 +567,20 @@ export default function OscillatorChart({
   }
 
   return (
-    <Stack spacing={1}>
-      <Typography variant="subtitle2" color="text.secondary">
-        Oscillators (Screen 2)
-      </Typography>
+    <ChartFrame label="Oscillators" defaultHeight={CHART_HEIGHT}>
+      {({ canvasHeight, maximizeToggle, resizeHandle }) => (
+        <Stack spacing={1}>
+          <Stack
+            direction="row"
+            sx={{ alignItems: 'center', justifyContent: 'space-between' }}
+          >
+            <Typography variant="subtitle2" color="text.secondary">
+              Oscillators (Screen 2)
+            </Typography>
+            {maximizeToggle}
+          </Stack>
 
-      {/*
+          {/*
         RSI legend + MetricHelp affordance (frontend-rsi-oscillator-chart).
         Stochastic itself has no matching legend row here since it predates
         this task and its own reference lines/title are already visible on
@@ -564,32 +588,32 @@ export default function OscillatorChart({
         `PriceChart.tsx`'s channel/value-zone legend rows established (only
         the element a task actually adds gets its own MetricHelp row).
       */}
-      {indicatorsQuery.isSuccess && hasPoints && (
-        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-          <Box
-            sx={{
-              width: 14,
-              height: 0,
-              borderTop: '2px dashed',
-              borderColor: 'secondary.main',
-            }}
-          />
-          <Typography variant="caption" color="text.secondary">
-            RSI (9)
-          </Typography>
-          <MetricHelp
-            metricLabel={rsiHelp.metricLabel}
-            definition={rsiHelp.definition}
-            elderContext={rsiHelp.elderContext}
-            valueInterpretation={rsiHelp.interpretValue(
-              latestPoint?.rsi,
-              latestPoint?.stochastic_k,
-            )}
-          />
-        </Stack>
-      )}
+          {indicatorsQuery.isSuccess && hasPoints && (
+            <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+              <Box
+                sx={{
+                  width: 14,
+                  height: 0,
+                  borderTop: '2px dashed',
+                  borderColor: 'secondary.main',
+                }}
+              />
+              <Typography variant="caption" color="text.secondary">
+                RSI (9)
+              </Typography>
+              <MetricHelp
+                metricLabel={rsiHelp.metricLabel}
+                definition={rsiHelp.definition}
+                elderContext={rsiHelp.elderContext}
+                valueInterpretation={rsiHelp.interpretValue(
+                  latestPoint?.rsi,
+                  latestPoint?.stochastic_k,
+                )}
+              />
+            </Stack>
+          )}
 
-      {/*
+          {/*
         Divergence legend + MetricHelp affordance (frontend-divergence-
         markers) -- same `divergenceHelp.interpretValue` content
         `PriceChart.tsx`'s own legend row shows, reading the exact same
@@ -602,37 +626,40 @@ export default function OscillatorChart({
         `divergenceHelp.interpretValue`'s own `inVisibleRange` clause
         explaining why nothing is drawn right now.
       */}
-      {indicatorsQuery.isSuccess && hasPoints && analysisQuery.isSuccess && divergence && (
-        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-          <Box
-            sx={{
-              width: 12,
-              height: 12,
-              borderRadius: '50%',
-              bgcolor: 'divergence.main',
-              opacity: divergenceInVisibleRange ? 1 : 0.4,
-            }}
-          />
-          <Typography variant="caption" color="text.secondary">
-            Divergence{!divergenceInVisibleRange && ' (not in current range)'}
-          </Typography>
-          <MetricHelp
-            metricLabel={divergenceHelp.metricLabel}
-            definition={divergenceHelp.definition}
-            elderContext={divergenceHelp.elderContext}
-            valueInterpretation={divergenceHelp.interpretValue(
-              divergence,
-              divergenceInVisibleRange,
+          {indicatorsQuery.isSuccess &&
+            hasPoints &&
+            analysisQuery.isSuccess &&
+            divergence && (
+              <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                <Box
+                  sx={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: '50%',
+                    bgcolor: 'divergence.main',
+                    opacity: divergenceInVisibleRange ? 1 : 0.4,
+                  }}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  Divergence{!divergenceInVisibleRange && ' (not in current range)'}
+                </Typography>
+                <MetricHelp
+                  metricLabel={divergenceHelp.metricLabel}
+                  definition={divergenceHelp.definition}
+                  elderContext={divergenceHelp.elderContext}
+                  valueInterpretation={divergenceHelp.interpretValue(
+                    divergence,
+                    divergenceInVisibleRange,
+                  )}
+                />
+              </Stack>
             )}
-          />
-        </Stack>
-      )}
 
-      {indicatorsQuery.isLoading && (
-        <LoadingState message={`Loading oscillator history for ${ticker}...`} />
-      )}
+          {indicatorsQuery.isLoading && (
+            <LoadingState message={`Loading oscillator history for ${ticker}...`} />
+          )}
 
-      {/*
+          {/*
         common/ErrorState on indicatorsQuery.isError, UNLESS the caller
         passes errorSurfacedBySibling (see that prop's own doc comment).
         This chart shares the exact same useIndicatorHistory hook/query key
@@ -647,40 +674,45 @@ export default function OscillatorChart({
         (frontend-position-risk-columns-followups-followups-followups-
         followups).
       */}
-      {!errorSurfacedBySibling && indicatorsQuery.isError && (
-        <ErrorState error={indicatorsQuery.error} />
-      )}
+          {!errorSurfacedBySibling && indicatorsQuery.isError && (
+            <ErrorState error={indicatorsQuery.error} />
+          )}
 
-      {indicatorsQuery.isSuccess && !hasPoints && (
-        <EmptyState message={`No oscillator history available for ${ticker}.`} />
-      )}
+          {indicatorsQuery.isSuccess && !hasPoints && (
+            <EmptyState message={`No oscillator history available for ${ticker}.`} />
+          )}
 
-      {indicatorsQuery.isSuccess && hasPoints && (
-        <Box
-          ref={containerRef}
-          data-testid="oscillator-chart-canvas"
-          sx={{ width: '100%', height: CHART_HEIGHT }}
-        />
-      )}
+          {indicatorsQuery.isSuccess && hasPoints && (
+            <>
+              <Box
+                ref={containerRef}
+                data-testid="oscillator-chart-canvas"
+                sx={{ width: '100%', height: canvasHeight }}
+              />
+              {resizeHandle}
+            </>
+          )}
 
-      {/*
+          {/*
         Divergence-marker click-to-explain balloon (frontend-divergence-
         markers) -- same pattern/content source as `PriceChart.tsx`'s own.
       */}
-      <AnchoredInfoBalloon
-        open={divergenceBalloonAnchor !== null && divergence !== null}
-        anchorPosition={divergenceBalloonAnchor}
-        onClose={() => setDivergenceBalloonAnchor(null)}
-        title={divergenceHelp.metricLabel}
-        ariaLabel="Divergence details"
-        content={
-          <Typography variant="body2">
-            {divergence
-              ? divergenceHelp.interpretValue(divergence, divergenceInVisibleRange)
-              : null}
-          </Typography>
-        }
-      />
-    </Stack>
+          <AnchoredInfoBalloon
+            open={divergenceBalloonAnchor !== null && divergence !== null}
+            anchorPosition={divergenceBalloonAnchor}
+            onClose={() => setDivergenceBalloonAnchor(null)}
+            title={divergenceHelp.metricLabel}
+            ariaLabel="Divergence details"
+            content={
+              <Typography variant="body2">
+                {divergence
+                  ? divergenceHelp.interpretValue(divergence, divergenceInVisibleRange)
+                  : null}
+              </Typography>
+            }
+          />
+        </Stack>
+      )}
+    </ChartFrame>
   )
 }
