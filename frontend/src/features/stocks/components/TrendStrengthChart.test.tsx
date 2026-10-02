@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -421,5 +421,56 @@ describe('TrendStrengthChart', () => {
 
     expect(screen.getByText(/Currently 4\.20/)).toBeInTheDocument()
     expect(screen.getByText(/closer than 1 ATR/)).toBeInTheDocument()
+  })
+
+  // frontend-chart-fullscreen-resize-followups checklist item: see
+  // VolumeIndicatorsChart.test.tsx's identical describe block for the full
+  // rationale -- this component's own maximize/resize wiring (canvasHeight
+  // fed into its own chart-container Box, maximizeToggle placed in its own
+  // title row) previously had no coverage beyond a manual browser
+  // walkthrough and ChartFrame's own synthetic-test-double unit tests.
+  describe('ChartFrame maximize/resize wiring (frontend-chart-fullscreen-resize-followups)', () => {
+    it('toggles the chart into and out of full screen, keeping the real canvas container visible inside the dialog', async () => {
+      mockIndicators(indicatorPoints)
+      const user = userEvent.setup()
+
+      renderWithProviders(<TrendStrengthChart ticker="AAPL" range="1y" />)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('trend-strength-chart-canvas')).toBeInTheDocument(),
+      )
+
+      await user.click(
+        screen.getByRole('button', { name: 'View Trend strength full screen' }),
+      )
+
+      const dialog = screen.getByRole('dialog', { name: 'Trend strength full screen' })
+      expect(within(dialog).getByTestId('trend-strength-chart-canvas')).toBeInTheDocument()
+
+      await user.click(
+        screen.getByRole('button', { name: 'Exit full screen (Trend strength)' }),
+      )
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(screen.getByTestId('trend-strength-chart-canvas')).toBeInTheDocument()
+    })
+
+    it('drag-resizes this chart\'s own container height via the resize handle beneath the canvas', async () => {
+      mockIndicators(indicatorPoints)
+
+      renderWithProviders(<TrendStrengthChart ticker="AAPL" range="1y" />)
+
+      const canvasContainer = await screen.findByTestId('trend-strength-chart-canvas')
+      expect(canvasContainer).toHaveStyle({ height: '420px' })
+
+      const handle = screen.getByRole('separator', {
+        name: 'Resize Trend strength height',
+      })
+      fireEvent.pointerDown(handle, { pointerId: 1, clientY: 100 })
+      fireEvent.pointerMove(handle, { pointerId: 1, clientY: 250 })
+      fireEvent.pointerUp(handle, { pointerId: 1, clientY: 250 })
+
+      expect(canvasContainer).toHaveStyle({ height: '570px' })
+    })
   })
 })

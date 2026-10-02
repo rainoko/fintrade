@@ -348,6 +348,44 @@ describe('ChartFrame', () => {
     expect(document.activeElement).toBe(openButton)
   })
 
+  // frontend-chart-fullscreen-resize-followups checklist item: the window-
+  // resize subscription used to stay registered for the component's whole
+  // lifetime regardless of `isMaximized`, discarding the recomputed value
+  // every render while not maximized -- now gated so the real listener is
+  // only attached while maximized.
+  it('does not subscribe to window resize while not maximized', () => {
+    const addEventListenerSpy = vi.spyOn(window, 'addEventListener')
+
+    render(<TestChart />)
+
+    expect(
+      addEventListenerSpy.mock.calls.some(([eventName]) => eventName === 'resize'),
+    ).toBe(false)
+
+    addEventListenerSpy.mockRestore()
+  })
+
+  it('subscribes to window resize only while maximized, and unsubscribes again on exit', async () => {
+    const user = userEvent.setup()
+    const addEventListenerSpy = vi.spyOn(window, 'addEventListener')
+    const removeEventListenerSpy = vi.spyOn(window, 'removeEventListener')
+
+    render(<TestChart />)
+
+    await user.click(screen.getByRole('button', { name: 'View Test chart full screen' }))
+    expect(
+      addEventListenerSpy.mock.calls.filter(([eventName]) => eventName === 'resize'),
+    ).toHaveLength(1)
+
+    await user.click(screen.getByRole('button', { name: 'Exit full screen (Test chart)' }))
+    expect(
+      removeEventListenerSpy.mock.calls.filter(([eventName]) => eventName === 'resize'),
+    ).toHaveLength(1)
+
+    addEventListenerSpy.mockRestore()
+    removeEventListenerSpy.mockRestore()
+  })
+
   it('keeps the body scroll lock engaged while a second instance is still maximized', async () => {
     const user = userEvent.setup()
     render(

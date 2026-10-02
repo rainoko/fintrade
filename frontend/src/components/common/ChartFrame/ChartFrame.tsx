@@ -142,6 +142,12 @@ function subscribeToWindowResize(onStoreChange: () => void): () => void {
   return () => window.removeEventListener('resize', onStoreChange)
 }
 
+/** No-op unsubscribe shared by every non-maximized instance's `subscribe`
+ * call below, so `!isMaximized` doesn't need to allocate a fresh empty
+ * closure on every render just to satisfy `useSyncExternalStore`'s
+ * "subscribe must return an unsubscribe function" contract. */
+function noopUnsubscribe(): void {}
+
 export interface ChartFrameRenderArgs {
   /** Current canvas height (px) -- feed this straight into the chart
    * container `Box`'s `sx.height` in place of the pane's own fixed
@@ -260,12 +266,30 @@ export default function ChartFrame({ label, defaultHeight, children }: ChartFram
   // for why this is a sync-external-store subscription rather than a
   // `useEffect` + `useState` pair) -- a narrow/mobile viewport (this task's
   // checklist item 4) gets a correspondingly shorter canvas, and a resize/
-  // orientation change while already maximized keeps it current too. Reads
-  // `window.innerHeight` unconditionally (not just while maximized): cheap,
-  // and keeps this one subscription active for the component's whole
-  // lifetime rather than subscribing/unsubscribing on every maximize toggle.
+  // orientation change while already maximized keeps it current too.
+  //
+  // Gated on `isMaximized` (frontend-chart-fullscreen-resize-followups
+  // checklist item: the real `window` `resize` listener used to stay
+  // registered for this component's entire lifetime regardless of
+  // `isMaximized`, so every browser resize/orientation-change re-rendered
+  // all four chart panes even while none was maximized and the recomputed
+  // value was immediately discarded by `canvasHeight`'s non-maximized
+  // branch below). `subscribe`'s own identity changes whenever `isMaximized`
+  // does, which is exactly what makes `useSyncExternalStore` re-subscribe:
+  // on becoming non-maximized, it unsubscribes the real listener (via the
+  // unsubscribe function the PREVIOUS, now-stale `subscribe` call returned)
+  // before this new `subscribe` call installs the no-op in its place.
+  // `getSnapshot` (`computeMaximizedHeight`) is still called on every
+  // render regardless -- that part was already cheap (one `window.innerHeight`
+  // read + a clamp) and isn't what caused the extra re-renders; only the
+  // listener registration itself is gated.
+  const subscribe = useCallback(
+    (onStoreChange: () => void) =>
+      isMaximized ? subscribeToWindowResize(onStoreChange) : noopUnsubscribe,
+    [isMaximized],
+  )
   const maximizedHeight = useSyncExternalStore(
-    subscribeToWindowResize,
+    subscribe,
     computeMaximizedHeight,
     computeMaximizedHeight,
   )

@@ -2483,8 +2483,15 @@
       "id": "frontend-chart-fullscreen-resize-followups",
       "area": "frontend/stocks",
       "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-chart-fullscreen-resize-followups.json"
+    },
+    {
+      "id": "frontend-chart-fullscreen-resize-followups-followups",
+      "area": "frontend/stocks",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/frontend-chart-fullscreen-resize-followups.json"
+      "path": "docs/tasks/frontend-chart-fullscreen-resize-followups-followups.json"
     },
     {
       "id": "frontend-chart-legend-toggle-overlay",

@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -384,5 +384,58 @@ describe('VolumeIndicatorsChart', () => {
     // latest bar is its own lowest point in that window.
     expect(screen.getByText(/A\/D has fallen/)).toBeInTheDocument()
     expect(screen.getByText(/at its own lowest point/)).toBeInTheDocument()
+  })
+
+  // frontend-chart-fullscreen-resize-followups checklist item: the shared
+  // `common/ChartFrame` maximize-toggle/drag-resize wiring is already
+  // covered generically against a synthetic test double in
+  // `ChartFrame.test.tsx`, and against `PriceChart` by one e2e spec case --
+  // but nothing previously exercised that THIS component's own wiring
+  // (passing `canvasHeight` into its own chart-container `Box`, placing
+  // `maximizeToggle` in its own title row) actually works against real
+  // component code, not just a manual browser walkthrough.
+  describe('ChartFrame maximize/resize wiring (frontend-chart-fullscreen-resize-followups)', () => {
+    it('toggles the chart into and out of full screen, keeping the real canvas container visible inside the dialog', async () => {
+      mockIndicators(indicatorPoints)
+      const user = userEvent.setup()
+
+      renderWithProviders(<VolumeIndicatorsChart ticker="AAPL" range="1y" />)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('volume-indicators-chart-canvas')).toBeInTheDocument(),
+      )
+
+      await user.click(
+        screen.getByRole('button', { name: 'View Volume indicators full screen' }),
+      )
+
+      const dialog = screen.getByRole('dialog', { name: 'Volume indicators full screen' })
+      expect(within(dialog).getByTestId('volume-indicators-chart-canvas')).toBeInTheDocument()
+
+      await user.click(
+        screen.getByRole('button', { name: 'Exit full screen (Volume indicators)' }),
+      )
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(screen.getByTestId('volume-indicators-chart-canvas')).toBeInTheDocument()
+    })
+
+    it('drag-resizes this chart\'s own container height via the resize handle beneath the canvas', async () => {
+      mockIndicators(indicatorPoints)
+
+      renderWithProviders(<VolumeIndicatorsChart ticker="AAPL" range="1y" />)
+
+      const canvasContainer = await screen.findByTestId('volume-indicators-chart-canvas')
+      expect(canvasContainer).toHaveStyle({ height: '420px' })
+
+      const handle = screen.getByRole('separator', {
+        name: 'Resize Volume indicators height',
+      })
+      fireEvent.pointerDown(handle, { pointerId: 1, clientY: 100 })
+      fireEvent.pointerMove(handle, { pointerId: 1, clientY: 250 })
+      fireEvent.pointerUp(handle, { pointerId: 1, clientY: 250 })
+
+      expect(canvasContainer).toHaveStyle({ height: '570px' })
+    })
   })
 })
