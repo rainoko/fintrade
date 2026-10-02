@@ -2490,8 +2490,15 @@
       "id": "frontend-chart-legend-toggle-overlay",
       "area": "frontend/stocks",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-chart-legend-toggle-overlay.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-chart-legend-toggle-overlay.json"
+    },
+    {
+      "id": "frontend-chart-legend-toggle-overlay-followups",
+      "area": "frontend/stocks",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-chart-legend-toggle-overlay-followups.json"
     }
   ]
 }
