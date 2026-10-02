@@ -14,7 +14,7 @@
   "checklist": [
     {
       "step": "common/ChartFrame's drag-to-resize handle (role=\"separator\" at ChartFrame.tsx ~line 271) has no keyboard equivalent at all: it has no `tabIndex`, isn't reachable via Tab, and has no `onKeyDown` handler. Confirmed via real-browser walkthrough (Tab from the maximize toggle skips straight past the handle to the next MetricHelp button). Per the WAI-ARIA separator/window-splitter pattern, an interactive separator should be focusable (`tabIndex={0}`) and support ArrowUp/ArrowDown to adjust the height, with `aria-valuenow`/`aria-valuemin`/`aria-valuemax` reflecting the current/clamped height. Non-blocking because the full-screen toggle (a real, keyboard-accessible `<button>`) already gives keyboard users an alternative way to see the chart bigger, but the resize affordance itself is currently mouse/touch-only, which is a real WCAG 2.1.1 gap worth closing.",
-      "done": false
+      "done": true
     },
     {
       "step": "No per-component (vitest/Testing Library) test asserts the maximize-toggle/drag-resize wiring specifically for OscillatorChart, VolumeIndicatorsChart, or TrendStrengthChart -- only ChartFrame's own generic unit tests (against a synthetic test double) and one e2e spec scoped to PriceChart exercise this interaction against real component code. The three other panes' wiring (passing `canvasHeight` into their own chart-container `Box`, placing `maximizeToggle` in their own title row) is currently verified only by my own manual real-browser walkthrough during PR #373's review, not by anything that runs on every future change. Add either a lightweight render-time assertion per component (maximize toggle renders, clicking it doesn't throw, canvas height prop reflects `canvasHeight`) or extend the e2e spec to touch at least one of the other three panes.",
@@ -29,6 +29,13 @@
       "done": false
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-02T20:10:50Z",
+      "recorded_by": "task-worker",
+      "decision": "Resolved the drag-to-resize keyboard-equivalent item (checklist item 1) directly on the parent task `frontend-chart-fullscreen-resize` during its needs_work re-review round (PR #373), folded in alongside the two blocking fixes rather than deferred to this followups task's own later pass. The other three checklist items here remain open/untouched.",
+      "rationale": "The parent task's own `decisions` entry explains why this specific finding (not the other three) was the one worth folding in now: it was the cheapest, most self-contained addition to a file already being changed for the two blocking fixes, and closing a real WCAG 2.1.1 gap was judged worth the small amount of extra surface area in that same PR. See `frontend-chart-fullscreen-resize.json`'s `decisions` array for the implementation details (tabIndex, aria-valuenow/min/max, Arrow/Home/End key handling) and its own test coverage."
+    }
+  ],
   "questions": []
 }

@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react'
@@ -25,6 +26,10 @@ import {
  */
 export const CHART_FRAME_MIN_HEIGHT = 200
 export const CHART_FRAME_MAX_HEIGHT = 900
+
+/** Keyboard step size (px) for the drag-resize handle's Arrow-key
+ * equivalent -- see `handleResizeKeyDown` below. Shift+Arrow steps 5x this. */
+const RESIZE_KEYBOARD_STEP_PX = 20
 
 /**
  * Rough headroom (px) reserved in the full-screen overlay for whatever a
@@ -44,6 +49,82 @@ function clampHeight(value: number): number {
 
 function computeMaximizedHeight(): number {
   return clampHeight(window.innerHeight - MAXIMIZED_CHROME_ALLOWANCE_PX)
+}
+
+/**
+ * Module-level open-overlay stack/counter (mirrors MUI's own `ModalManager`
+ * approach, named explicitly in the PR #373 review finding this fixes) --
+ * NOT a per-instance snapshot. Every `ChartFrame` instance that maximizes
+ * calls `acquireBodyScrollLock` and every one that un-maximizes/unmounts
+ * calls the returned release function; only the FIRST acquire actually
+ * locks `document.body.style.overflow`, and only the release that brings
+ * the shared count back to zero restores it. This is what makes the fix
+ * correct for two simultaneously-maximized instances closed out of open
+ * order (chart A opens first, chart B opens second, chart A closes first):
+ * a per-instance `previousBodyOverflow` snapshot could have A's close
+ * restore `overflow` to '' while B is still rendered as a full-viewport
+ * overlay, re-enabling page scroll underneath it. With a shared counter, A's
+ * close only decrements 2 -> 1 and leaves the lock in place; only B's later
+ * close (1 -> 0) actually restores the original value.
+ */
+let openOverlayCount = 0
+let bodyOverflowBeforeFirstOverlay: string | null = null
+
+function acquireBodyScrollLock(): () => void {
+  if (openOverlayCount === 0) {
+    bodyOverflowBeforeFirstOverlay = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+  }
+  openOverlayCount += 1
+  // No double-release guard: the sole caller is this component's own
+  // maximize `useEffect`, whose cleanup React invokes at most once per
+  // `isMaximized` transition (including under StrictMode's dev-only
+  // double-invoke, which still pairs each setup with exactly one cleanup
+  // before the next setup) -- an unreachable guard here would be dead code
+  // this suite's coverage gate would then have to carve an exception for.
+  return () => {
+    openOverlayCount -= 1
+    if (openOverlayCount === 0) {
+      // `?? ''` is a type-narrowing safety net, not a reachable branch in
+      // practice: `bodyOverflowBeforeFirstOverlay` is always assigned a
+      // (possibly empty) string above in the same acquire/release pairing
+      // that leads here, right before the only increment that could bring
+      // `openOverlayCount` back down to 0.
+      /* v8 ignore next */
+      document.body.style.overflow = bodyOverflowBeforeFirstOverlay ?? ''
+      bodyOverflowBeforeFirstOverlay = null
+    }
+  }
+}
+
+/** Selector for the standard set of natively-focusable/tabbable elements --
+ * used by the focus trap below to find what Tab/Shift+Tab should cycle
+ * through inside the maximized overlay. Mirrors the element set MUI's own
+ * `Modal`/`unstable_trapFocus` uses. Deliberately does NOT additionally
+ * filter by computed visibility/`getClientRects` -- the bug this fixes
+ * (PR #373 review) was a DIFFERENT chart pane's maximize button being
+ * genuinely `display:flex`/`visibility:visible` (just stacked behind this
+ * overlay by z-index, not hidden by any CSS this trap could detect), so a
+ * visibility check wouldn't have told the two cases apart anyway. Scoping
+ * the query to `container` (this overlay's own subtree) is what actually
+ * fixes it: elements belonging to a different, non-maximized `ChartFrame`
+ * instance are never inside this instance's own `frameRef` subtree, so they
+ * never appear in this list regardless of their visibility. jsdom (this
+ * component's own test environment) doesn't implement layout, so a
+ * getClientRects/offsetParent-based filter would be unreliable in tests
+ * even if it were otherwise desirable here.
+ */
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'textarea:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',')
+
+function getFocusableElements(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
 }
 
 /**
@@ -189,30 +270,105 @@ export default function ChartFrame({ label, defaultHeight, children }: ChartFram
     computeMaximizedHeight,
   )
 
-  // Body scroll lock + Escape-to-exit + initial focus placement while
-  // maximized -- the "for free" behaviors a `Dialog` would otherwise
-  // provide, reimplemented directly since this component can't use `Dialog`
-  // itself (see this component's own doc comment on why). `setIsMaximized`
-  // is called from the `keydown` *callback*, not synchronously in the
-  // effect body itself, so this doesn't trip the same
-  // `react-hooks/set-state-in-effect` rule `maximizedHeight` above avoids a
-  // different way.
+  // Body scroll lock (via the shared, stack-counted
+  // `acquireBodyScrollLock` -- see its own doc comment for why a per-
+  // instance snapshot was wrong) + Escape-to-exit + a real focus trap +
+  // initial focus placement/focus restoration while maximized -- the
+  // "for free" behaviors a `Dialog` would otherwise provide, reimplemented
+  // directly since this component can't use `Dialog` itself (see this
+  // component's own doc comment on why). `setIsMaximized` is called from
+  // the `keydown` *callback*, not synchronously in the effect body itself,
+  // so this doesn't trip the same `react-hooks/set-state-in-effect` rule
+  // `maximizedHeight` above avoids a different way.
+  //
+  // Focus trap (PR #373 review's first blocking finding): Tab/Shift+Tab is
+  // intercepted at the `window` level while maximized and, whenever it
+  // would move focus to something outside this instance's own `frameRef`
+  // subtree (including wrapping past the first/last focusable descendant,
+  // or focus starting outside the trap entirely -- e.g. nothing inside it
+  // happens to be focusable), redirected back to the first or last
+  // focusable element inside the overlay instead. Scoping
+  // `getFocusableElements` to `frameRef.current` is what actually fixes the
+  // reported bug: a DIFFERENT, non-maximized `ChartFrame` instance's own
+  // maximize button lives in a different `frameRef` subtree entirely, so it
+  // can never be a candidate this trap would tab to, regardless of it still
+  // being visually `display:flex`/`visibility:visible` behind this overlay.
   useEffect(() => {
     if (!isMaximized) {
       return
     }
-    const previousBodyOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    const releaseBodyScrollLock = acquireBodyScrollLock()
+    const previouslyFocusedElement = document.activeElement as HTMLElement | null
     frameRef.current?.focus()
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setIsMaximized(false)
+        return
+      }
+      if (event.key !== 'Tab') {
+        return
+      }
+      const container = frameRef.current
+      // `frameRef` is attached to this very overlay `Box`, which is always
+      // mounted and rendered by the time this listener can fire (it's only
+      // ever added once `isMaximized` is already true and the ref is
+      // populated during commit, before effects run) -- unreachable in
+      // practice, kept purely so TypeScript narrows `container` from
+      // `HTMLDivElement | null` below.
+      /* v8 ignore next 3 */
+      if (!container) {
+        return
+      }
+      const focusable = getFocusableElements(container)
+      // Every real call site renders at least the maximize/exit toggle
+      // button inside the overlay, so an empty `focusable` list shouldn't
+      // occur in practice -- kept as a safety net (send focus back to the
+      // container itself rather than letting it escape) in case a future
+      // caller's `children` render prop ever omits every focusable control.
+      /* v8 ignore next 4 */
+      if (focusable.length === 0) {
+        event.preventDefault()
+        container.focus()
+        return
+      }
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement
+      // `indexOf` (rather than an `instanceof`/`.contains` check) is what
+      // correctly covers THREE cases as "needs redirecting" in one go: focus
+      // on an element outside this container entirely (the originally
+      // reported bug), focus still sitting on the dialog container itself
+      // (tabIndex -1, so never a member of `focusable` -- true right after
+      // the initial `container.focus()` above, before any Tab has been
+      // pressed yet), and focus on the last/first focusable member when
+      // tabbing off the matching end (the ordinary wrap-around case).
+      // The `: -1` fallback is a type-narrowing safety net for
+      // `document.activeElement`'s `Element | null` type, not a reachable
+      // branch under normal use: this listener only ever runs while
+      // `frameRef.current?.focus()` (above) has already placed focus
+      // somewhere inside the document (an `HTMLElement`), so
+      // `document.activeElement` is never `null`/a non-HTML `Element` by
+      // the time a `Tab` keydown can reach here.
+      /* v8 ignore next */
+      const activeIndex = active instanceof HTMLElement ? focusable.indexOf(active) : -1
+      if (event.shiftKey) {
+        if (activeIndex <= 0) {
+          event.preventDefault()
+          last.focus()
+        }
+      } else if (activeIndex === -1 || activeIndex === focusable.length - 1) {
+        event.preventDefault()
+        first.focus()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => {
-      document.body.style.overflow = previousBodyOverflow
+      releaseBodyScrollLock()
       window.removeEventListener('keydown', handleKeyDown)
+      // Restore focus to whatever triggered the maximize (the pane's own
+      // maximize button) rather than leaving it on the now-unmounted-from-
+      // view dialog container or wherever it happened to land last.
+      previouslyFocusedElement?.focus()
     }
   }, [isMaximized])
 
@@ -248,6 +404,33 @@ export default function ChartFrame({ label, defaultHeight, children }: ChartFram
     }
   }, [])
 
+  // Keyboard equivalent for the drag-resize handle (follow-up from PR #373's
+  // review, folded into this round rather than left deferred): the WAI-ARIA
+  // separator/window-splitter pattern expects a focusable separator to
+  // support Arrow keys. ArrowDown/ArrowUp step by `RESIZE_KEYBOARD_STEP_PX`
+  // (a larger step while Shift is held); Home/End jump straight to the
+  // clamped min/max -- both WAI-ARIA-recommended for this pattern and a
+  // quick way to reach either bound without many repeated key presses.
+  const handleResizeKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      const step = event.shiftKey ? RESIZE_KEYBOARD_STEP_PX * 5 : RESIZE_KEYBOARD_STEP_PX
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        setResizedHeight(clampHeight((resizedHeight ?? defaultHeight) + step))
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        setResizedHeight(clampHeight((resizedHeight ?? defaultHeight) - step))
+      } else if (event.key === 'Home') {
+        event.preventDefault()
+        setResizedHeight(CHART_FRAME_MIN_HEIGHT)
+      } else if (event.key === 'End') {
+        event.preventDefault()
+        setResizedHeight(CHART_FRAME_MAX_HEIGHT)
+      }
+    },
+    [defaultHeight, resizedHeight],
+  )
+
   const toggleMaximized = useCallback(() => setIsMaximized((value) => !value), [])
 
   const maximizeToggle = (
@@ -271,10 +454,15 @@ export default function ChartFrame({ label, defaultHeight, children }: ChartFram
       role="separator"
       aria-orientation="horizontal"
       aria-label={`Resize ${label} height`}
+      aria-valuenow={resizedHeight ?? defaultHeight}
+      aria-valuemin={CHART_FRAME_MIN_HEIGHT}
+      aria-valuemax={CHART_FRAME_MAX_HEIGHT}
+      tabIndex={0}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
+      onKeyDown={handleResizeKeyDown}
       sx={{
         width: '100%',
         // A touch-friendly 24px hit target (this task's checklist item 4)
