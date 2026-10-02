@@ -28,7 +28,7 @@ describe('LegendToggle', () => {
 
     const toggle = screen.getByRole('button', { name: 'Show Channel on the chart' })
     expect(toggle).toHaveAttribute('aria-pressed', 'false')
-    expect(toggle).toHaveStyle({ opacity: '0.45' })
+    expect(toggle).toHaveStyle({ opacity: '0.4' })
   })
 
   it('calls onToggle on click', async () => {

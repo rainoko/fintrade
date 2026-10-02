@@ -12,6 +12,7 @@ import LegendToggle from '../../../components/common/LegendToggle/LegendToggle'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
+import { useSeriesVisibilityToggle } from '../hooks/useSeriesVisibilityToggle'
 import { createBaseChart, isFiniteNumber } from '../../../utils/chart'
 import { accumulationDistributionHelp, obvHelp } from './metricHelpContent'
 
@@ -265,13 +266,20 @@ export default function VolumeIndicatorsChart({
   // plus `obvVisible`/`adVisible`), so a freshly recreated series always
   // starts out respecting whatever this pane's current toggle state already
   // was, not reset to visible (see this component's own doc comment).
-  useEffect(() => {
-    obvSeriesRef.current?.applyOptions({ visible: obvVisible })
-  }, [obvVisible, indicatorsQuery.data, enabled, theme])
+  // `useSeriesVisibilityToggle` (frontend-chart-legend-toggle-overlay-
+  // followups) shares this small ref + effect pattern across all four chart
+  // panes that need it.
+  useSeriesVisibilityToggle(() => [obvSeriesRef.current], obvVisible, [
+    indicatorsQuery.data,
+    enabled,
+    theme,
+  ])
 
-  useEffect(() => {
-    adSeriesRef.current?.applyOptions({ visible: adVisible })
-  }, [adVisible, indicatorsQuery.data, enabled, theme])
+  useSeriesVisibilityToggle(() => [adSeriesRef.current], adVisible, [
+    indicatorsQuery.data,
+    enabled,
+    theme,
+  ])
 
   // `/indicators` is daily-cadence only (see the `enabled` prop's own doc
   // comment) — while a weekly interval is selected upstream, this pane has

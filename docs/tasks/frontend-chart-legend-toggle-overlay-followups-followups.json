@@ -1,0 +1,24 @@
+{
+  "id": "frontend-chart-legend-toggle-overlay-followups-followups",
+  "title": "Non-blocking follow-up from PR #376 review (frontend-chart-legend-toggle-overlay-followups)",
+  "area": "frontend/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-chart-legend-toggle-overlay-followups"],
+  "references": [
+    "docs/tasks/done/frontend-chart-legend-toggle-overlay-followups.json",
+    "https://github.com/rainoko/fintrade/pull/376",
+    "frontend/src/features/stocks/hooks/useSeriesVisibilityToggle.ts",
+    "frontend/src/utils/chart.ts",
+    "docs/architecture/Frontend.md#3-module-layout"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's full review of PR #376, tracked here so it isn't lost once the PR merges. PR #376 itself was accepted -- tests/coverage/lint/typecheck/e2e all clean, both non-blocking findings from PR #374's review genuinely resolved, the new shared hook mutation-tested as behavior-preserving, and a real-browser walkthrough across all distinct ref shapes confirmed correct toggle behavior.",
+  "checklist": [
+    {
+      "step": "Decide where `useSeriesVisibilityToggle` (frontend/src/features/stocks/hooks/useSeriesVisibilityToggle.ts) should actually live: `features/stocks/hooks/` (where PR #376 placed it, alongside this feature's API-concern hooks) or `utils/` (following `utils/chart.ts`'s own precedent). The hook is domain-agnostic -- it operates on a generic `{ applyOptions: (options: { visible: boolean }) => void }` series interface with no reference to ticker/position/signal -- which is exactly the placement test `utils/chart.ts`'s own doc comment cites for `createBaseChart`/`isFiniteNumber` living in `utils/` despite every one of their callers also being under `features/stocks/` today (see the frontend-oscillator-chart-followups task's decisions entry for that precedent being set deliberately, not by accident). PR #376's own decisions entries explain why the *opacity constant* belongs on LegendToggle.tsx rather than utils/chart.ts, but never address this analogous question for the hook. docs/architecture/Frontend.md §3 doesn't clearly resolve it either: its 'hooks live under the feature they serve, not a catch-all hooks/ folder' rule is framed around API-concern hooks (useQuery/useMutation wrappers), and its utils/-vs-common/ domain-agnostic test is framed around non-hook plain functions -- neither explicitly covers a domain-agnostic *hook*. Record a decision (and if utils/ is chosen, move the file and update Frontend.md's example tree / the hook's own doc comment to match; if features/stocks/hooks/ is kept, record why a React hook is treated differently from a plain domain-agnostic helper for placement purposes, e.g. hooks conventionally staying near their feature's other hooks regardless of domain-knowledge, or wait until a second feature actually needs it before moving it per a YAGNI rationale).",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

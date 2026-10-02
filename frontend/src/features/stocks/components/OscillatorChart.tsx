@@ -23,10 +23,13 @@ import { AnchoredInfoBalloon } from '../../../components/common/InfoBalloon/Info
 import ChartFrame from '../../../components/common/ChartFrame/ChartFrame'
 import EmptyState from '../../../components/common/EmptyState/EmptyState'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
-import LegendToggle from '../../../components/common/LegendToggle/LegendToggle'
+import LegendToggle, {
+  LEGEND_DIM_OPACITY,
+} from '../../../components/common/LegendToggle/LegendToggle'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
+import { useSeriesVisibilityToggle } from '../hooks/useSeriesVisibilityToggle'
 import { useStockAnalysis } from '../hooks/useStockAnalysis'
 import { createBaseChart, isFiniteNumber } from '../../../utils/chart'
 import {
@@ -462,11 +465,15 @@ export default function OscillatorChart({
   }, [indicatorsQuery.data, enabled, theme])
 
   // Applies the current RSI toggle state onto whichever series instance the
-  // effect above currently has a ref for -- see
-  // `VolumeIndicatorsChart.tsx`'s own identical pattern/rationale.
-  useEffect(() => {
-    rsiSeriesRef.current?.applyOptions({ visible: rsiVisible })
-  }, [rsiVisible, indicatorsQuery.data, enabled, theme])
+  // effect above currently has a ref for --
+  // `useSeriesVisibilityToggle` (frontend-chart-legend-toggle-overlay-
+  // followups) shares this small ref + effect pattern across all four chart
+  // panes that need it.
+  useSeriesVisibilityToggle(() => [rsiSeriesRef.current], rsiVisible, [
+    indicatorsQuery.data,
+    enabled,
+    theme,
+  ])
 
   // Divergence overlay (frontend-divergence-markers): the single
   // currently-qualifying divergence, drawn as a connecting `LineSeries`
@@ -662,7 +669,7 @@ export default function OscillatorChart({
                     height: 12,
                     borderRadius: '50%',
                     bgcolor: 'divergence.main',
-                    opacity: divergenceInVisibleRange ? 1 : 0.4,
+                    opacity: divergenceInVisibleRange ? 1 : LEGEND_DIM_OPACITY,
                   }}
                 />
                 <Typography variant="caption" color="text.secondary">

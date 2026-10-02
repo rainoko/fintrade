@@ -1,0 +1,92 @@
+{
+  "id": "frontend-chart-legend-toggle-overlay-followups",
+  "title": "Follow-ups from frontend-chart-legend-toggle-overlay's PR #374 review",
+  "area": "frontend/stocks",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-chart-legend-toggle-overlay"],
+  "references": [
+    "docs/tasks/done/frontend-chart-legend-toggle-overlay.json",
+    "https://github.com/rainoko/fintrade/pull/374",
+    "frontend/src/components/common/LegendToggle/LegendToggle.tsx",
+    "frontend/src/features/stocks/components/PriceChart.tsx",
+    "frontend/src/features/stocks/components/OscillatorChart.tsx",
+    "frontend/src/features/stocks/components/VolumeIndicatorsChart.tsx",
+    "frontend/src/features/stocks/components/TrendStrengthChart.tsx"
+  ],
+  "description": "Non-blocking findings from the full review of PR #374 (frontend-chart-legend-toggle-overlay) -- the PR itself was accepted (tests/coverage/lint/typecheck/storybook/e2e all clean, a real-browser walkthrough across every distinct toggle mechanism and a ChartFrame fullscreen/resize stress test all confirmed correct behavior), but two minor items are worth tracking rather than losing once PR #374's comment thread disappears from view.",
+  "checklist": [
+    {
+      "step": "Reconcile LegendToggle's dimmed-state opacity (0.45, in LegendToggle.tsx) with the pre-existing 'out of range' dimming convention already used elsewhere in these same four chart panes for divergence/false-breakout/Kangaroo-Tail legend rows (opacity: 0.4, e.g. PriceChart.tsx's `falseBreakoutInVisibleRange ? 1 : 0.4` / `divergenceInVisibleRange ? 1 : 0.4` / `kangarooTailInVisibleRange ? 1 : 0.4`). Not a visible/functional bug (0.45 is still clearly legible and if anything slightly higher-contrast than the existing 0.4 convention), but the two different magic numbers for what reads as the same 'this legend row is currently not showing on the chart' affordance is worth consolidating into one shared constant (or deliberately documenting why they differ) so a future reader doesn't have to guess whether the difference is intentional.",
+      "done": true
+    },
+    {
+      "step": "Consider extracting the repeated 'ref onto the currently-drawn series + small dedicated useEffect applying { visible }' pattern (independently hand-written once per toggle: PriceChart's Channel/Value Zone/Tide Background/Support-Resistance Zones, OscillatorChart's RSI, VolumeIndicatorsChart's OBV/A-D, TrendStrengthChart's +DI-DI/ADX/ATR -- 10 near-identical small effects across 4 files) into a small shared hook (e.g. `useSeriesVisibilityToggle(seriesRef, visible)` returning nothing, just applying the effect) to reduce duplicated boilerplate. The task's own `decisions` entry explains why the *toggle mechanism itself* needed to be per-overlay-type (series applyOptions vs. price-line skip), but doesn't separately weigh whether the series-backed cases' own repeated ref+effect wiring could still be factored out despite that. A genuinely arguable case (each call site's effect has a slightly different dependency list tied to its own drawing effect, so a one-size hook would need to accept that dependency array too), not a clear-cut miss -- worth a deliberate look, not an automatic fix.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-10-02T22:54:02Z",
+      "recorded_by": "task-worker",
+      "decision": "Consolidated the dimmed-legend opacity into a single exported constant, `LEGEND_DIM_OPACITY = 0.4`, defined in `components/common/LegendToggle/LegendToggle.tsx` and now imported by `PriceChart.tsx` (Channel/Value Zone/Tide/Zones legend plus the pre-existing False Breakout/Divergence/Kangaroo-Tail dimming) and `OscillatorChart.tsx` (Divergence dimming) wherever `0.4`/`0.45` was previously a bare literal.",
+      "rationale": "The task's own checklist framed this as either consolidating into one shared constant or documenting a deliberate difference; no genuine visual/contrast reason for 0.45 turned up on inspection (it was simply a different number picked independently, not a deliberate choice -- see LegendToggle.tsx's original doc comment, which only said 'opacity, chosen over a strikethrough', with no rationale at all for the specific value). 0.4 (not 0.45) was kept as the final value since three pre-existing call sites already depended on that exact number and none of them were this task's to revisit, while LegendToggle's own single call site was. Placed the constant on `LegendToggle.tsx` itself (not `utils/chart.ts`) since it's specifically the 'legend row currently doesn't apply to what's on screen' semantic that component already embodies, rather than a generic chart-drawing utility -- `utils/chart.ts` was considered and rejected for this reason (it's domain-agnostic but chart-specific, where this constant is really about the legend-row affordance, independent of lightweight-charts)."
+    },
+    {
+      "timestamp": "2026-10-02T22:54:02Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted the repeated ref + small-effect visibility-toggle pattern into a new shared hook, `useSeriesVisibilityToggle(getSeries, visible, extraDeps)` in `frontend/src/features/stocks/hooks/useSeriesVisibilityToggle.ts`, and wired all 10 call sites (PriceChart's Channel/Value Zone/Tide Background/Support-Resistance Zones, OscillatorChart's RSI, VolumeIndicatorsChart's OBV/A-D, TrendStrengthChart's +DI-DI/ADX/ATR) through it.",
+      "rationale": "Prototyped the extraction concretely before deciding (rather than reasoning abstractly) since the checklist flagged this as a genuinely arguable call. The 10 call sites turned out to have 3 distinct ref shapes -- a single nullable ref (RSI/OBV/A-D/ADX/ATR), a nullable ref onto a fixed 2-tuple (Channel, Value Zone), and a ref onto a growing array (Tide region segments, Zone bands) -- plus one case (+DI/-DI) where a single toggle boolean drives two independent single-series refs in what was previously one hand-written effect. Rather than overload the hook's signature with three different ref-shape parameters, it takes a thunk (`getSeries: () => readonly (Series | null | undefined)[]`) that each caller adapts to its own ref shape (`() => tupleRef.current ?? []`, `() => arrayRef.current`, `() => [singleRef.current]`, `() => [refA.current, refB.current]`) -- this kept the hook itself simple (one `forEach` over whatever it's handed) while staying agnostic to how each caller stores its series reference, which is exactly the source of duplication worth removing (the `applyOptions({ visible })` + effect-dependency-list boilerplate) without inventing a new abstraction for the part that's actually caller-specific (the ref shape). `extraDeps` is a required, explicit parameter (each call site's own series-drawing effect's own dependency list, e.g. `[indicatorsQuery.data, enabled, theme]`) rather than anything the hook infers, since that list genuinely differs per call site (confirmed by inspection: 4 distinct combinations across the 10 sites) -- this needs a `// eslint-disable-next-line react-hooks/exhaustive-deps` on the hook's internal effect (verified necessary, not decorative, by temporarily removing it and confirming eslint reports the exact 'missing dependency: getSeries' + 'spread element in dependency array' warnings it suppresses) since a spread dependency array can't be statically verified by the lint rule -- accepted as the cost of this extraction, consistent with one existing precedent for a narrowly-justified `eslint-disable` already in this codebase (`PriceChart.test.tsx`). Verified clean (`eslint .`, `tsc --noEmit` on both tsconfigs, full `vitest run --coverage`: 1031/1031 tests passing, hook itself at 100% statement/branch/function/line coverage via the existing per-component toggle-click tests, no new tests needed) before accepting the extraction, and additionally ran a real-browser Playwright sanity pass (per this task's standing instruction) clicking Channel, Value Zone, Tide Background, and Support/Resistance Zones on a live Stock Detail page against the fixture data provider -- all four correctly hid/re-showed their respective overlay and dimmed/undimmed their legend row, with the new 0.4 opacity also confirmed via computed style. Concluded the extraction pays for itself: it removes ~30 lines of near-identical ref-read-and-apply boilerplate across 4 files without adding a layer a reader can't immediately see through (the hook's entire body is a one-line `forEach`), and each call site reads at least as clearly as the original (the thunk makes explicit which ref(s) and toggle each call applies, which the original's bespoke per-site effect body also did, just with more repetition)."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-chart-legend-toggle-overlay-followups",
+    "pr_number": 376,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/376",
+    "pushed_at": "2026-10-02T22:56:40Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-02T23:10:13Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/376",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified both claims directly rather than trusting the PR description: the computed `opacity` style on LegendToggle (and the pre-existing PriceChart/OscillatorChart 0.4 call sites) is exactly `0.4` via a real-browser check; all 10 call sites across PriceChart/OscillatorChart/VolumeIndicatorsChart/TrendStrengthChart now route through `useSeriesVisibilityToggle` with their exact original per-site dependency arrays preserved (diffed line-by-line). No stale `0.45` references remain anywhere in frontend/src.",
+        "file": "frontend/src/components/common/LegendToggle/LegendToggle.tsx",
+        "line": 14
+      },
+      {
+        "summary": "Mutation-tested the new hook directly (not just trusting the 100%-coverage claim): (1) inverted the applied `visible` value -> 7 tests failed across all 4 chart components' toggle-click specs; (2) changed the forEach to only apply to series[0] (breaking the tuple/array/two-refs cases) -> 5 tests failed covering Value Zone (tuple), Tide Background (array), Support/Resistance Zones (array), and +DI/-DI (two independent refs from one boolean). Both mutations were caught by the existing per-component tests and both were restored afterward (working tree left clean). This confirms the refactor is behavior-preserving across all 3 distinct ref shapes plus the one-boolean-drives-two-refs case.",
+        "file": "frontend/src/features/stocks/hooks/useSeriesVisibilityToggle.ts",
+        "line": 37
+      },
+      {
+        "summary": "Verified the `react-hooks/exhaustive-deps` eslint-disable is genuinely necessary, not decorative: removing it and running `eslint` on the file reproduces exactly the two warnings the comment claims (`missing dependency: 'getSeries'` and `spread element in dependency array`).",
+        "file": "frontend/src/features/stocks/hooks/useSeriesVisibilityToggle.ts",
+        "line": 42
+      },
+      {
+        "summary": "Real-browser walkthrough (Playwright, fixture data provider) against /stocks/AAPL covering 4 of the 10 call sites spanning all distinct ref shapes: Channel (nullable tuple-ref), Support/Resistance Zones (growing-array ref), +DI/-DI (one boolean driving two independent single-refs), and OBV (single ref). All four toggled their legend opacity (1 <-> 0.4, confirmed via computed style), their aria-pressed state, and the actual chart overlay rendering (screenshot diff confirmed the OBV line visually disappears/reappears) -- no console errors, no failed network requests.",
+        "file": null,
+        "line": 0
+      },
+      {
+        "summary": "Full frontend vitest+coverage run: 1031/1031 passing, 99.77%/99.09%/99.83%/99.81% stmt/branch/func/line, matching the PR description exactly. useSeriesVisibilityToggle.ts itself at 100% on all four metrics. yarn lint and yarn tsc -b --noEmit both clean. Backend ruff/mypy clean (unaffected by this frontend-only diff, re-run for completeness). scripts/check_profit_target_wording.py and scripts/validate_tasks.py both pass. Full persisted e2e suite (make e2e): all 27 specs across 8 files passed, including stock-analysis.spec.ts which exercises the Stock Detail page these chart panes live on.",
+        "file": null,
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking: the new `useSeriesVisibilityToggle` hook is domain-agnostic (operates on a generic `{ applyOptions }` series interface, with no reference to ticker/position/signal), which is the same placement test `utils/chart.ts`'s `createBaseChart`/`isFiniteNumber` cite for living in `utils/` despite also starting with every caller under `features/stocks/` (see that file's own doc comment and the frontend-oscillator-chart-followups decision). This PR's own decisions entries justify the opacity constant's placement on LegendToggle.tsx over utils/chart.ts, but don't address the hook's placement under features/stocks/hooks/ versus utils/ at all, and Frontend.md §3 doesn't clearly resolve it either (its 'hooks live under the feature they serve' rule is framed around API-concern hooks; its utils/ domain-agnostic test is framed around non-hook plain functions). A genuinely arguable case, not a clear-cut miss -- tracked as a follow-up rather than blocking.",
+        "file": "frontend/src/features/stocks/hooks/useSeriesVisibilityToggle.ts",
+        "line": 1
+      }
+    ],
+    "notes": "Full review of PR #376. Both task-worker decisions entries are well-documented with genuine rationale (including the explicit utils/ vs LegendToggle.tsx placement call for the opacity constant). code-review skill (high effort) run against the diff independently found no correctness bugs. architecture-review skill run against the diff found one genuinely arguable (non-blocking) placement question for the new hook -- see comments. No backend/API changes in this diff, so no openapi.json regeneration is needed (confirmed absent from the diff) and verify-elder-signal doesn't apply (area is frontend/stocks, skill is null). area touches frontend components (LegendToggle is common/, the four chart panes are features/stocks/) -- assessed per-component placement per step 7a: LegendToggle's change is a constant addition to an existing, correctly-placed common/ component, not a new component; the four chart panes are pre-existing, correctly-placed features/stocks/ components with no placement question of their own. Filed docs/tasks/frontend-chart-legend-toggle-overlay-followups-followups.json for the one non-blocking finding above."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-10-02T23:21:51Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran yarn vitest run --coverage (1031/1031 passing, 99.77/99.09/99.83/99.81% stmt/branch/func/line, matching the PR description exactly) plus clean yarn lint and yarn tsc -b --noEmit. Skimmed the full diff myself (all 10 useSeriesVisibilityToggle call sites across PriceChart/OscillatorChart/VolumeIndicatorsChart/TrendStrengthChart, diffed each against its pre-change effect to confirm every original per-site extraDeps array was preserved verbatim) and the LEGEND_DIM_OPACITY consolidation. Reproduced the reviewer's first mutation myself (inverted the applied `visible` boolean in useSeriesVisibilityToggle.ts) and got the identical 7 failures across OscillatorChart/PriceChart(x2)/TrendStrengthChart(x2)/VolumeIndicatorsChart(x2) toggle-click specs; restored and confirmed a clean diff afterward. Ran a real-browser check (fixture-provider backend on :8000, vite dev proxy on :5173) against two distinct ref shapes not both covered by the reviewer's own 4: Channel (nullable-tuple ref) and OBV (single ref) -- both toggled opacity 1 <-> 0.4 exactly and back, no console errors. Backend untouched by this diff (git diff --stat backend/ empty); re-ran pytest --cov=app anyway for completeness: 1544 passed, 100% coverage. Accept holds."
+  }
+}
