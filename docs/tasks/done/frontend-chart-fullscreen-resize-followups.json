@@ -111,5 +111,10 @@
       }
     ],
     "notes": "Accepted. Full-suite coverage, static analysis, code-review pass, e2e suite, a self-run mutation test on the behavioral change (isMaximized resize-subscription gating), and a real-browser walkthrough of one of the three newly-tested components all came back clean with no blocking findings. The PR's own claims (test counts, coverage percentages, measurement methodology) were independently verified rather than taken at face value. Items 5-6 of this task's own checklist remain genuinely deferred (not newly found) -- spun off into frontend-chart-fullscreen-resize-followups-followups.json per CLAUDE.md's 'every finding stays a tracked task, not a PR comment' convention, rather than left to go stale as false checklist entries inside a done/ file."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-10-02T22:36:21Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the full frontend suite (98 files / 1031 tests passed) and coverage (99.77/99.09/99.83/99.81% stmt/branch/func/line) -- matches pr-reviewer's reported numbers exactly; tsc -b --noEmit and eslint both clean. Skimmed the full diff (ChartFrame.tsx, ChartFrame.test.tsx, the three per-component test files, index.json/task JSON). Reproduced the mutation test myself: removed ChartFrame.tsx's isMaximized gate on the window-resize subscribe, confirmed the two new ChartFrame.test.tsx resize-subscription tests fail exactly as expected, restored the file (git diff confirmed byte-identical). Did a real-browser sanity check of TrendStrengthChart (a component pr-reviewer didn't itself browser-test, having covered VolumeIndicatorsChart) via a throwaway Playwright script against a freshly-started backend+frontend: maximize correctly opened a dialog with the real canvas (11 canvas elements) resized inside it, exit correctly restored it in-flow, zero console errors. Accept holds."
   }
 }
