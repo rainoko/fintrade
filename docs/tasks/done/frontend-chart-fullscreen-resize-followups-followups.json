@@ -79,5 +79,10 @@
       }
     ],
     "notes": "Accepted. This PR makes no source code changes -- it closes out both of frontend-chart-fullscreen-resize-followups-followups's remaining checklist items with a documented decision not to implement, carrying forward findings already deferred across 2 prior review rounds (PR #373 round 2, PR #375). Independently re-verified (not just re-cited) the two factual claims underpinning that decision: metricHelpContent.ts has zero interactive elements in either features/stocks or features/portfolio, and ChartFrame.tsx's maximized overlay is still a non-portaled position:fixed Box with a Tab-trap scoped to frameRef's own subtree. Full backend+frontend test/coverage suites, static analysis (ruff/mypy/eslint/tsc/profit-target-wording-guard), validate_tasks.py, and a code-review pass all came back clean with no findings. No UI surface in this PR, so the browser walkthrough and persisted e2e suite steps are explicitly skipped rather than silently omitted. No non-blocking findings surfaced during this review, so no new follow-up task was created."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-10-02T23:44:36Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified: confirmed git diff origin/main...HEAD touches only docs/tasks/index.json and the two task JSON files (no source code). Grepped frontend/src/features/stocks/components/metricHelpContent.ts and frontend/src/features/portfolio/components/metricHelpContent.ts for Button/<a /Link/onClick/href -- zero matches in either, confirming no interactive elements. Read ChartFrame.tsx directly -- no Portal/createPortal usage anywhere in the file, and the maximized overlay (lines 515-540) is a plain non-portaled Box with sx position:'fixed', inset:0, matching the PR's central claim exactly. Ran frontend vitest: 1031 passed (98 files), matching pr-reviewer's reported count. Also ran scripts/validate_tasks.py: 358 task files, no violations, confirming the index.json state/path mirror this PR edits is correct."
   }
 }
