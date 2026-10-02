@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from PR #376 review (frontend-chart-legend-toggle-overlay-followups)",
   "area": "frontend/stocks",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["frontend-chart-legend-toggle-overlay-followups"],
   "references": [
     "docs/tasks/done/frontend-chart-legend-toggle-overlay-followups.json",
@@ -27,5 +27,11 @@
       "rationale": "Read Frontend.md §3 in full before deciding. Its 'hooks live under the feature they serve' rule is justified entirely in terms of API-concern hooks ('keeps a feature's data layer next to the components that use it') -- `useSeriesVisibilityToggle` wraps no API concern at all (no useQuery/useMutation, no fetch), so that rationale doesn't actually reach it; the rule was never really answering this question, just silent on it. The `utils/`-vs-features placement test, by contrast, does reach it on a plain textual reading: 'domain-agnostic ... and not a component -> utils/'. A hook is not a component (no JSX/props/rendering/Storybook story) -- it just happens to use `useEffect` internally -- so 'not a component' is true of it in exactly the sense that test means. Checked whether being a hook specifically (as opposed to a plain function) is a principled reason to treat it differently anyway: it isn't -- React's hook rules (naming convention, call-order-at-the-top constraint) are about how an *importing* component calls a hook, not about which directory the hook's own definition file lives in, so nothing mechanical breaks by defining a hook in utils/. That left option (b) (leave it in features/stocks/hooks/, document hooks-stay-with-feature-regardless-of-domain-knowledge as a deliberate different rule) without a real justification beyond 'that's where PR #376 happened to put it' -- not a genuine rationale, just an absence of one, which is exactly what this followup was raised to resolve rather than re-affirm. Also weighed a YAGNI-style 'wait for a second feature to need it' argument (deferring the move) against the precedent this file already set three times over (`createBaseChart`/`isFiniteNumber`/`bringSeriesToFront`'s own doc comments) for the identical fact pattern -- a domain-agnostic chart-library helper with every current caller under features/stocks -- and rejected deferring: the codebase already answered this exact question for plain functions in this exact file, and inventing a different, hook-specific answer only for this one helper would be the actual inconsistency, not moving it. Chose to append to `chart.ts` itself (option (a)'s 'where exactly' sub-choice) rather than a new `utils/useSeriesVisibilityToggle.ts` file, since this hook's whole domain -- Lightweight Charts series visibility -- is the same domain `chart.ts` already exists to collect, and splitting it into its own file would fragment that collection without a reuse or discoverability benefit. Also made the small clarifying edit to Frontend.md §3 itself (option (c)) alongside the move, since the gap was real (the doc's hooks-placement rule's own stated justification genuinely doesn't cover a non-API-concern hook, and its utils/ test's wording was written with only a plain-function example in mind) and the fix is narrow (one added example tree line, two rule-paragraph additions, no restructuring) -- this prevents the same ambiguity recurring for the next domain-agnostic hook some future task adds. Verified behavior-preserving: `eslint`, `tsc --noEmit` (both tsconfigs), and the full `vitest run --coverage` suite all clean after the move (1031/1031 tests passing, `utils/chart.ts` still at 100% statement/branch/function/line coverage via the same pre-existing per-component toggle-click tests, no new tests needed since the hook's logic and call sites are byte-for-byte unchanged, only its file location and import paths moved), plus a clean `yarn build`."
     }
   ],
+  "git": {
+    "branch": "task/frontend-chart-legend-toggle-overlay-followups-followups",
+    "pr_number": 378,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/378",
+    "pushed_at": "2026-10-02T23:53:02Z"
+  },
   "questions": []
 }
