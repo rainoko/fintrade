@@ -31,10 +31,13 @@ import { AnchoredInfoBalloon } from '../../../components/common/InfoBalloon/Info
 import ChartFrame from '../../../components/common/ChartFrame/ChartFrame'
 import EmptyState from '../../../components/common/EmptyState/EmptyState'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
-import LegendToggle from '../../../components/common/LegendToggle/LegendToggle'
+import LegendToggle, {
+  LEGEND_DIM_OPACITY,
+} from '../../../components/common/LegendToggle/LegendToggle'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
+import { useSeriesVisibilityToggle } from '../hooks/useSeriesVisibilityToggle'
 import { useStockAnalysis } from '../hooks/useStockAnalysis'
 import { useStockHistory } from '../hooks/useStockHistory'
 import {
@@ -1309,27 +1312,30 @@ export default function PriceChart({
 
   // Legend click-to-toggle (frontend-chart-legend-toggle-overlay): applies
   // the current Channel/Value Zone toggle state onto whichever series
-  // instances the effect above currently has refs for -- a SEPARATE, small
-  // effect (not added to that effect's own dependency array) specifically so
-  // toggling one of these two overlays doesn't tear down and redraw BOTH of
-  // them plus the (legend-less) EMA13/EMA26 lines they're bundled together
-  // with there -- see `channelSeriesRef`'s own doc comment above for the
-  // full rationale and the `VolumeIndicatorsChart.tsx` precedent this
-  // mirrors. Depends on the same data/theme deps as that effect (so a freshly
-  // recreated series immediately gets the current toggle state applied,
-  // rather than defaulting back to visible) plus the toggle booleans
+  // instances the effect above currently has refs for -- via the shared
+  // `useSeriesVisibilityToggle` hook (frontend-chart-legend-toggle-overlay-
+  // followups), a SEPARATE, small effect under the hood (not added to that
+  // effect's own dependency array) specifically so toggling one of these two
+  // overlays doesn't tear down and redraw BOTH of them plus the (legend-less)
+  // EMA13/EMA26 lines they're bundled together with there -- see
+  // `channelSeriesRef`'s own doc comment above for the full rationale.
+  // Depends on the same data/theme deps as the drawing effect above (so a
+  // freshly recreated series immediately gets the current toggle state
+  // applied, rather than defaulting back to visible) plus the toggle booleans
   // themselves.
-  useEffect(() => {
-    const [upper, lower] = channelSeriesRef.current ?? []
-    upper?.applyOptions({ visible: channelVisible })
-    lower?.applyOptions({ visible: channelVisible })
-  }, [channelVisible, historyQuery.data, indicatorsQuery.data, overlayEnabled, theme])
+  useSeriesVisibilityToggle(() => channelSeriesRef.current ?? [], channelVisible, [
+    historyQuery.data,
+    indicatorsQuery.data,
+    overlayEnabled,
+    theme,
+  ])
 
-  useEffect(() => {
-    const [top, bottomMask] = valueZoneSeriesRef.current ?? []
-    top?.applyOptions({ visible: valueZoneVisible })
-    bottomMask?.applyOptions({ visible: valueZoneVisible })
-  }, [valueZoneVisible, historyQuery.data, indicatorsQuery.data, overlayEnabled, theme])
+  useSeriesVisibilityToggle(() => valueZoneSeriesRef.current ?? [], valueZoneVisible, [
+    historyQuery.data,
+    indicatorsQuery.data,
+    overlayEnabled,
+    theme,
+  ])
 
   // Tide (Screen 1) background shading (frontend-tide-region-chart-shading):
   // adds one `AreaSeries` per contiguous same-trend segment (see
@@ -1488,14 +1494,17 @@ export default function PriceChart({
 
   // Legend click-to-toggle (frontend-chart-legend-toggle-overlay): applies
   // the current Tide Background toggle state onto whichever region series
-  // the effect above currently has refs for -- see `channelSeriesRef`'s own
-  // doc comment for why this is a separate effect rather than a dependency
-  // on the (expensive, price-scale-configuring) effect above.
-  useEffect(() => {
-    tideRegionSeriesRef.current.forEach((regionSeries) =>
-      regionSeries.applyOptions({ visible: tideVisible }),
-    )
-  }, [tideVisible, historyQuery.data, indicatorsQuery.data, overlayEnabled, theme])
+  // the effect above currently has refs for -- via the shared
+  // `useSeriesVisibilityToggle` hook (frontend-chart-legend-toggle-overlay-
+  // followups); see `channelSeriesRef`'s own doc comment for why this is a
+  // separate effect rather than a dependency on the (expensive,
+  // price-scale-configuring) effect above.
+  useSeriesVisibilityToggle(() => tideRegionSeriesRef.current, tideVisible, [
+    historyQuery.data,
+    indicatorsQuery.data,
+    overlayEnabled,
+    theme,
+  ])
 
   // Support/resistance zones (frontend-support-resistance-overlay): adds
   // the horizontal `BaselineSeries` bands, false-breakout markers, and
@@ -1664,19 +1673,21 @@ export default function PriceChart({
 
   // Legend click-to-toggle (frontend-chart-legend-toggle-overlay): applies
   // the current Support/Resistance Zones toggle state onto whichever zone
-  // band series `zoneSeriesRef` currently holds -- reuses that existing ref
-  // (populated above) purely as a read source here; see this component's own
-  // `channelSeriesRef`/etc. doc comment for why toggling these bands is a
-  // separate small effect rather than added to the (also z-order-sensitive)
-  // effect above. Deliberately does NOT also hide the False Breakout
-  // markers/price line sharing this same effect -- that overlay is out of
-  // scope for this pass (this task's `decisions` entry: event/marker
-  // overlays are deferred), so it stays visible regardless of this toggle.
-  useEffect(() => {
-    zoneSeriesRef.current.forEach((zoneSeries) =>
-      zoneSeries.applyOptions({ visible: zonesVisible }),
-    )
-  }, [zonesVisible, historyQuery.data, analysisQuery.data, theme])
+  // band series `zoneSeriesRef` currently holds -- via the shared
+  // `useSeriesVisibilityToggle` hook (frontend-chart-legend-toggle-overlay-
+  // followups), reusing that existing ref (populated above) purely as a read
+  // source here; see this component's own `channelSeriesRef`/etc. doc comment
+  // for why toggling these bands is a separate small effect rather than added
+  // to the (also z-order-sensitive) effect above. Deliberately does NOT also
+  // hide the False Breakout markers/price line sharing this same effect --
+  // that overlay is out of scope for this pass (this task's `decisions`
+  // entry: event/marker overlays are deferred), so it stays visible
+  // regardless of this toggle.
+  useSeriesVisibilityToggle(() => zoneSeriesRef.current, zonesVisible, [
+    historyQuery.data,
+    analysisQuery.data,
+    theme,
+  ])
 
   // Divergence overlay (frontend-divergence-markers): the single currently-
   // qualifying divergence (`AnalysisResponse.divergence`, or nothing when
@@ -2353,7 +2364,7 @@ export default function PriceChart({
                       height: 0,
                       borderTop: '2px dashed',
                       borderColor: 'warning.main',
-                      opacity: falseBreakoutInVisibleRange ? 1 : 0.4,
+                      opacity: falseBreakoutInVisibleRange ? 1 : LEGEND_DIM_OPACITY,
                     }}
                   />
                   <Typography variant="caption" color="text.secondary">
@@ -2405,7 +2416,7 @@ export default function PriceChart({
                   height: 12,
                   borderRadius: '50%',
                   bgcolor: 'divergence.main',
-                  opacity: divergenceInVisibleRange ? 1 : 0.4,
+                  opacity: divergenceInVisibleRange ? 1 : LEGEND_DIM_OPACITY,
                 }}
               />
               <Typography variant="caption" color="text.secondary">
@@ -2443,7 +2454,7 @@ export default function PriceChart({
                     width: 12,
                     height: 12,
                     bgcolor: 'kangarooTail.main',
-                    opacity: kangarooTailInVisibleRange ? 1 : 0.4,
+                    opacity: kangarooTailInVisibleRange ? 1 : LEGEND_DIM_OPACITY,
                   }}
                 />
                 <Typography variant="caption" color="text.secondary">

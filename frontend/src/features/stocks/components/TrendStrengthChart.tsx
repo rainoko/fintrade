@@ -12,6 +12,7 @@ import LegendToggle from '../../../components/common/LegendToggle/LegendToggle'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
+import { useSeriesVisibilityToggle } from '../hooks/useSeriesVisibilityToggle'
 import { createBaseChart, isFiniteNumber } from '../../../utils/chart'
 import { adxHelp, atrHelp, directionalSystemHelp } from './metricHelpContent'
 
@@ -298,20 +299,27 @@ export default function TrendStrengthChart({
   }, [indicatorsQuery.data, enabled, theme])
 
   // Applies the current +DI/-DI/ADX/ATR toggle state onto whichever series
-  // instances the effect above currently has refs for -- see
-  // `VolumeIndicatorsChart.tsx`'s own identical pattern/rationale.
-  useEffect(() => {
-    plusDiSeriesRef.current?.applyOptions({ visible: diVisible })
-    minusDiSeriesRef.current?.applyOptions({ visible: diVisible })
-  }, [diVisible, indicatorsQuery.data, enabled, theme])
+  // instances the effect above currently has refs for --
+  // `useSeriesVisibilityToggle` (frontend-chart-legend-toggle-overlay-
+  // followups) shares this small ref + effect pattern across all four chart
+  // panes that need it.
+  useSeriesVisibilityToggle(
+    () => [plusDiSeriesRef.current, minusDiSeriesRef.current],
+    diVisible,
+    [indicatorsQuery.data, enabled, theme],
+  )
 
-  useEffect(() => {
-    adxSeriesRef.current?.applyOptions({ visible: adxVisible })
-  }, [adxVisible, indicatorsQuery.data, enabled, theme])
+  useSeriesVisibilityToggle(() => [adxSeriesRef.current], adxVisible, [
+    indicatorsQuery.data,
+    enabled,
+    theme,
+  ])
 
-  useEffect(() => {
-    atrSeriesRef.current?.applyOptions({ visible: atrVisible })
-  }, [atrVisible, indicatorsQuery.data, enabled, theme])
+  useSeriesVisibilityToggle(() => [atrSeriesRef.current], atrVisible, [
+    indicatorsQuery.data,
+    enabled,
+    theme,
+  ])
 
   // `/indicators` is daily-cadence only (see the `enabled` prop's own doc
   // comment) — while a weekly interval is selected upstream, this pane has

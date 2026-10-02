@@ -1,6 +1,24 @@
 import ButtonBase from '@mui/material/ButtonBase'
 import type { ReactNode } from 'react'
 
+/**
+ * Shared "this legend row doesn't currently apply to what's on screen"
+ * dimming opacity -- used here for a toggled-off overlay, and reused as-is by
+ * `PriceChart.tsx`/`OscillatorChart.tsx` for their own non-toggle "out of
+ * [the currently visible] range" legend rows (False Breakout/Divergence/
+ * Kangaroo Tail -- see those components' own usage). Both are the same
+ * affordance from a reader's point of view (a legend row that's present but
+ * not currently reflected on the chart), so they share one constant rather
+ * than two independently-chosen magic numbers that happened to read as
+ * "about the same" (frontend-chart-legend-toggle-overlay-followups,
+ * consolidating what was previously this component's own `0.45` against the
+ * other three call sites' pre-existing `0.4`) -- `0.4`, the pre-existing
+ * value, won out over `0.45` since three call sites already depended on it
+ * and none of them are this task's to revisit, while this component's single
+ * call site is.
+ */
+export const LEGEND_DIM_OPACITY = 0.4
+
 export interface LegendToggleProps {
   /**
    * Whether the overlay this legend row describes is currently shown on the
@@ -76,7 +94,7 @@ export default function LegendToggle({
         py: 0.25,
         mx: -0.5,
         my: -0.25,
-        opacity: active ? 1 : 0.45,
+        opacity: active ? 1 : LEGEND_DIM_OPACITY,
       }}
     >
       {children}

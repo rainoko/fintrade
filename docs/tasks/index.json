@@ -2504,7 +2504,7 @@
       "id": "frontend-chart-legend-toggle-overlay-followups",
       "area": "frontend/stocks",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-chart-legend-toggle-overlay-followups.json"
     }
   ]
