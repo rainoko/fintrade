@@ -49,5 +49,11 @@
       "rationale": "`IBKRProvider` is constructed once as a process-wide singleton (`app.api.dependencies._get_ibkr_provider_singleton`) that outlives any single request's own `Depends(get_db)` session, and `resolve_conid` already has several callers beyond the one (`IBKRDataProvider`) that happens to be constructed per-request with a `db` session available -- `app.api.day_trader_signal._fan_out_per_ticker` calls `provider.resolve_conid(ticker)` directly with no session in scope at all. Threading a `db` parameter through every call site would mean either plumbing a session into call sites that have no natural one (day_trader_signal's per-ticker fan-out) or making the DB cache conditional on which call path was used, inconsistently. A session-factory mirrors the exact pattern `app.api.dependencies.get_data_provider_factory` already established for the same underlying problem (a long-lived/cross-request object that needs its own short-lived DB sessions, opened and closed per use rather than borrowing a request-scoped one it doesn't own). Alternative considered and rejected: adding an optional `db: Session | None` parameter to `resolve_conid` itself, falling back to no DB cache when omitted -- rejected because it would make the DB cache's availability depend on which of several call sites happened to pass one, rather than being a property of the `IBKRProvider` instance itself, and because `IBKRProvider` already can't assume a single request-scoped session exists at all given its singleton lifetime."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-ibkr-conid-db-cache",
+    "pr_number": 384,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/384",
+    "pushed_at": "2026-10-03T22:37:35Z"
+  }
 }
