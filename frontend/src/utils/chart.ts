@@ -1,3 +1,4 @@
+import { useEffect, type DependencyList } from 'react'
 import {
   createChart,
   type IChartApi,
@@ -173,4 +174,72 @@ export function timeToDateString(time: Time): string {
   }
   const { year, month, day } = time
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
+interface VisibilityToggleableSeries {
+  applyOptions: (options: { visible: boolean }) => void
+}
+
+/**
+ * Applies `visible` onto whichever series instance(s) `getSeries` currently
+ * returns -- the repeated "ref onto the currently-drawn series + a small
+ * dedicated effect applying `{ visible }`" pattern, independently hand-
+ * written once per toggle across `PriceChart`/`OscillatorChart`/
+ * `VolumeIndicatorsChart`/`TrendStrengthChart` (frontend-chart-legend-
+ * toggle-overlay-followups).
+ *
+ * Lives here rather than `features/stocks/hooks/` (where
+ * frontend-chart-legend-toggle-overlay-followups originally placed it)
+ * despite being a hook, not a plain function, and despite every current
+ * caller being under `features/stocks/` -- it's domain-agnostic (operates on
+ * the generic `{ applyOptions }` shape above, with no reference to
+ * ticker/position/signal) and chart-library-specific in exactly the way
+ * `createBaseChart`/`isFiniteNumber`/`bringSeriesToFront` above already are,
+ * which is this file's own established placement test (see each of their
+ * doc comments). Frontend.md §3's "hooks live under the feature they serve"
+ * rule is framed around *API-concern* hooks (`useQuery`/`useMutation`
+ * wrappers like `useStockAnalysis`) so that a feature's data layer stays
+ * next to the components using it -- this hook wraps no API concern at all,
+ * so that rationale doesn't actually apply to it. Being a hook (using
+ * `useEffect` internally) rather than a plain function isn't by itself a
+ * reason to place it differently from this file's other series helpers:
+ * nothing about React's hook rules (naming, call-site position) depends on
+ * which directory the hook's definition file lives in, only on the
+ * importing component itself following them -- see
+ * frontend-chart-legend-toggle-overlay-followups-followups' `decisions`
+ * entry for the fuller reasoning (including why this constitutes a genuine,
+ * generalizable answer to the "is a domain-agnostic hook different enough
+ * from a plain function to warrant a different placement rule" question
+ * Frontend.md §3 previously left open, not just a one-off call for this
+ * hook alone).
+ *
+ * `getSeries` is a thunk, not the ref(s) themselves, so this hook stays
+ * agnostic to whatever shape each caller's own ref(s) take (a single
+ * nullable ref, a nullable ref onto a fixed-size tuple, or a ref onto a
+ * growing array) -- see each call site. Called fresh inside the effect (not
+ * memoized/stored), so it always reads whatever the caller's own
+ * series-drawing effect most recently populated its ref(s) with.
+ *
+ * `extraDeps` mirrors each call site's own series-drawing effect's
+ * dependency list (the `/indicators`-or-`/history` query data, `theme`, an
+ * `enabled`/`overlayEnabled` gate) -- deliberately a required, explicit
+ * parameter rather than anything this hook guesses at, since that list
+ * genuinely differs per call site. Re-running whenever any of those change
+ * (not just `visible`) ensures a freshly recreated series immediately gets
+ * the current toggle state re-applied instead of silently defaulting back
+ * to visible -- see each original call site's own comment for why.
+ */
+export function useSeriesVisibilityToggle(
+  getSeries: () => readonly (VisibilityToggleableSeries | null | undefined)[],
+  visible: boolean,
+  extraDeps: DependencyList,
+): void {
+  useEffect(() => {
+    getSeries().forEach((series) => series?.applyOptions({ visible }))
+    // `getSeries`/`visible` are covered explicitly; `extraDeps` is each
+    // caller's own series-drawing effect's dependency list, passed through
+    // verbatim -- see this hook's own doc comment for why it can't be
+    // statically spelled out here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, ...extraDeps])
 }
