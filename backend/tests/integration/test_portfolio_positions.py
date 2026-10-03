@@ -27,6 +27,7 @@ from typing import Any
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_data_provider
@@ -1101,3 +1102,104 @@ class TestAddPositionCapturesTrailingStopFloorAtMerge:
 
         row = db_session.get(PositionORM, position_id)
         assert row.trailing_stop_high_water_mark == pytest.approx(expected_floor)
+
+
+class TestAddPositionConcurrentInsertRace:
+    """backend-position-watchlist-race-condition: two concurrent requests for the same
+    brand-new ticker can both see `existing is None` and both attempt to insert a row, so the
+    loser's `db.commit()` raises `IntegrityError` (or, under SQLite's default file-level
+    locking, `OperationalError`) on `PositionORM.ticker`'s unique constraint. Unlike
+    `CachedDataProvider`'s own upsert races (which can safely discard the loser's write), this
+    request's payload is user-submitted trade data that must not be silently dropped -- so the
+    loser must merge its own data into the winner's already-committed row instead, via the
+    same merge logic a genuine already-exists-at-first-query request takes. See this task's
+    `decisions` entry.
+    """
+
+    def test_concurrent_insert_race_merges_loser_into_winners_row(
+        self, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        original_commit = db_session.commit
+
+        def _commit_raises_once_then_a_winner_appears() -> None:
+            monkeypatch.setattr(db_session, "commit", original_commit)
+            # The loser's own attempted insert is discarded...
+            db_session.rollback()
+            # ...and a concurrent request "wins" the race, committing its own row for the
+            # exact same brand-new ticker first.
+            db_session.add(
+                PositionORM(
+                    id="pos_winner00001",
+                    ticker="AAPL",
+                    quantity=10.0,
+                    avg_cost_basis=100.0,
+                    entry_date=date(2026, 1, 1),
+                )
+            )
+            db_session.commit()
+            raise IntegrityError("INSERT", {}, Exception("UNIQUE constraint failed"))
+
+        monkeypatch.setattr(db_session, "commit", _commit_raises_once_then_a_winner_appears)
+        test_client = _make_client(db_session, _StubProvider())
+
+        try:
+            response = test_client.post(
+                "/api/portfolio/positions",
+                json={
+                    "ticker": "AAPL",
+                    "quantity": 5,
+                    "avg_cost_basis": 150.0,
+                    "entry_date": "2026-02-01",
+                },
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert response.status_code == 201
+        body = response.json()
+        # Merged exactly like a genuine already-exists-at-first-query request would:
+        # quantity 10 + 5 = 15, avg_cost_basis weighted (10*100 + 5*150) / 15.
+        assert body["quantity"] == pytest.approx(15.0)
+        assert body["avg_cost_basis"] == pytest.approx(116.666667, abs=1e-4)
+        assert body["entry_date"] == "2026-01-01"  # min(winner's, this request's)
+        assert db_session.query(PositionORM).filter_by(ticker="AAPL").count() == 1
+
+    def test_operational_error_with_no_same_ticker_winner_returns_503(
+        self, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Narrows the `except (IntegrityError, OperationalError)` fallback's assumption: SQLite's
+        whole-file write locking can raise `OperationalError` from *any* concurrent write
+        anywhere in the file, not only a race on this exact ticker. In that case re-querying
+        for a same-ticker winner legitimately finds nothing, which must surface as a clean
+        `503` (not a bare `None`-row crash), and must not persist anything."""
+        original_commit = db_session.commit
+
+        def _commit_raises_operational_error_with_no_winner() -> None:
+            monkeypatch.setattr(db_session, "commit", original_commit)
+            db_session.rollback()
+            raise OperationalError("INSERT", {}, Exception("database is locked"))
+
+        monkeypatch.setattr(db_session, "commit", _commit_raises_operational_error_with_no_winner)
+        test_client = _make_client(db_session, _StubProvider())
+
+        try:
+            response = test_client.post(
+                "/api/portfolio/positions",
+                json={
+                    "ticker": "AAPL",
+                    "quantity": 5,
+                    "avg_cost_basis": 150.0,
+                    "entry_date": "2026-02-01",
+                },
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert response.status_code == 503
+        detail = response.json()["detail"]
+        assert detail == "Transient write conflict adding position for ticker='AAPL'; retry."
+        assert "OperationalError" not in detail
+        assert "database is locked" not in detail
+        assert db_session.query(PositionORM).filter_by(ticker="AAPL").count() == 0

@@ -3883,6 +3883,16 @@
               }
             },
             "description": "Either of two distinct shapes, both under HTTP 422: ordinary request-body validation failure (FastAPI's standard HTTPValidationError \u2014 `detail` is a list of per-field errors), or merging with an existing position would produce a quantity/avg_cost_basis too large to represent (`detail` is a single string, ErrorDetail)."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "A concurrent-insert conflict was raised while adding this brand-new ticker, but no same-ticker row was actually found afterwards (see this task's `decisions` entry) -- a transient SQLite lock contention unrelated to this ticker specifically, safe to retry."
           }
         },
         "summary": "Add or update a position",
@@ -4443,6 +4453,16 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "A concurrent-insert conflict was raised while adding this ticker, but no same-ticker row was actually found afterwards (see this task's `decisions` entry) -- a transient SQLite lock contention unrelated to this ticker specifically, safe to retry."
           }
         },
         "summary": "Add a ticker to the watchlist",
