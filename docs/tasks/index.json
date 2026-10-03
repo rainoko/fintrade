@@ -2539,7 +2539,7 @@
       "id": "backend-ibkr-request-retry",
       "area": "backend/data",
       "skill": null,
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/backend-ibkr-request-retry.json"
     },
     {

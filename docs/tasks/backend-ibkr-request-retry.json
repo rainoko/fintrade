@@ -3,7 +3,7 @@
   "title": "Add a single quick retry to IBKRProvider's HTTP requests before failing, given the gateway's demonstrated transient flakiness",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "backend/app/data/ibkr_provider.py",
@@ -14,17 +14,30 @@
   "checklist": [
     {
       "step": "Decide and record (decisions entry) the retry policy: how many retries (the description suggests a single quick retry as a reasonable starting point, but confirm against what's actually observed/reasonable), what delay (fixed vs. a short exponential backoff), and which failure types are worth retrying (a network/connection error and a 5xx response are plausible retry candidates; a 401/403 authentication failure or a 4xx client error almost certainly is not, since retrying won't fix those -- read `IBKRProvider._request`'s actual current error-classification logic before deciding exactly where the retry boundary sits).",
-      "done": false
+      "done": true
     },
     {
       "step": "Implement the retry in `IBKRProvider._request` (or wherever it's cleanest given the function's current structure), being careful not to multiply already-existing timeout/retry effects in any caller that itself has its own retry or timeout wrapper -- check `get_daily_bars`/`get_weekly_bars`/`get_extended_data`'s callers and the per-call timeout (`_REQUEST_TIMEOUT_SECONDS`-equivalent for IBKR, if one exists) to make sure retries don't silently balloon worst-case latency for a caller that's itself running inside a `ThreadPoolExecutor` fan-out with its own deadline expectations.",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests (no live network calls per Testing.md, mocked IBKR HTTP boundary matching `tests/unit/data/test_ibkr_provider.py`'s existing convention): a transient-failure-then-success case (confirms the retry actually recovers), a persistent-failure case (confirms it still eventually raises `IBKRUnavailableError` after exhausting retries, not an infinite loop), and a non-retryable-error case (confirms a 401/4xx-class failure doesn't get retried per the policy decided above).",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-03T22:02:00Z",
+      "recorded_by": "task-worker",
+      "decision": "`IBKRProvider._request` now retries exactly once (`_REQUEST_MAX_ATTEMPTS = 2`: the original attempt plus one retry, not an open-ended/exponential-backoff loop) after a fixed `_REQUEST_RETRY_DELAY_SECONDS = 0.3` (300ms) delay, for exactly two failure families: (1) a network/connection-level `httpx.RequestError` that is NOT a `httpx.TimeoutException` (e.g. `ConnectError`/connection-refused -- a fast failure), and (2) an HTTP 5xx response. Explicitly NOT retried: any `httpx.TimeoutException` subtype (`ConnectTimeout`/`ReadTimeout`/`WriteTimeout`/`PoolTimeout`), any HTTP 4xx response (401/403 auth failures, 400 'no bridge', etc.), and an unparseable (non-JSON) 200 body.",
+      "rationale": "A single retry rather than more: every gateway flip this session actually observed while working backend-ibkr-primary-data-provider (unreachable -> 400 -> 401 -> 200-authenticated, repeatedly within ~20 minutes) was a fast, binary flip between states, not a slow degradation that might need several attempts to clear -- one retry is already enough to plausibly catch a flip that resolves within a few hundred ms, and a second/third retry would only add latency with no evidence from the observed behavior that it would ever help where the first retry didn't. 300ms (middle of the task description's suggested 200-500ms range): long enough to give a flapping gateway process a moment to settle, short enough that doubling it via one retry stays well under what a caller fanning out several concurrent IBKR calls would notice (see the next entry on the latency-multiplication check). Retrying connection errors and 5xx but not 4xx matches the task description's own reasoning almost exactly -- a 401/403/400 reflects the gateway's current session/request state, which an identical request 300ms later won't change, so retrying it would just waste a round trip and delay the (correct, not-going-to-change) failure response. The one refinement beyond the description's literal wording: `httpx.TimeoutException` is technically a subtype of the generally-retryable `httpx.RequestError` family, but it is deliberately excluded from the retry -- a timeout has already spent this call's full `timeout` budget (default 10s) waiting, so retrying it would silently double a slow failure's already-worst-case latency for a caller with its own timeout/deadline expectations (`app.api.routers.stocks.get_analysis`'s concurrent daily/weekly/extended `ThreadPoolExecutor` fan-out, `app.data.day_trader_intraday`'s per-leg fan-out), which is exactly the 'don't multiply latency effects' risk the task's own checklist item 2 called out, and none of this session's actually-observed flakiness was a timeout in the first place (every flip was an immediate connection refusal or an immediate non-200 response, never a hang). An unparseable 200 body is also excluded: this session never actually observed that failure mode live (unlike the status/connectivity-level flips), and a 200 means the transport layer already succeeded, so retrying it is a materially different (and empirically unmotivated) risk than retrying a connection/5xx failure -- rejected alternative: retry it too for symmetry with the other two original failure modes `_request` already classified, but there is no actual evidence this ever happens against the real gateway, and retrying a nominally-successful response adds a full extra round trip for a hypothetical case."
+    },
+    {
+      "timestamp": "2026-10-03T22:02:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Confirmed the retry does not multiply latency for any caller running inside a `ThreadPoolExecutor` fan-out with its own deadline expectations (checklist item 2), and added an injectable `sleep: Callable[[float], None] = time.sleep` constructor parameter (alongside the existing `client`/`clock`) so tests can avoid a real 300ms pause.",
+      "rationale": "Traced every concurrent fan-out that can end up calling `IBKRProvider._request`: `app.api.routers.stocks.get_analysis`'s 3-leg `ThreadPoolExecutor(max_workers=3)` (daily/weekly/extended, each leg independent, no shared deadline enforced across legs beyond each provider's own per-call `httpx` timeout) and `app.data.day_trader_intraday`'s per-leg fan-out -- neither imposes a tighter cross-leg deadline than the sum of each individual IBKR call's own retries, and `get_daily_bars`/`get_weekly_bars`/`resolve_conid` are each a single `_request` call (not already individually retried/looped elsewhere), so the retry's worst-case added cost per leg is exactly one extra `_REQUEST_RETRY_DELAY_SECONDS` (0.3s) plus one extra fast (connection-refused or 5xx) round trip -- not doubled per-call timeouts, since `httpx.TimeoutException` is excluded from the retry (see the policy entry above) specifically to prevent that multiplication. `get_hourly_bars`'s pagination loop (`_MAX_PAGINATION_PAGES = 20`) is the one place a single top-level call can issue many `_request` calls; a worst case of every single page hitting a retryable failure would add `20 * 0.3s = 6s`, but that requires every page to independently fail-then-recover, which is a much rarer compound event than a single call doing so, and the existing 20-page bound was already sized as a safety cap against pathological cases, not a tight latency budget. The injectable `sleep` mirrors the existing `clock` injection pattern (used by the rate-limit tests) rather than inventing a different test-double mechanism, and keeps the new retry tests from actually pausing for 300ms each."
+    }
+  ],
   "questions": []
 }
