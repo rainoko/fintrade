@@ -45,6 +45,23 @@ def _skip_db_bootstrap(mocker):
     mocker.patch("app.main.Base.metadata.create_all")
 
 
+@pytest.fixture(autouse=True)
+def _stub_cftc_refresh_check(mocker):
+    """`_cftc_cot_refresh_loop` now runs `_check_and_refresh_cftc_cot_cache_once`
+    immediately on startup, not just on each subsequent wake-up (PR #380 review --
+    a cache already stale at restart must not wait a full check interval for
+    correction). Every test in this module calls `lifespan()` directly, so without this
+    stub, every test *outside* `TestLifespanCftcCotRefreshLoop` (which doesn't otherwise
+    care about the CFTC loop's own behavior) would immediately construct a real
+    `CFTCCOTProvider` and hit the real on-disk DB/CFTC's live Socrata endpoint the moment
+    `lifespan()` is entered. `TestLifespanCftcCotRefreshLoop` overrides this with its own
+    no-op fixture of the same name (pytest's standard fixture-override-by-name
+    mechanism) to exercise the real thing, mocking only the specific pieces
+    (`get_cftc_cot_provider`, `SessionLocal`) each of its own tests needs.
+    """
+    mocker.patch("app.main._check_and_refresh_cftc_cot_cache_once", new=mocker.AsyncMock())
+
+
 async def _wait_until(predicate, *, timeout: float = 5.0, interval: float = 0.01) -> None:
     """Poll `predicate()` on a real timer until it's true, instead of a fixed count of
     `asyncio.sleep(0)` cooperative yields.
@@ -243,6 +260,14 @@ class TestLifespanCftcCotRefreshLoop:
     """
 
     @pytest.fixture(autouse=True)
+    def _stub_cftc_refresh_check(self):
+        """Overrides the module-level stub of the same name above -- this class exists
+        specifically to exercise `_check_and_refresh_cftc_cot_cache_once`'s real
+        behavior, each test instead mocking only the specific pieces it needs
+        (`get_cftc_cot_provider`, `SessionLocal` via `session_factory`)."""
+        return
+
+    @pytest.fixture(autouse=True)
     def _disable_ibkr(self, mocker):
         """No test in this class cares about the IBKR tickle task -- disabling it keeps
         each test's `asyncio.create_task` call count down to exactly the one CFTC refresh
@@ -286,6 +311,31 @@ class TestLifespanCftcCotRefreshLoop:
             small_speculator_long=10_000,
             small_speculator_short=12_000,
         )
+
+    def test_refreshes_immediately_on_startup_without_waiting_for_the_first_sleep(
+        self, mocker, session_factory
+    ) -> None:
+        """PR #380 review: a cache already stale when the app restarts (e.g. after any
+        downtime longer than `_CFTC_COT_CACHE_MAX_AGE`) must not wait a full
+        `_CFTC_COT_REFRESH_CHECK_INTERVAL_SECONDS` before being corrected -- unlike
+        `_ibkr_tickle_loop`, where sleeping before the first tickle is harmless. The check
+        interval here is deliberately long (a real wait would time this test out via
+        `_wait_until`'s bound) to prove the refresh runs *before* the loop's first
+        `asyncio.sleep`, not only after it.
+        """
+        reports_by_market = {key: [self._report()] for key in COT_MARKETS}
+        fake_provider = mocker.Mock()
+        fake_provider.get_all_recent.return_value = reports_by_market
+        mocker.patch("app.main.get_cftc_cot_provider", return_value=fake_provider)
+        mocker.patch("app.main._CFTC_COT_REFRESH_CHECK_INTERVAL_SECONDS", 3600.0)
+
+        async def _run() -> None:
+            async with lifespan(app):
+                await _wait_until(lambda: fake_provider.get_all_recent.called)
+
+        asyncio.run(_run())
+
+        fake_provider.get_all_recent.assert_called_once()
 
     def test_refreshes_on_a_cold_cache(self, mocker, session_factory) -> None:
         """An empty cache (the state at app startup, before this loop has ever run) is
@@ -358,6 +408,15 @@ class TestLifespanCftcCotRefreshLoop:
         assert "CFTC COT cache refresh failed" in caplog.text
 
     def test_cancelled_cleanly_on_shutdown(self, mocker, session_factory) -> None:
+        """Mocks `get_cftc_cot_provider` (unlike `TestLifespanIbkrTickleGate`'s identical
+        IBKR-side test, which has no such mock to make): the loop's now-immediate
+        startup check (see `_stub_cftc_refresh_check` override above) would otherwise
+        construct a real `CFTCCOTProvider` and, since `session_factory`'s cache starts
+        empty, dispatch a real live CFTC HTTP call from a background thread before this
+        test's own cancellation ever reaches it."""
+        fake_provider = mocker.Mock()
+        fake_provider.get_all_recent.return_value = {key: [self._report()] for key in COT_MARKETS}
+        mocker.patch("app.main.get_cftc_cot_provider", return_value=fake_provider)
         mocker.patch("app.main._CFTC_COT_REFRESH_CHECK_INTERVAL_SECONDS", 100.0)
         create_task_spy = mocker.spy(asyncio, "create_task")
 
@@ -368,6 +427,54 @@ class TestLifespanCftcCotRefreshLoop:
         asyncio.run(_run())
 
         assert create_task_spy.call_count == 1
+        task = create_task_spy.spy_return_list[0]
+        assert task is not None
+        assert task.cancelled()
+
+    def test_shutdown_does_not_block_on_an_in_flight_refresh_call(self, mocker) -> None:
+        """`backend-cftc-cot-caching-scheduler-followups`: mirrors
+        `TestLifespanIbkrTickleGate.test_shutdown_does_not_block_on_an_in_flight_tickle_call`
+        for this loop's identical `asyncio.to_thread` + `Future.cancel()` cancellation
+        mechanism, for parity and to guard against a future divergence between the two
+        loops' shutdown behavior -- previously untested for this loop specifically.
+
+        Patches `app.main._refresh_cftc_cot_cache_if_stale` itself (rather than going
+        through a real DB session) to a slow, blocking stand-in so this test exercises
+        only the cancellation timing, not the refresh logic already covered by the other
+        tests in this class.
+        """
+        sleep_seconds = 0.2
+        started = threading.Event()
+        refresh_start = 0.0
+
+        def _slow_refresh(provider) -> None:
+            nonlocal refresh_start
+            refresh_start = time.monotonic()
+            started.set()
+            time.sleep(sleep_seconds)
+
+        mocker.patch("app.main._refresh_cftc_cot_cache_if_stale", side_effect=_slow_refresh)
+        mocker.patch("app.main._CFTC_COT_REFRESH_CHECK_INTERVAL_SECONDS", 0.0)
+        create_task_spy = mocker.spy(asyncio, "create_task")
+
+        async def _run() -> float:
+            async with lifespan(app):
+                # `started` is set before the in-flight `time.sleep` below even begins, so
+                # waiting on it and then immediately falling out of this `async with` block
+                # reliably triggers `cftc_cot_refresh_task.cancel()` while that sleep --
+                # standing in for the real blocking CFTC HTTP round trip/DB work -- is
+                # still running in the worker thread.
+                await _wait_until(lambda: started.is_set())
+            # Measured here, inside the coroutine, before `asyncio.run`'s own outer teardown
+            # (which does wait for the default executor's threads to drain) has a chance to
+            # run -- this isolates exactly how long `lifespan()`'s own `finally` block took.
+            return time.monotonic() - refresh_start
+
+        elapsed_since_refresh_started = asyncio.run(_run())
+
+        # `lifespan()`'s shutdown returned well before the in-flight call's sleep did -- it
+        # did not block waiting for that worker thread.
+        assert elapsed_since_refresh_started < sleep_seconds * 0.5
         task = create_task_spy.spy_return_list[0]
         assert task is not None
         assert task.cancelled()

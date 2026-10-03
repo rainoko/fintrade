@@ -15,13 +15,20 @@
   "checklist": [
     {
       "step": "docs/architecture/Backend.md §2's module-layout tree (the `data/` directory listing) doesn't mention the new `cftc_cot_cache.py` file, and §7's cache-table enumeration prose doesn't mention the new `cftc_cot_cache` table either. Likely to get fixed incidentally when the PR's blocking §9/API.md doc-staleness finding is addressed, but worth confirming explicitly rather than assuming -- fold into that same doc pass if it hasn't already landed by the time this is picked up.",
-      "done": false
+      "done": true
     },
     {
       "step": "`app.main._cftc_cot_refresh_loop` has no dedicated test exercising the 'shutdown doesn't block on an in-flight refresh call' path, unlike `_ibkr_tickle_loop`'s own `TestLifespanIbkrTickleGate.test_shutdown_does_not_block_on_an_in_flight_tickle_call` (born from a real timing bug per that test's own docstring). The CFTC loop uses the identical `asyncio.to_thread` + `Future.cancel()` cancellation mechanism, so this is very likely already correct, but it's untested specifically for this loop -- add an equivalent test (slow/blocking `_refresh_cftc_cot_cache_if_stale` stand-in, cancel mid-flight, assert `lifespan()`'s shutdown returns promptly) for parity and to guard against a future divergence between the two loops' shutdown behavior.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-03T13:47:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Both checklist items were folded directly into `backend-cftc-cot-caching-scheduler`'s own PR #380 rework (its needs_work rework pass) rather than done here separately: the Backend.md §2/§7 doc mentions were added in the same doc-editing pass as that PR's blocking §9/API.md fix, and `TestLifespanCftcCotRefreshLoop.test_shutdown_does_not_block_on_an_in_flight_refresh_call` was added to `backend/tests/unit/test_main.py` in that same PR, mirroring `TestLifespanIbkrTickleGate`'s identical IBKR-loop test and mutation-tested against a reverted `cftc_cot_refresh_task.cancel()` call to confirm it actually catches a regression.",
+      "rationale": "Per CLAUDE.md's 'every non-blocking finding becomes a tracked task' convention, this task exists to make sure these two findings aren't lost -- now that they're actually fixed (landed on `main` via PR #380), marking them done here (rather than leaving them open for a second, now-redundant pass) keeps this board entry accurate rather than stale. No code/decision here was reversed or reinterpreted; this is purely a status update reflecting work already completed on the dependency task's own PR."
+    }
+  ],
   "questions": []
 }

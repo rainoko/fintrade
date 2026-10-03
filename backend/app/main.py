@@ -107,38 +107,56 @@ def _refresh_cftc_cot_cache_if_stale(provider: CFTCCOTProvider) -> None:
         db.close()
 
 
+async def _check_and_refresh_cftc_cot_cache_once(provider: CFTCCOTProvider) -> None:
+    """One check-and-maybe-refresh pass, run both immediately on startup and on every
+    subsequent wake-up of `_cftc_cot_refresh_loop` below. A failed refresh (CFTC request
+    failure, or any other unexpected error) is logged and the caller keeps running rather
+    than stopping -- `GET /api/cftc/cot` already has its own genuine-cache-miss live-fetch
+    fallback for the case this cache was never successfully populated at all, so this
+    loop's only job is to keep trying, not to raise an alert of its own.
+    """
+    try:
+        await asyncio.to_thread(_refresh_cftc_cot_cache_if_stale, provider)
+    except Exception as exc:  # noqa: BLE001 - deliberately broad, see rationale below
+        # Deliberately broad for the same reason `_ibkr_tickle_loop` catches `Exception`
+        # rather than narrowing to `DataProviderUnavailableError` (the only exception
+        # `CFTCCOTProvider.get_all_recent` is documented to raise today): narrowing this
+        # catch would be a latent trap if the DB-side `CFTCCOTCache.refresh`/`is_stale`
+        # calls this wraps ever raised something else (e.g. a genuine, non-benign
+        # `OperationalError` that `refresh`'s own narrower catch doesn't swallow) --
+        # an uncaught exception here would end this loop permanently with no caller
+        # ever finding out, since nothing else polls it. `Exception` (not
+        # `BaseException`) still lets a real `asyncio.CancelledError` propagate through
+        # untouched, so cancellation at shutdown still works, exactly like
+        # `_ibkr_tickle_loop`.
+        logger.warning("CFTC COT cache refresh failed: %s", exc)
+
+
 async def _cftc_cot_refresh_loop(provider: CFTCCOTProvider) -> None:
     """Background weekly-cadence refresh loop for the CFTC COT cache, following
-    `_ibkr_tickle_loop`'s own shape (sleep, act, log-and-continue on failure, repeat for
+    `_ibkr_tickle_loop`'s own shape (act, log-and-continue on failure, sleep, repeat for
     the app's lifetime) -- docs/tasks/backend-cftc-cot-caching-scheduler.json. Unlike
     that loop, this one doesn't act on every wake-up: `_refresh_cftc_cot_cache_if_stale`
     is itself a no-op unless the cache is actually due (`_CFTC_COT_CACHE_MAX_AGE`), so
     waking up more often than the data changes costs nothing beyond a cheap local DB
     query most of the time.
 
-    A failed refresh (CFTC request failure, or any other unexpected error) is logged and
-    the loop keeps running rather than stopping -- `GET /api/cftc/cot` already has its own
-    genuine-cache-miss live-fetch fallback for the case this cache was never
-    successfully populated at all, so this loop's only job is to keep trying, not to
-    raise an alert of its own.
+    Unlike `_ibkr_tickle_loop` (which sleeps *before* its first tickle -- harmless there,
+    since a freshly-connected IBKR session is inherently fresh at that moment), this loop
+    checks-and-refreshes-if-due once immediately, before the first `asyncio.sleep`
+    (`backend-cftc-cot-caching-scheduler`'s PR #380 review): the CFTC cache is backed by
+    persistent on-disk state whose staleness is a fact about calendar time since the last
+    refresh, not about this process's own uptime, and `GET /api/cftc/cot`'s read path
+    deliberately never re-checks staleness itself (see this task's `decisions` entry --
+    this loop is the sole freshness guarantee). Without an immediate startup check, a
+    cache already past `_CFTC_COT_CACHE_MAX_AGE` when the app restarts (e.g. after any
+    downtime longer than that, a redeploy, a crash-restart) would keep being served as a
+    cache hit for a further full `_CFTC_COT_REFRESH_CHECK_INTERVAL_SECONDS` after startup.
     """
+    await _check_and_refresh_cftc_cot_cache_once(provider)
     while True:
         await asyncio.sleep(_CFTC_COT_REFRESH_CHECK_INTERVAL_SECONDS)
-        try:
-            await asyncio.to_thread(_refresh_cftc_cot_cache_if_stale, provider)
-        except Exception as exc:  # noqa: BLE001 - deliberately broad, see rationale below
-            # Deliberately broad for the same reason `_ibkr_tickle_loop` catches `Exception`
-            # rather than narrowing to `DataProviderUnavailableError` (the only exception
-            # `CFTCCOTProvider.get_all_recent` is documented to raise today): narrowing this
-            # catch would be a latent trap if the DB-side `CFTCCOTCache.refresh`/`is_stale`
-            # calls this wraps ever raised something else (e.g. a genuine, non-benign
-            # `OperationalError` that `refresh`'s own narrower catch doesn't swallow) --
-            # an uncaught exception here would end this loop permanently with no caller
-            # ever finding out, since nothing else polls it. `Exception` (not
-            # `BaseException`) still lets a real `asyncio.CancelledError` propagate through
-            # untouched, so cancellation at shutdown still works, exactly like
-            # `_ibkr_tickle_loop`.
-            logger.warning("CFTC COT cache refresh failed: %s", exc)
+        await _check_and_refresh_cftc_cot_cache_once(provider)
 
 
 @asynccontextmanager

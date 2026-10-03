@@ -696,7 +696,18 @@ Response:
 
 Elder ch. 37's Commitments of Traders (COT) framing (docs/ideas.md's ch. 37 entry) — follow commercials (historically the successful group), fade small speculators (historically the unsuccessful group), read current positioning against historical norms rather than an absolute level — for a small, fixed set of major futures markets: Euro, Yen, Oil, Gold, Bonds (matching the ch. 57 daily-homework idea's own list; `app.data.cftc_cot_provider.COT_MARKETS`). This is a genuinely separate, informational surface — futures-market context, not something that plugs into any per-stock-ticker signal the way insider clusters or short interest do — see this task's `decisions` entry.
 
-Sourced from the CFTC's own public Socrata Open Data JSON API (`https://publicreporting.cftc.gov/resource/6dca-aqww.json`, the "Legacy"/"Futures Only" report — the classic Commercial/Non-Commercial/Non-Reportable three-way breakdown Elder describes), fetched fresh on every request — no local caching in this minimal scope, since the underlying data changes at most weekly. See this task's `decisions` entry for the full research writeup and the specific contract code chosen for each of the 5 markets.
+Sourced from the CFTC's own public Socrata Open Data JSON API (`https://publicreporting.cftc.gov/resource/6dca-aqww.json`, the "Legacy"/"Futures Only" report — the classic Commercial/Non-Commercial/Non-Reportable three-way breakdown Elder describes). See this task's `decisions` entry for the full research writeup and the specific contract code chosen for each of the 5 markets.
+
+Served from a DB-backed cache (`app.data.cftc_cot_cache.CFTCCOTCache`, keyed by market +
+report date; `docs/tasks/backend-cftc-cot-caching-scheduler.json`) kept warm by a scheduled
+background refresh (`app.main._cftc_cot_refresh_loop`, matching the CFTC's weekly publication
+cadence) rather than fetched live on every request — the data changes at most weekly, so a
+pull-based per-request fetch would almost always return an identical response. This endpoint
+only falls back to a live CFTC fetch on a genuine cache miss (an empty cache, e.g. before the
+scheduled refresh has ever run since this app started); once populated, it never re-checks
+staleness or re-fetches live on its own — that's solely the scheduled loop's job. See
+`docs/architecture/Backend.md` §9 and that task's `decisions` entries for the full
+caching/scheduling design.
 
 ```json
 {

@@ -3,7 +3,7 @@
   "title": "Cache CFTC COT data in the DB and refresh it on a weekly schedule instead of fetching live on every request",
   "area": "backend/data",
   "skill": "add-indicator",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "docs/tasks/done/backend-cftc-cot-data.json",
@@ -60,6 +60,18 @@
       "recorded_by": "task-worker",
       "decision": "This task fulfills -- rather than reverses -- `backend-cftc-cot-data`'s own `decisions` entry (docs/tasks/done/backend-cftc-cot-data.json), which explicitly named this exact follow-up as reasonable once the endpoint turns out to be called often enough that repeated CFTC round-trips matter: \"adding a caching layer (e.g. a new ORM table keyed by market+report_date, mirroring `IBKRBreadthSnapshotORM`) is a reasonable follow-up... but was left out here as an unnecessary complication for a first, minimal version.\" `backend-cftc-cot-data.json` itself is left untouched (append-only decisions convention, per CLAUDE.md) -- this entry is the record of that follow-up being exercised.",
       "rationale": "Per CLAUDE.md's decision-memory convention, a correction or follow-up to a prior decision is recorded as a new entry on the task doing the follow-up work, not by editing the original task's already-`done` file -- this entry (and this task generally) is exactly that."
+    },
+    {
+      "timestamp": "2026-10-03T13:41:21Z",
+      "recorded_by": "task-worker",
+      "decision": "Needs-work rework for PR #380's review: updated `docs/architecture/Backend.md` §9 (and §2's module-layout tree, §7's cache-table prose) and `docs/architecture/API.md`'s `GET /api/cftc/cot` section to describe the actual, now-shipped caching/scheduling behavior (DB-backed `CFTCCOTCache` read-through, `_cftc_cot_refresh_loop` scheduled background refresh), replacing the stale \"fetches fresh on every request, no local caching in this minimal scope\" claims both docs still had. Also folded in both non-blocking findings already filed on `backend-cftc-cot-caching-scheduler-followups` while making this same pass, since both were small and low-risk: (1) Backend.md §2/§7 already needed touching for the blocking fix itself, so adding the `cftc_cot_cache.py`/table mentions there cost nothing extra; (2) added `TestLifespanCftcCotRefreshLoop.test_shutdown_does_not_block_on_an_in_flight_refresh_call` (backend/tests/unit/test_main.py), mirroring `TestLifespanIbkrTickleGate`'s identical test for the IBKR loop's same `asyncio.to_thread`+`Future.cancel()` pattern -- confirmed effective by temporarily removing the `cftc_cot_refresh_task.cancel()` call and observing the test hang/fail before reverting that mutation.",
+      "rationale": "The doc staleness fix was blocking (pr-reviewer's own verdict) and is addressed directly rather than deferred. Both non-blocking items were judged low-risk to fold in now rather than leave on the followups task: the doc-tree/table-prose item is a few extra lines added to a file this PR was already editing for the blocking fix, and the shutdown test is a small, well-contained addition that mirrors an existing, already-reviewed pattern verbatim (same loop shape, same cancellation mechanism, same test structure) rather than new design work. Marked both items `done` on `backend-cftc-cot-caching-scheduler-followups.json` in the same commit rather than leaving them open there now that they're actually fixed, per the task-board's own 'don't let the board drift from reality' expectation -- that followups task's own `depends_on: [backend-cftc-cot-caching-scheduler]` and its two checklist items are otherwise now stale once this lands."
+    },
+    {
+      "timestamp": "2026-10-03T13:47:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Also fixed a third, later-added blocking review comment on PR #380 (posted as a follow-up PR comment after the review object already in this task's `review` field was written, but recorded there as blocking in `review.comments[2]`/`review.notes`): `_cftc_cot_refresh_loop` previously slept the full `_CFTC_COT_REFRESH_CHECK_INTERVAL_SECONDS` (6h) before its very first staleness check, copied verbatim from `_ibkr_tickle_loop`'s sleep-first shape. Restructured so the loop now calls a new `_check_and_refresh_cftc_cot_cache_once` helper once immediately on startup, before entering the sleep-then-check loop, so a cache already stale at app restart (any downtime >= `_CFTC_COT_CACHE_MAX_AGE`) is corrected right away rather than being served as a stale cache hit for up to a further 6 hours. Added a dedicated regression test (`test_refreshes_immediately_on_startup_without_waiting_for_the_first_sleep`) with a deliberately long check interval to prove the refresh fires before the first sleep, not only after it -- mutation-tested by temporarily reverting to the old sleep-first order and confirming the new test fails (times out) against it. Also had to add/adjust test infrastructure (`_stub_cftc_refresh_check` module-level autouse fixture + its override inside `TestLifespanCftcCotRefreshLoop`, and a provider mock added to `test_cancelled_cleanly_on_shutdown`) since the immediate-on-startup check meant every other test in `tests/unit/test_main.py` that calls `lifespan()` would otherwise now construct a real `CFTCCOTProvider` and attempt a live network call/real on-disk DB touch the instant the app's lifespan starts, violating Testing.md's no-live-network-calls rule.",
+      "rationale": "Per this agent's own instruction to treat every entry in a needs_work review's `comments` as a required fix rather than optional feedback, not just the findings explicitly summarized when this rework was dispatched -- this comment was present in the task JSON's `review.comments` (with `review.notes` explicitly calling it a second blocking item) even though it arrived via a later PR comment rather than the original review post. Fixed it in this same PR rather than leaving it for a follow-up, consistent with how the two originally-named blocking doc findings were handled, since leaving a real correctness gap in this loop (its own docstring/decisions entry already state it's the cache's sole freshness guarantee) unaddressed would defeat that guarantee for any real restart scenario."
     }
   ],
   "questions": [],
@@ -67,7 +79,7 @@
     "branch": "task/backend-cftc-cot-caching-scheduler",
     "pr_number": 380,
     "pr_url": "https://github.com/rainoko/fintrade/pull/380",
-    "pushed_at": "2026-10-03T13:20:48Z"
+    "pushed_at": "2026-10-03T13:41:21Z"
   },
   "review": {
     "reviewed_at": "2026-10-03T13:33:45Z",
