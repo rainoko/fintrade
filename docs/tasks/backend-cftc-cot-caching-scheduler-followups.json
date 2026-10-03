@@ -24,6 +24,10 @@
     {
       "step": "[round 2 PR #380 review, non-blocking] `CFTCCOTCache.refresh()` (app/data/cftc_cot_cache.py) commits every market's upserts in a single transaction rather than per-entity (unlike `CachedDataProvider._upsert`/`_upsert_extended`, which commit once per ticker) -- a single PK-collision on any one row (the scheduled loop racing a concurrent on-demand cache-miss fetch) discards the whole ~260-row batch's writes, not just the colliding row (`test_integrity_error_on_commit_is_swallowed_not_raised` itself demonstrates this: the row count is 0, not 259, after the swallowed collision). Not a correctness bug -- the rollback+log-never-raise race-safety behavior is intact -- just wasteful, forcing an unnecessarily early full re-fetch. Consider committing per-market (or per-row) instead, matching the established convention elsewhere in this file.",
       "done": true
+    },
+    {
+      "step": "[round 3 PR #380 re-review, non-blocking] `frontend/src/api/types.ts` (the generated client, `yarn generate:api-types`) was not regenerated after `backend/openapi.json`'s `GET /api/cftc/cot` description changed in this PR -- confirmed by re-running `yarn generate:api-types` from `frontend/` and diffing: only the JSDoc description comment for that one operation differs (still says \"Always fetches fresh from the CFTC's own public Socrata endpoint (no local caching...\"), no actual type/schema/shape changed, so `tsc`/`eslint` both stay clean either way and nothing is functionally broken. Not blocking since it's a comment-only drift in a generated artifact with no behavioral effect, but `docs/architecture/API.md`'s \"Frontend Type Generation\" section documents this file as meant to track `backend/openapi.json` to prevent contract drift -- worth regenerating and committing `frontend/src/api/types.ts` to close this gap next time this file (or any other route whose docstring changes) is touched.",
+      "done": false
     }
   ],
   "decisions": [
