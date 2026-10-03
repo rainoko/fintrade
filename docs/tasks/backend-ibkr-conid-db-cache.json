@@ -3,7 +3,7 @@
   "title": "Persist IBKR conid resolutions in the DB so they survive a process restart",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "docs/tasks/done/backend-ibkr-primary-data-provider.json",
@@ -55,5 +55,33 @@
     "pr_number": 384,
     "pr_url": "https://github.com/rainoko/fintrade/pull/384",
     "pushed_at": "2026-10-03T22:37:35Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-03T22:49:48Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/384",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: `_read_conid_db_cache`'s SELECT (line ~918) and `_write_conid_db_cache`'s pre-commit SELECT (line ~933) are not wrapped in the `IntegrityError`/`OperationalError` handling that only `_write_conid_db_cache`'s `db.commit()` call gets. SQLite's default (non-WAL, no `busy_timeout` configured in `app/db/session.py`) whole-file write locking can genuinely raise `OperationalError` on a concurrent read, not just on a concurrent write's own commit -- this exact risk is already documented and accepted elsewhere in this codebase (e.g. PR #382's reviewer comment reasoning about `add_position`/`add_watchlist_item`'s own concurrent-write handling). `app/api/day_trader_signal.py`'s `_resolve_and_fetch_legs`/`_fan_out_per_ticker` explicitly document and rely on `resolve_conid` 'Never rais[ing]' anything except `IBKRUnavailableError` -- before this PR that was true by construction (no DB access existed in `resolve_conid` at all). This PR silently breaks that invariant: a transient SQLite lock-contention `OperationalError` surfacing from either unwrapped SELECT would propagate out of `resolve_conid` uncaught, crashing an entire batch request (GET /api/watchlist, /api/portfolio, /api/risk, or a day-trader endpoint) instead of gracefully degrading just the one ticker, as the existing contract promises. It also means a conid that was *already successfully resolved live and already placed in `_conid_cache`* (`resolve_conid` line 885, before the `_write_conid_db_cache` call on line 887) can still fail to reach the caller as an exception, purely because the best-effort DB-cache write's own SELECT hit contention -- the write path should never be able to turn an already-successful resolution into a caller-visible failure. Confirmed via a code-review pass (see PR comment) rather than live reproduction, but the reasoning and precedent are concrete enough that I'm treating it as review-blocking rather than a follow-up.",
+        "file": "backend/app/data/ibkr_provider.py",
+        "line": 904
+      },
+      {
+        "summary": "Non-blocking: docs/architecture/Backend.md's description of `IBKRProvider.resolve_conid`'s caching (the paragraph starting '`IBKRProvider.resolve_conid` caches each ticker's resolved conid... for 24h on the `IBKRProvider` instance itself') was not updated to mention the new DB-backed, permanent, restart-surviving fallback cache this PR adds -- inconsistent with the precedent set when the CFTC COT caching change added a new Backend.md §9 documenting an analogous DB-backed-cache addition. Tracked on the followups task.",
+        "file": "docs/architecture/Backend.md",
+        "line": 152
+      },
+      {
+        "summary": "Non-blocking: no test asserts that `app.api.dependencies._get_ibkr_provider_singleton()`'s production wiring actually passes `session_factory=SessionLocal` to the constructed `IBKRProvider` -- the new line is only exercised incidentally (100% line coverage) by existing singleton-construction tests, not verified behaviorally. Tracked on the followups task.",
+        "file": "backend/app/api/dependencies.py",
+        "line": 237
+      },
+      {
+        "summary": "Non-blocking: checklist item 1 suggested the new table could also persist 'the disambiguating exchange/description if useful for debugging a wrong resolution later'; the final schema (ticker/conid/resolved_at only) omits it with no `decisions` entry explaining why. Tracked on the followups task.",
+        "file": "backend/app/db/models.py",
+        "line": 382
+      }
+    ],
+    "notes": "Full suite: 1595 passed, 100% line/branch coverage (gate 90%), run twice for determinism. ruff/mypy clean on backend; no frontend changes in this PR (skipped frontend static-verify/browser-walkthrough/e2e explicitly -- no UI surface). Alembic migration c8216d30fc10 verified upgrade->downgrade->upgrade cleanly against a scratch DB, and independently verified already applied to the real dev-container backend/fintrade.db (alembic_version at head, ibkr_conid_cache table schema matches the migration exactly, 1 existing row). Mutation-tested both claims: (1) temporarily replaced the IntegrityError/OperationalError except-block with `raise`, confirmed both the IntegrityError and OperationalError race tests then failed, restored and confirmed a clean diff; (2) temporarily forced `_read_conid_db_cache`'s result to always be treated as a miss in `resolve_conid`, confirmed the restart-simulation test (and the other DB-cache-hit tests) then failed, restored and confirmed a clean diff. Session-lifecycle check: `_read_conid_db_cache`/`_write_conid_db_cache` each open and close their own short-lived session per call via the injected `session_factory`, consistent with `get_data_provider_factory`'s own per-call-session pattern that PR #360's review established specifically to avoid a shared-session race across threads for a long-lived singleton -- no lifecycle bug found there. All 3 decisions entries are genuine, well-reasoned judgment calls with real alternatives considered and rejected, and the two checklist items phrased as 'decide X' both have a matching decisions entry (cross-check passes). openapi.json re-exported locally and diffed clean (no API route/schema changed, as the PR description claims). The one blocking finding (unwrapped DB-cache-read SELECT able to raise a raw OperationalError, breaking resolve_conid's established 'never raises except IBKRUnavailableError' contract relied on by day_trader_signal.py's batch fan-out) was surfaced by a code-review pass and independently reasoned through against this exact codebase's own already-documented SQLite-locking precedent (PR #382's review) -- not reproduced live, since reproducing genuine SQLite file-lock contention deterministically in a test would itself require non-trivial new test infrastructure, which is exactly the gap: no existing test exercises this path at all."
   }
 }

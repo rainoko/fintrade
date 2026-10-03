@@ -2532,7 +2532,7 @@
       "id": "backend-ibkr-conid-db-cache",
       "area": "backend/data",
       "skill": null,
-      "state": "testing",
+      "state": "implementing",
       "path": "docs/tasks/backend-ibkr-conid-db-cache.json"
     },
     {
@@ -2562,6 +2562,13 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/backend-ibkr-request-retry-followups.json"
+    },
+    {
+      "id": "backend-ibkr-conid-db-cache-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-ibkr-conid-db-cache-followups.json"
     }
   ]
 }
