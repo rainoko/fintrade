@@ -1,0 +1,109 @@
+{
+  "id": "backend-position-watchlist-race-condition",
+  "title": "Handle the concurrent-insert race on POST /api/portfolio/positions and POST /api/watchlist with the same IntegrityError-catch convention used elsewhere",
+  "area": "backend/portfolio",
+  "skill": null,
+  "state": "done",
+  "depends_on": [],
+  "references": [
+    "backend/app/api/routers/portfolio.py",
+    "backend/app/api/routers/watchlist.py",
+    "backend/app/data/cache.py"
+  ],
+  "description": "Follow-up from a backend-wide DB-concurrency audit this session. Confirmed via reading the current code before writing this task: `POST /api/portfolio/positions` (`backend/app/api/routers/portfolio.py`, the position create/merge handler, `db.commit()` call around line 719) does a plain check-then-act on `PositionORM.ticker` (which has a `unique=True` constraint): it queries for an existing row, and if none is found, constructs and commits a new one -- with no `try`/`except` around that `db.commit()` at all. Two concurrent requests for the same brand-new ticker could both see `existing is None`, both construct a new row, and the loser's `db.commit()` would raise an uncaught `IntegrityError`, surfacing as an unhandled 500 instead of the graceful merge-or-create behavior this endpoint otherwise intends. The same shape of gap exists in `POST /api/watchlist` (`backend/app/api/routers/watchlist.py`, around line 337-341): `db.get(WatchlistItemORM, ticker)` returns `None`, a new row is constructed and committed, again with no exception handling on a concurrent-duplicate race.\n\nThis app already has a well-established, thoroughly-hardened convention for exactly this class of race elsewhere: `CachedDataProvider._upsert`/`_upsert_extended` (`backend/app/data/cache.py`) and the IBKR breadth-snapshot insert (`backend/app/api/routers/ibkr.py`) all catch `IntegrityError`/`OperationalError` on a concurrent-insert race and either discard the loser's write (since the caller's own freshly-computed value is still valid to return) or re-read the winner's row. This task brings `PositionORM`/`WatchlistItemORM`'s two write paths in line with that same convention -- it's a real, if currently low-probability, gap given this app is explicitly a single-user MVP today (per `docs/architecture/Backend.md`), but worth closing since it's low-risk and mechanical, and the exposure would grow if this app ever moved off SQLite's coarse whole-file locking onto Postgres' genuinely-concurrent row-level locking (noted here as forward-looking context, not an immediate blocker).",
+  "checklist": [
+    {
+      "step": "In `POST /api/portfolio/positions`'s create/merge handler, wrap the `db.commit()` for the newly-constructed-row path in a `try`/`except (IntegrityError, OperationalError)`: on a concurrent-duplicate race, roll back and re-query for the now-existing row (the winner's), then fall into the same merge logic the handler already uses when `existing` is found on the first query -- mirroring `CachedDataProvider._upsert`'s re-read-the-winner pattern. Record the exact merge-on-race-loss behavior as a decisions entry (e.g. does the loser's own position data get merged into the winner's row the same way a genuine pre-existing-ticker request would, or is the loser's request simply discarded in favor of the winner's row as-is -- pick one and justify it).",
+      "done": true
+    },
+    {
+      "step": "Apply the equivalent fix to `POST /api/watchlist`'s `add_watchlist_item` handler: wrap its `db.commit()` in the same `try`/`except`, and on a race, re-query via `db.get(WatchlistItemORM, ticker)` and return that existing row (matching the endpoint's own documented 'adding a ticker that's already watched is a no-op' behavior for the already-exists-at-first-query case).",
+      "done": true
+    },
+    {
+      "step": "Tests (no live network calls per Testing.md): a concurrent-insert race test for each endpoint (e.g. two near-simultaneous requests for the same new ticker, using a pattern similar to however `CachedDataProvider`'s own upsert-race tests are structured, or a direct unit test that simulates the race by pre-inserting a conflicting row between the handler's own existence-check and its commit) confirming both endpoints now resolve gracefully instead of raising an unhandled 500.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-10-03T15:21:43Z",
+      "recorded_by": "task-worker",
+      "decision": "On a concurrent-insert race on `POST /api/portfolio/positions`, the loser's incoming `PositionIn` payload is merged into the winner's already-committed row via the exact same merge logic (`_merge_position`, newly extracted so both the genuine already-exists-at-first-query path and the race-recovery path share one implementation) a normal already-exists request would take -- not discarded in favor of the winner's row as-is.",
+      "rationale": "Rejected discard-in-favor-of-winner (the pattern `CachedDataProvider._upsert`/`_upsert_extended` and the IBKR breadth-snapshot insert use) because those two are safe to discard specifically because the loser's own value is either independently returned to its caller regardless of persistence (the cache) or trivially re-derivable on the next request (a scan count) -- there is nothing analogous for a position add: `position.quantity`/`avg_cost_basis`/`entry_notes`/`strategy` is data the user explicitly typed into this one request, and silently dropping it on an unlucky race would mean a real buy the user just recorded vanishes from the book with a misleading 201 response. Merging is also what the checklist item itself already pointed at (\"fall into the same merge logic the handler already uses when `existing` is found on the first query\"), and it costs nothing extra: the merge helper was already being extracted to de-duplicate the normal-merge and race-recovery code paths."
+    },
+    {
+      "timestamp": "2026-10-03T15:21:43Z",
+      "recorded_by": "task-worker",
+      "decision": "For both endpoints, an `OperationalError` caught on the initial insert whose re-query then finds no same-ticker/same-primary-key winner row (i.e. the lock contention was against some unrelated write elsewhere in the SQLite file, not actually a race on this key) surfaces as a clean `HTTP 503` with a generic, non-leaking detail message, rather than proceeding with a `None` row or retrying automatically.",
+      "rationale": "Mirrors `POST /api/ibkr/breadth/snapshot`'s own identical `IntegrityError`-narrow-but-`OperationalError`-broad reasoning (`app/api/routers/ibkr.py`, `backend-ibkr-data-provider`'s task history): `IntegrityError` on these tables can only ever mean the same-key race (ticker is the only non-PK unique constraint on `PositionORM`, and the sole PK on `WatchlistItemORM`), but SQLite's default whole-file write locking can raise `OperationalError` (\"database is locked\") from any concurrent write anywhere in the file, so a same-key winner isn't guaranteed to exist just because this exception was raised. Auto-retrying inside the request was rejected as unnecessary complexity for a single-user MVP (per the task description's own framing) -- a 503 with a 'retry' detail message, consistent with the existing breadth-snapshot convention, lets the client (or the user) decide to resubmit."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/backend-position-watchlist-race-condition",
+    "pr_number": 382,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/382",
+    "pushed_at": "2026-10-03T15:23:34Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-03T15:35:58Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/382",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Full backend suite: 1576 passed, 100% line/branch coverage (gate 90%). ruff/mypy clean. Frontend eslint/tsc clean. profit-target stale-wording guard clean.",
+        "file": "backend/app/api/routers/portfolio.py"
+      },
+      {
+        "summary": "Mutation-tested both endpoints myself: temporarily replaced each `try: db.commit() / except (IntegrityError, OperationalError)` with a plain `db.commit()` (no exception handling), confirmed both new race regression tests (TestAddPositionConcurrentInsertRace, TestAddWatchlistItemConcurrentInsertRace) then fail with the raw IntegrityError/OperationalError propagating uncaught through the handler, then restored the original file byte-for-byte (md5 verified) before re-running the full suite clean. Confirms the try/except is genuinely load-bearing, not a no-op.",
+        "file": "backend/app/api/routers/portfolio.py"
+      },
+      {
+        "summary": "Verified the `_merge_position` extraction is behavior-preserving: diffed the extracted function body against the pre-existing inline `else` branch it replaced line-by-line -- identical merge arithmetic, overflow check, trailing-stop-floor computation, entry_notes/strategy merge rules, just parameterized and moved into a shared helper. Pre-existing merge-path tests (23 tests under the Merge-named test classes) all still pass unchanged against the refactor.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 536
+      },
+      {
+        "summary": "Merge-vs-discard decision is well-reasoned and consistent, not arbitrary: positions merges the race loser's payload (user-typed quantity/cost-basis data that must not be silently dropped) while watchlist discards it (a bare ticker+added_at row with nothing to merge, matching the endpoint's own pre-existing already-watched-is-a-no-op contract). Both decisions are recorded in the task's own `decisions` array with rationale, satisfying the 'decide X' checklist cross-check.",
+        "file": "docs/tasks/backend-position-watchlist-race-condition.json"
+      },
+      {
+        "summary": "Traced the OperationalError-with-no-winner 503 path: confirmed backend/app/db/session.py's engine has no WAL mode/busy_timeout configured, so SQLite's default whole-file write locking can genuinely raise 'database is locked' from any concurrent writer anywhere in the file, not only a same-ticker/same-PK race -- so the re-query legitimately finding no winner is a real, reachable case, not dead code. IntegrityError's narrower scope (can only mean the same-key race, since ticker is the sole unique/PK constraint on each table) is also correctly reasoned.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 760
+      },
+      {
+        "summary": "backend/openapi.json and frontend/src/api/types.ts are correctly regenerated: ran `python scripts/export_openapi.py` and `yarn generate:api-types` myself against the checked-out branch and both produced zero diff against the committed files. New 503 responses={} entries have model/description per CLAUDE.md's API documentation standard.",
+        "file": "backend/openapi.json"
+      },
+      {
+        "summary": "No Elder-methodology (docs/Analyse.md) divergence: this PR doesn't touch app/signals/ and the only app/portfolio/ logic in the diff (`trailing_stop_floor_before_merge`'s call inside `_merge_position`) is an unchanged relocation of pre-existing code, confirmed via diff.",
+        "file": "backend/app/api/routers/portfolio.py"
+      },
+      {
+        "summary": "Browser/e2e walkthrough: no Playwright MCP browser tool was available in this review session's toolset, so the interactive click-through was substituted with an HTTP-level functional check (curl, via the Vite dev proxy) of the exact golden path and edge case the frontend hooks exercise -- new-ticker add, duplicate-ticker merge, duplicate watchlist no-op -- all behaving as expected. The persisted e2e suite (`make e2e`, step 9a) was run in full and is unaffected: 27/27 specs passed, including portfolio/watchlist add flows, no console/network errors beyond pre-existing benign lightweight-charts dispose warnings unrelated to this PR.",
+        "file": "frontend/tests/e2e/watchlist.spec.ts"
+      },
+      {
+        "summary": "Non-blocking: docs/architecture/API.md's 'Error Cases to Cover in Tests' list and the two endpoints' own doc sections weren't updated to mention the new 503 -- every other 503 addition in this repo's history has a corresponding bullet there. Filed as a follow-up checklist item (not blocking since openapi.json/types.ts, the CLAUDE.md-mandated artifacts, are correctly in sync).",
+        "file": "docs/architecture/API.md"
+      },
+      {
+        "summary": "Non-blocking but the most significant finding, surfaced by a code-review skill pass and independently confirmed: `add_position`'s already-exists-at-first-query merge path and the new race-recovery merge path both call `db.commit()` with no try/except, unlike the insert path. More importantly, concurrent merges into the SAME already-existing position are a genuine lost-update race this PR doesn't address (and wasn't scoped to -- the task's checklist named only 'the newly-constructed-row path'): two concurrent requests both read the same pre-commit `existing.quantity`/`avg_cost_basis`, each computes its own merged result, and the second commit silently overwrites the first with no exception raised at all (an UPDATE, not an INSERT, so no unique-constraint violation triggers) -- real user-submitted data can vanish with no error, which is exactly what this PR's own `decisions` entry says must never happen on a race. Confirmed via `git show main:backend/app/api/routers/portfolio.py` that this exact exposure (one shared, equally-unprotected final `db.commit()` for both branches) already existed identically before this PR -- not a regression, and properly fixing it needs a different technique (optimistic-concurrency version column, or SQLite write-locking around the read-modify-write) than this task's try/except-around-insert scope, so it's filed as its own higher-priority item on backend-position-watchlist-race-condition-followups rather than blocking this PR.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 793
+      },
+      {
+        "summary": "Non-blocking, narrower version of the above: a plain OperationalError from unrelated SQLite lock contention (no actual lost update) hitting either merge path's `db.commit()` still crashes as an unhandled 500 instead of the 503 this PR establishes as the endpoint's convention -- an inconsistency between the now-hardened insert path and the still-fragile merge paths. Also, the race-recovery branch's own re-query (`db.query(...).one_or_none()`) isn't itself protected against a second OperationalError. Both filed as follow-ups.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 790
+      },
+      {
+        "summary": "Non-blocking: the two endpoints' except-block bodies (rollback -> re-query winner -> 503-or-use-winner) are structurally duplicated with only the query form and found-winner handling differing; a shared helper could de-duplicate this if a third call site for the pattern appears, and would be a natural place to also close the unprotected-merge-commit gap above. Filed as a follow-up.",
+        "file": "backend/app/api/routers/watchlist.py"
+      }
+    ],
+    "notes": "Accepted. Verified via: full backend test suite + 100% coverage, ruff/mypy/eslint/tsc all clean, a hands-on mutation test of both endpoints' exception handling (confirmed the new race tests fail without the try/except, pass with it, and restored the file to its exact original state), a line-by-line diff check that the _merge_position extraction is behavior-preserving (plus all pre-existing merge tests still passing), tracing the OperationalError-no-winner 503 path against the actual SQLite engine config to confirm it's reachable, re-running both the OpenAPI export and the frontend type generator to confirm the committed snapshots are byte-identical to a fresh regeneration, an HTTP-level functional walkthrough (no Playwright MCP tool available this session) plus the full persisted e2e suite (27/27 passed), and a code-review skill pass that surfaced a genuine pre-existing (not introduced by this PR, confirmed against `main`) lost-update race on concurrent merges into an already-existing position. That lost-update race and three smaller findings (a stale docs/architecture/API.md error catalog, the merge paths' own unprotected commits/re-query, and a duplication note) are filed on backend-position-watchlist-race-condition-followups -- none block this PR, since the task's own checklist explicitly scoped the fix to the brand-new-ticker insert race, which is delivered correctly and completely."
+  }
+}

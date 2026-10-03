@@ -1,0 +1,37 @@
+{
+  "id": "backend-position-watchlist-race-condition-followups",
+  "title": "Non-blocking follow-ups from backend-position-watchlist-race-condition's PR #382 review",
+  "area": "backend/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-position-watchlist-race-condition"],
+  "references": [
+    "docs/tasks/backend-position-watchlist-race-condition.json",
+    "https://github.com/rainoko/fintrade/pull/382"
+  ],
+  "description": "Tracked, non-blocking findings from pr-reviewer's review of PR #382 (backend-position-watchlist-race-condition, the concurrent-insert race fix for POST /api/portfolio/positions and POST /api/watchlist), including findings surfaced by a code-review skill pass. See that PR's review comment and docs/tasks/backend-position-watchlist-race-condition.json's review.comments for full context. None of these block the PR -- the race-handling it actually delivers (the brand-new-ticker insert race, exactly what the task's own checklist scoped) was verified correct via mutation testing (removing the try/except on each endpoint's insert path and confirming the new regression test for that endpoint then fails with an uncaught IntegrityError/OperationalError, then restoring it) and the full test/coverage/static-analysis/e2e suite passed. Every item below was independently confirmed, via `git show main:backend/app/api/routers/portfolio.py`, to be a pre-existing gap that predates this PR (not a regression it introduces) -- the original code already had a single unprotected `db.commit()` shared by both the insert and merge branches.",
+  "checklist": [
+    {
+      "step": "docs/architecture/API.md's 'Error Cases to Cover in Tests' list (and the per-endpoint sections for `POST /api/portfolio/positions`/`POST /api/watchlist`) wasn't updated to document the new 503 this PR added to both endpoints (a concurrent-insert conflict whose re-query finds no same-key winner row). Every other 503 addition in this codebase's history (e.g. the IBKR account-positions fetch, `GET /api/cftc/cot`, the day-trader-mode 503s) has a corresponding bullet in that list -- this PR's two new 503s are the one gap. `backend/openapi.json`/`frontend/src/api/types.ts` are correctly regenerated and up to date; only the architecture doc's own error catalog is stale.",
+      "done": false
+    },
+    {
+      "step": "Higher priority than the rest of this list -- a genuine silent-data-loss risk, not just an unhandled-500-then-retry nuisance: two concurrent `POST /api/portfolio/positions` requests for the SAME already-existing ticker is a classic lost-update race that this PR does not address (and wasn't scoped to -- the task's checklist specifically named 'the newly-constructed-row path'). Both requests load the same pre-commit `existing.quantity`/`avg_cost_basis` via `db.query(PositionORM).filter(...).one_or_none()`, each independently computes its own merged result from that same stale baseline in `_merge_position`, and the second `db.commit()` silently overwrites the first's already-committed merge with no exception raised at all (no unique-constraint violation triggers here, since this is an UPDATE to an existing row, not an INSERT) -- one of the two real position updates the user submitted vanishes with no error surfaced to either caller. This directly contradicts the principle this very PR's own `decisions` entry establishes for the insert-race case ('this request's payload is user-submitted trade data... must not be silently dropped'). Confirmed via `git show main:...` that this lost-update exposure already existed identically before this PR (the original code had one shared, equally-unprotected `db.commit()` for both the insert and merge branches) -- not a regression, but a more severe pre-existing gap than this followups task's other items, since the others only risk an unhandled 500 rather than silent corruption. Closing it properly likely needs a different technique than a try/except (e.g. an optimistic-concurrency version column with a conditional UPDATE, or SQLite `BEGIN IMMEDIATE`-style write locking around the read-modify-write), not just catching an exception -- a bigger design decision than this task's narrow insert-race scope, worth its own dedicated investigation.",
+      "done": false
+    },
+    {
+      "step": "Relatedly and more narrowly: neither the pre-existing already-exists-at-first-query merge path's `db.commit()` (backend/app/api/routers/portfolio.py, the `else` branch) nor the race-recovery merge's own second `db.commit()` (inside the new `except (IntegrityError, OperationalError)` block, after `_merge_position`) is wrapped in the same try/except this PR adds for the initial insert. A plain OperationalError from SQLite whole-file lock contention (no actual lost-update, just two unrelated concurrent writers) hitting either of these commits still crashes as an unhandled 500 instead of the graceful 503 this PR establishes as the endpoint's own convention for exactly this failure mode -- an inconsistency between the insert path (now hardened) and the two merge paths (still as fragile as before this PR). The race-recovery commit specifically is new code introduced by this PR, so this asymmetry is newly visible even though the underlying gap (an unprotected merge-commit) predates it.",
+      "done": false
+    },
+    {
+      "step": "The re-query for the concurrent winner (`db.query(PositionORM).filter(...).one_or_none()` in portfolio.py / `db.get(...)` in watchlist.py), run inside the `except (IntegrityError, OperationalError)` block, has no exception handling of its own -- a second OperationalError from continued SQLite lock contention at that exact moment (the re-query SELECT racing the same contention that caused the first exception) would propagate unhandled as a raw 500 rather than the intended 503. Narrow and timing-dependent; likely acceptable as an inherent limit of a single-level retry for a single-user MVP, but worth an explicit decision either way rather than leaving it implicit.",
+      "done": false
+    },
+    {
+      "step": "Reuse/simplification: the merge-then-commit sequence (`_merge_position(...); db.commit()`) is now duplicated at two call sites in portfolio.py (the race-recovery branch and the already-exists branch) with inconsistent error handling between them (per the item above), and the two endpoints' `except (IntegrityError, OperationalError)` blocks duplicate the same rollback -> re-query-winner -> (log+raise 503 if no winner) shape, differing only in the query form and what happens with a found winner (merge-and-commit vs just-return). If the lost-update/unprotected-merge-commit items above are ever addressed, consider extracting a single `_commit_merge(db, target_row, position, provider, ticker)`-style helper (or a shared rollback/re-query/503-or-found-winner skeleton) that performs the merge, commits, and catches the same way the insert path does, fixing the gap and removing the duplication in one place rather than two.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
