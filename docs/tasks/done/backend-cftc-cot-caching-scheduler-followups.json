@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-cftc-cot-caching-scheduler's PR #380 review",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "done",
   "depends_on": ["backend-cftc-cot-caching-scheduler"],
   "references": [
     "docs/tasks/backend-cftc-cot-caching-scheduler.json",
@@ -48,6 +48,12 @@
       "recorded_by": "task-worker",
       "decision": "The fourth checklist item (stale `frontend/src/api/types.ts` JSDoc comment) was also fixed directly, during this round-4 rework pass on `backend-cftc-cot-caching-scheduler`'s own PR #380: re-ran `yarn generate:api-types` from `frontend/` and committed the regenerated `src/api/types.ts`. Confirmed the resulting diff is exactly what the review predicted -- only the `GET /api/cftc/cot` operation's JSDoc description comment changed (now describing the DB-backed cache + scheduled refresh instead of the stale \"always fetches fresh, no local caching\" wording), no type/schema/shape changed -- and that `tsc --noEmit` stays clean.",
       "rationale": "Judged low-risk per the dispatch instructions' own framing (comment-only drift, no shape change, already confirmed clean by the round-3 review's own dry-run diff) -- regenerating and committing a generated artifact from its already-committed source (`backend/openapi.json`) carries essentially no risk of introducing a real bug, so there was no reason to leave it deferred a second time now that it's this cheap to close."
+    },
+    {
+      "timestamp": "2026-10-03T15:04:18Z",
+      "recorded_by": "task-worker",
+      "decision": "Closing this task formally: all 4 checklist items were independently re-verified against `main` (merge commit afb89a0a, PR #380) rather than just trusting the three prior `decisions` entries' own claims, and all 4 genuinely hold. Setting `state` to `done` and moving the file to `docs/tasks/done/`. Verified directly: (1) `docs/architecture/Backend.md` line 25 lists `cftc_cot_cache.py` in the §2 module tree and line 109's §7 cache-table prose names the `cftc_cot_cache` table, its key, and its owning classes; (2) `backend/tests/unit/test_main.py`'s `TestLifespanCftcCotRefreshLoop.test_shutdown_does_not_block_on_an_in_flight_refresh_call` (line 435) exists and mirrors `TestLifespanIbkrTickleGate`'s equivalent IBKR test, asserting shutdown returns well before a slow in-flight refresh's sleep completes; (3) `backend/app/data/cftc_cot_cache.py`'s `CFTCCOTCache.refresh()` commits inside its per-market `for market_key, reports in reports_by_market.items()` loop (not once for the whole batch), with `backend/tests/unit/data/test_cftc_cot_cache.py::test_does_not_discard_other_markets_writes_when_one_markets_commit_collides` (line 200) asserting the other markets' rows survive a collision on one; (4) `frontend/src/api/types.ts`'s `GET /api/cftc/cot` JSDoc now describes the DB-backed cache and weekly scheduled refresh (`Served from a DB-backed cache (...) kept fresh by a weekly scheduled background refresh`) rather than the old \"always fetches fresh, no local caching\" wording.",
+      "rationale": "This task's own board-bookkeeping gap (checklist all `done: true` but `state` left at `planned`, because the fixes landed through the parent task's PR #380 rather than this task's own PR) was flagged by `pr-decision` during PR #380's merge review. Per CLAUDE.md's task-board conventions, a task whose actual work is complete should reach `state: done` and move to `docs/tasks/done/` regardless of which PR branch the commits physically landed on -- the checklist items and their dependency on `backend-cftc-cot-caching-scheduler` already make that provenance explicit, and re-verifying against `main` directly (rather than re-trusting the earlier entries) is what makes this closure itself a genuine, independently-checkable verification pass rather than a second copy of the same unverified claim."
     }
   ],
   "questions": []
