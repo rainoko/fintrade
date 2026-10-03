@@ -2513,6 +2513,34 @@
       "skill": null,
       "state": "done",
       "path": "docs/tasks/done/frontend-chart-legend-toggle-overlay-followups-followups.json"
+    },
+    {
+      "id": "backend-cftc-cot-caching-scheduler",
+      "area": "backend/data",
+      "skill": "add-indicator",
+      "state": "planned",
+      "path": "docs/tasks/backend-cftc-cot-caching-scheduler.json"
+    },
+    {
+      "id": "backend-ibkr-conid-db-cache",
+      "area": "backend/data",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-ibkr-conid-db-cache.json"
+    },
+    {
+      "id": "backend-ibkr-request-retry",
+      "area": "backend/data",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-ibkr-request-retry.json"
+    },
+    {
+      "id": "backend-position-watchlist-race-condition",
+      "area": "backend/portfolio",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-position-watchlist-race-condition.json"
     }
   ]
 }
