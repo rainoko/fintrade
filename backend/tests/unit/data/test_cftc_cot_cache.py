@@ -158,7 +158,12 @@ class TestRefresh:
         own tests document: two concurrent callers (an on-demand request racing the
         scheduled refresh loop) can both attempt to insert the same (market_key,
         report_date) row -- the loser's commit should be rolled back and swallowed
-        (logged, not raised)."""
+        (logged, not raised), for that market only (PR #380 review, round 3's
+        non-blocking finding: `refresh` now commits once per market, not once for the
+        whole batch, so a collision on one market must not discard the other markets'
+        successfully-committed writes -- see `test_does_not_discard_other_markets_
+        writes_when_one_markets_commit_collides` below for that narrower-blast-radius
+        behavior specifically)."""
         cache = CFTCCOTCache(session)
         original_commit = session.commit
 
@@ -171,7 +176,9 @@ class TestRefresh:
 
         cache.refresh(_all_markets_reports(["2026-09-15"]))  # must not raise
 
-        assert session.query(CFTCCOTCacheORM).count() == 0
+        # "eur" is the first market `refresh` iterates (COT_MARKETS' own key order) and so
+        # the one whose single commit the patched-to-raise-once `session.commit` hits.
+        assert session.query(CFTCCOTCacheORM).filter_by(market_key="eur").count() == 0
 
     def test_operational_error_on_commit_is_also_swallowed_not_raised(
         self, session: Session, monkeypatch: pytest.MonkeyPatch
@@ -188,7 +195,33 @@ class TestRefresh:
 
         cache.refresh(_all_markets_reports(["2026-09-15"]))  # must not raise
 
-        assert session.query(CFTCCOTCacheORM).count() == 0
+        assert session.query(CFTCCOTCacheORM).filter_by(market_key="eur").count() == 0
+
+    def test_does_not_discard_other_markets_writes_when_one_markets_commit_collides(
+        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PR #380 review, round 3's non-blocking finding, fixed: a single market's
+        commit colliding (the same race the two tests above exercise) must only discard
+        *that* market's writes, not the other markets' already-fetched, independently
+        committed rows -- unlike the old single-commit-for-the-whole-batch shape, where
+        one colliding row discarded every market's writes in the same `refresh` call."""
+        cache = CFTCCOTCache(session)
+        original_commit = session.commit
+
+        def _commit_raises_once():
+            monkeypatch.setattr(session, "commit", original_commit)
+            session.rollback()
+            raise IntegrityError("INSERT", {}, Exception("UNIQUE constraint failed"))
+
+        monkeypatch.setattr(session, "commit", _commit_raises_once)
+
+        cache.refresh(_all_markets_reports(["2026-09-15"]))  # must not raise
+
+        # Only "eur" (the first market iterated, whose commit the patch above hits) lost
+        # its write; the remaining 4 markets' rows were independently committed.
+        assert session.query(CFTCCOTCacheORM).filter_by(market_key="eur").count() == 0
+        for market_key in ("jpy", "oil", "gold", "bonds"):
+            assert session.query(CFTCCOTCacheORM).filter_by(market_key=market_key).count() == 1
 
 
 class TestStaleness:

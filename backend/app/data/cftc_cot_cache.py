@@ -86,6 +86,18 @@ class CFTCCOTCache:
         `CFTCCOTProvider.get_all_recent()`) and prune any existing row for a market that
         fell outside this fetch's own window -- see `CFTCCOTCacheORM`'s own docstring for
         why this table is actively pruned rather than left to grow forever.
+
+        Commits once per market (PR #380 review, round 3's non-blocking finding) rather
+        than once for the whole multi-market batch -- matching `CachedDataProvider._upsert`
+        /`_upsert_extended` (app/data/cache.py)'s own per-entity (there, per-ticker)
+        granularity. A single-commit-per-batch shape meant a PK-collision race on any one
+        market's row (the scheduled loop racing a concurrent on-demand cache-miss fetch,
+        `test_integrity_error_on_commit_is_swallowed_not_raised`'s own scenario) discarded
+        every other market's successfully-fetched writes too, not just the colliding row --
+        wasteful, not incorrect (the rollback+log-never-raise race-safety behavior was
+        always intact), but it forced an unnecessarily early full re-fetch of markets that
+        never actually raced anything. Per-market commits narrow that discarded blast
+        radius to just the one market that actually collided.
         """
         fetched_at = utcnow()
         for market_key, reports in reports_by_market.items():
@@ -115,24 +127,28 @@ class CFTCCOTCache:
                 if report_date not in fresh_dates:
                     self._db.delete(row)
 
-        try:
-            self._db.commit()
-        except (IntegrityError, OperationalError) as exc:
-            # Same benign concurrent-first-population race `CachedDataProvider._upsert`
-            # (app/data/cache.py) and `IndicatorHistoryResponseCache.set` document at
-            # length: two concurrent cache-miss callers (an on-demand `GET /api/cftc/cot`
-            # racing the scheduled refresh loop, or two concurrent requests both hitting a
-            # cold cache) can both attempt to insert the same (market_key, report_date)
-            # row; the loser discards its own write rather than erroring, since
-            # `reports_by_market` (this call's own freshly fetched result) is still usable
-            # by its caller regardless of whether this commit succeeds.
-            self._db.rollback()
-            logger.warning(
-                "Concurrent CFTC COT cache population raced this upsert; discarding this "
-                "attempt in favor of the concurrently-committed rows. (%s: %s)",
-                type(exc).__name__,
-                exc,
-            )
+            try:
+                self._db.commit()
+            except (IntegrityError, OperationalError) as exc:
+                # Same benign concurrent-first-population race `CachedDataProvider._upsert`
+                # (app/data/cache.py) and `IndicatorHistoryResponseCache.set` document at
+                # length: two concurrent cache-miss callers (an on-demand `GET /api/cftc/cot`
+                # racing the scheduled refresh loop, or two concurrent requests both hitting
+                # a cold cache) can both attempt to insert the same (market_key, report_date)
+                # row; the loser discards its own write for *this market only* rather than
+                # erroring, since `reports_by_market` (this call's own freshly fetched
+                # result) is still usable by its caller regardless of whether this commit
+                # succeeds, and the loop continues on to commit the remaining markets'
+                # writes independently.
+                self._db.rollback()
+                logger.warning(
+                    "Concurrent CFTC COT cache population raced this upsert for market %r; "
+                    "discarding this market's attempt in favor of the concurrently-committed "
+                    "rows. (%s: %s)",
+                    market_key,
+                    type(exc).__name__,
+                    exc,
+                )
 
 
 def _row_to_report(row: CFTCCOTCacheORM) -> COTWeeklyReport:

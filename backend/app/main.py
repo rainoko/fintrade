@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.dependencies import get_cftc_cot_provider, get_ibkr_provider
 from app.api.routers import cftc, homework, ibkr, portfolio, settings, stocks, watchlist
+from app.config import get_settings
 from app.data.cftc_cot_cache import CFTCCOTCache
 from app.data.cftc_cot_provider import CFTCCOTProvider
 from app.data.ibkr_provider import IBKRProvider
@@ -181,22 +182,41 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if provider is not None:
         tickle_task = asyncio.create_task(_ibkr_tickle_loop(provider))
 
-    # Unlike the IBKR tickle loop above, there's no "enabled" gate here -- CFTC's COT data
-    # is always available (no gateway/credential to be disconnected from), so this loop
-    # always starts. `get_cftc_cot_provider()` constructs a fresh, stateless instance (same
-    # as `GET /api/cftc/cot` itself does per-request) -- cheap, and this loop's own closure
-    # just holds onto the one instance for its lifetime rather than constructing a new one
-    # per refresh.
-    cftc_cot_refresh_task: asyncio.Task[None] = asyncio.create_task(
-        _cftc_cot_refresh_loop(get_cftc_cot_provider())
-    )
+    # Unlike the IBKR tickle loop above, there's no `Settings`-level "enabled" switch for
+    # CFTC's COT data itself -- it's a public endpoint with no gateway/credential to be
+    # disconnected from, so in `live` mode this loop always starts. But it IS gated on
+    # `Settings.data_provider_mode`, the same switch `get_data_provider` uses (PR #380
+    # review, round 3 -- a genuine, blocking finding from a code-review pass that
+    # completed after an earlier round had already been accepted): in `fixture` mode
+    # (only ever set by the frontend e2e suite and this app's own dev-container test
+    # runs, see `app.data.fixture_provider`), starting this loop would make a real HTTPS
+    # call to CFTC's public Socrata endpoint via its immediate-on-startup check
+    # (`_check_and_refresh_cftc_cot_cache_once`, above) on every single app process
+    # start -- defeating `frontend/playwright.config.ts`'s own guarantee of zero live
+    # network calls in e2e mode, and CLAUDE.md's Testing standard more generally. There is
+    # no CFTC equivalent of `FixtureDataProvider` to refresh the cache *against* instead
+    # (unlike OHLCV data, which has one), so "don't start the loop at all" is the correct
+    # fixture-mode behavior here, not "start it against a fixture provider" -- see this
+    # task's `decisions` entry for why this is gated here (around the `create_task` call
+    # site) rather than inside `get_cftc_cot_provider()`/`_cftc_cot_refresh_loop` itself:
+    # `GET /api/cftc/cot`'s own cache-miss live fetch (which also calls
+    # `get_cftc_cot_provider()`, via FastAPI's `Depends`) is deliberately left unchanged --
+    # it already only ever fires if a caller actually hits that endpoint (no frontend
+    # consumer exists, so no e2e run does), unlike this unconditional startup loop, so
+    # gating it too would be scope creep against a case that was never actually broken.
+    cftc_cot_refresh_task: asyncio.Task[None] | None = None
+    if get_settings().data_provider_mode != "fixture":
+        cftc_cot_refresh_task = asyncio.create_task(
+            _cftc_cot_refresh_loop(get_cftc_cot_provider())
+        )
 
     try:
         yield
     finally:
-        cftc_cot_refresh_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await cftc_cot_refresh_task
+        if cftc_cot_refresh_task is not None:
+            cftc_cot_refresh_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await cftc_cot_refresh_task
         if tickle_task is not None:
             tickle_task.cancel()
             # `await tickle_task` here returns promptly even if `_ibkr_tickle_loop` was

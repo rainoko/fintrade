@@ -26,6 +26,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import app.main as app_main
+from app.config import get_settings
 from app.data.cftc_cot_cache import CFTCCOTCache
 from app.data.cftc_cot_provider import COT_MARKETS, COTWeeklyReport
 from app.data.exceptions import DataProviderUnavailableError
@@ -499,3 +500,66 @@ class TestLifespanCftcCotRefreshLoop:
             assert cache.is_stale(max_age + timedelta(seconds=1)) is False
         finally:
             session.close()
+
+
+class TestLifespanCftcCotFixtureModeGate:
+    """PR #380 review (round 3, a genuine blocking finding from a code-review pass that
+    completed after an earlier round had already been accepted): `_cftc_cot_refresh_loop`
+    must never start while `Settings.data_provider_mode == "fixture"`. Its
+    immediate-on-startup check (`_check_and_refresh_cftc_cot_cache_once`) would otherwise
+    construct a real `CFTCCOTProvider` and make a genuine live HTTPS call to CFTC's public
+    Socrata endpoint on every single app process start -- including every frontend e2e run
+    (`frontend/playwright.config.ts` sets `FINTRADE_DATA_PROVIDER_MODE=fixture`
+    specifically to guarantee zero live network calls) and every plain local `uvicorn`
+    boot -- directly violating CLAUDE.md's Testing standard. There is no CFTC fixture
+    provider to refresh the cache against instead (unlike OHLCV's `FixtureDataProvider`),
+    so "don't start the loop at all" is the correct fixture-mode behavior, matching the
+    IBKR-disabled gate's own shape (`TestLifespanIbkrTickleGate` above).
+    """
+
+    @pytest.fixture(autouse=True)
+    def _disable_ibkr(self, mocker):
+        """Keeps each test's `asyncio.create_task` call count unambiguous (0 or 1,
+        attributable only to the CFTC loop), same rationale as
+        `TestLifespanCftcCotRefreshLoop._disable_ibkr` above."""
+        mocker.patch("app.main.get_ibkr_provider", return_value=iter([None]))
+
+    def test_fixture_mode_never_starts_the_refresh_task_or_constructs_a_provider(
+        self, monkeypatch, mocker
+    ) -> None:
+        """The regression test for the live-call bug itself: in fixture mode, no task is
+        created at all, and `get_cftc_cot_provider()` -- the only thing that would
+        construct a real `CFTCCOTProvider` and make the live HTTPS call -- is never even
+        called."""
+        monkeypatch.setenv("FINTRADE_DATA_PROVIDER_MODE", "fixture")
+        get_settings.cache_clear()
+        cftc_provider_dependency = mocker.patch("app.main.get_cftc_cot_provider")
+        create_task_spy = mocker.spy(asyncio, "create_task")
+
+        async def _run() -> None:
+            async with lifespan(app):
+                await asyncio.sleep(0)
+
+        try:
+            asyncio.run(_run())
+        finally:
+            get_settings.cache_clear()  # don't leak the monkeypatched setting into other tests
+
+        assert create_task_spy.call_count == 0
+        cftc_provider_dependency.assert_not_called()
+
+    def test_live_mode_still_starts_the_refresh_task(self, mocker) -> None:
+        """Confirms the gate is genuinely conditional on `data_provider_mode`, not an
+        accidental always-off -- the default (`live`) mode, which every test in
+        `TestLifespanCftcCotRefreshLoop` above already implicitly relies on, must still
+        start exactly one task."""
+        mocker.patch("app.main._check_and_refresh_cftc_cot_cache_once", new=mocker.AsyncMock())
+        create_task_spy = mocker.spy(asyncio, "create_task")
+
+        async def _run() -> None:
+            async with lifespan(app):
+                await asyncio.sleep(0)
+
+        asyncio.run(_run())
+
+        assert create_task_spy.call_count == 1

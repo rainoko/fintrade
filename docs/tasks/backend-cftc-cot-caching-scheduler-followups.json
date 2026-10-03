@@ -23,7 +23,7 @@
     },
     {
       "step": "[round 2 PR #380 review, non-blocking] `CFTCCOTCache.refresh()` (app/data/cftc_cot_cache.py) commits every market's upserts in a single transaction rather than per-entity (unlike `CachedDataProvider._upsert`/`_upsert_extended`, which commit once per ticker) -- a single PK-collision on any one row (the scheduled loop racing a concurrent on-demand cache-miss fetch) discards the whole ~260-row batch's writes, not just the colliding row (`test_integrity_error_on_commit_is_swallowed_not_raised` itself demonstrates this: the row count is 0, not 259, after the swallowed collision). Not a correctness bug -- the rollback+log-never-raise race-safety behavior is intact -- just wasteful, forcing an unnecessarily early full re-fetch. Consider committing per-market (or per-row) instead, matching the established convention elsewhere in this file.",
-      "done": false
+      "done": true
     }
   ],
   "decisions": [
@@ -32,6 +32,12 @@
       "recorded_by": "task-worker",
       "decision": "Both checklist items were folded directly into `backend-cftc-cot-caching-scheduler`'s own PR #380 rework (its needs_work rework pass) rather than done here separately: the Backend.md §2/§7 doc mentions were added in the same doc-editing pass as that PR's blocking §9/API.md fix, and `TestLifespanCftcCotRefreshLoop.test_shutdown_does_not_block_on_an_in_flight_refresh_call` was added to `backend/tests/unit/test_main.py` in that same PR, mirroring `TestLifespanIbkrTickleGate`'s identical IBKR-loop test and mutation-tested against a reverted `cftc_cot_refresh_task.cancel()` call to confirm it actually catches a regression.",
       "rationale": "Per CLAUDE.md's 'every non-blocking finding becomes a tracked task' convention, this task exists to make sure these two findings aren't lost -- now that they're actually fixed (landed on `main` via PR #380), marking them done here (rather than leaving them open for a second, now-redundant pass) keeps this board entry accurate rather than stale. No code/decision here was reversed or reinterpreted; this is purely a status update reflecting work already completed on the dependency task's own PR."
+    },
+    {
+      "timestamp": "2026-10-03T14:15:15Z",
+      "recorded_by": "task-worker",
+      "decision": "The third checklist item (CFTCCOTCache.refresh()'s single-commit-per-batch granularity, filed by the round-2 review's reversal comment) was also fixed directly on `backend-cftc-cot-caching-scheduler`'s own PR #380, in the same push as that PR's round-3 blocking fixture-mode-gate fix, rather than left deferred here: `refresh()` now commits once per market inside its existing per-market loop, matching `CachedDataProvider._upsert`/`_upsert_extended`'s per-entity granularity. A PK-collision on one market's row now only discards that market's writes, confirmed by a new test (`test_does_not_discard_other_markets_writes_when_one_markets_commit_collides`, backend/tests/unit/data/test_cftc_cot_cache.py) asserting the other 4 markets' rows survive a collision on the first.",
+      "rationale": "Judged small and well-contained (moving an existing try/commit/except block inside an already-existing loop, no new design needed) while already touching this exact file/function for the blocking fixture-mode fix in the same PR -- the dispatch instructions for that round explicitly allowed fixing it now if small, deferring otherwise; this was small enough to fix rather than defer a second time."
     }
   ],
   "questions": []
