@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from PR #376 review (frontend-chart-legend-toggle-overlay-followups)",
   "area": "frontend/stocks",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-chart-legend-toggle-overlay-followups"],
   "references": [
     "docs/tasks/done/frontend-chart-legend-toggle-overlay-followups.json",
@@ -32,6 +32,13 @@
     "pr_number": 378,
     "pr_url": "https://github.com/rainoko/fintrade/pull/378",
     "pushed_at": "2026-10-02T23:53:02Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-03T00:01:00Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/378",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review of PR #378. Verified the hook move is a genuine pure relocation: diffed frontend/src/utils/chart.ts's new useSeriesVisibilityToggle body against the deleted features/stocks/hooks/useSeriesVisibilityToggle.ts -- the VisibilityToggleableSeries interface, function signature, useEffect body, dependency array, and eslint-disable comment are byte-for-byte identical; only the doc comment was expanded to explain the new placement rationale. Confirmed all 4 call sites (PriceChart.tsx, OscillatorChart.tsx, VolumeIndicatorsChart.tsx, TrendStrengthChart.tsx) updated their import to '../../../utils/chart' with nothing left importing the deleted path (grep across frontend/ for the old import path returned zero hits) and no duplicated exports. Ran backend ruff+mypy (clean, unaffected by this frontend-only PR), frontend eslint + tsc -b --noEmit (clean), the profit-target wording guard (clean), scripts/validate_tasks.py (clean), backend pytest --cov (100%, 1544 passed, unaffected), and frontend vitest run --coverage (1031/1031 passed; statements 99.77%/branches 99.09%/functions 99.83%/lines 99.81% overall, utils/chart.ts at 100% on all four metrics as claimed), and yarn build (clean, pre-existing >500kB chunk warning unrelated to this change). Ran the full e2e-test skill (make e2e): all 27 specs across 5 files passed; a lightweight-charts/fancy-canvas 'Object is disposed' console message appeared during the stock-analysis Max-range spec but is pre-existing console noise from chart teardown timing unrelated to this hook move (the spec itself passed) and not introduced by this diff. Ran code-review (background agent) against the PR diff: zero findings. Read docs/architecture/Frontend.md's actual diff: the edit narrows the 'hooks live under their feature' rule to explicitly scope it to API-concern hooks (useQuery/useMutation wrappers) and extends the utils/ placement test's wording to explicitly cover a domain-agnostic hook with a worked example (useSeriesVisibilityToggle) -- this is a narrow, additive clarification (one tree line, two rule-paragraph additions) that resolves a real gap without contradicting or restructuring anything else in that section. Judged the decisions entry's reasoning as genuine, not a rationalization: it correctly identifies that the hooks-placement rule's own stated justification (keeping a feature's data layer next to its components) doesn't reach a hook with no API concern, correctly applies the utils/ test's existing domain-agnostic/not-a-component wording to a hook for the first time, and explicitly engages with and rejects both the 'treat hooks differently' and 'wait for a second feature (YAGNI)' alternatives on their merits rather than by assertion; the chosen destination (appending to chart.ts itself, consistent with createBaseChart/isFiniteNumber/bringSeriesToFront's already-established precedent for the identical fact pattern) is architecturally sound. Checklist's single 'decide X' item has a corresponding decisions entry, satisfying CLAUDE.md's decision-memory requirement -- no gap. No new API route/schema touched, so backend/openapi.json is not implicated. No new module/dependency/layer added (pure relocation within the existing utils/ layer), so architecture-review's dependency/layer scope doesn't apply beyond the placement judgment above. No non-blocking findings surfaced by any check, so no new follow-up task was created."
   },
   "questions": []
 }

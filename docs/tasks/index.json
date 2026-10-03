@@ -2511,8 +2511,8 @@
       "id": "frontend-chart-legend-toggle-overlay-followups-followups",
       "area": "frontend/stocks",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/frontend-chart-legend-toggle-overlay-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-chart-legend-toggle-overlay-followups-followups.json"
     }
   ]
 }
