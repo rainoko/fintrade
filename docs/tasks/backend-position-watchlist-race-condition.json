@@ -39,5 +39,11 @@
       "rationale": "Mirrors `POST /api/ibkr/breadth/snapshot`'s own identical `IntegrityError`-narrow-but-`OperationalError`-broad reasoning (`app/api/routers/ibkr.py`, `backend-ibkr-data-provider`'s task history): `IntegrityError` on these tables can only ever mean the same-key race (ticker is the only non-PK unique constraint on `PositionORM`, and the sole PK on `WatchlistItemORM`), but SQLite's default whole-file write locking can raise `OperationalError` (\"database is locked\") from any concurrent write anywhere in the file, so a same-key winner isn't guaranteed to exist just because this exception was raised. Auto-retrying inside the request was rejected as unnecessary complexity for a single-user MVP (per the task description's own framing) -- a 503 with a 'retry' detail message, consistent with the existing breadth-snapshot convention, lets the client (or the user) decide to resubmit."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-position-watchlist-race-condition",
+    "pr_number": 382,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/382",
+    "pushed_at": "2026-10-03T15:23:34Z"
+  }
 }
