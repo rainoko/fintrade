@@ -2518,7 +2518,7 @@
       "id": "backend-cftc-cot-caching-scheduler",
       "area": "backend/data",
       "skill": "add-indicator",
-      "state": "implementing",
+      "state": "testing",
       "path": "docs/tasks/backend-cftc-cot-caching-scheduler.json"
     },
     {
