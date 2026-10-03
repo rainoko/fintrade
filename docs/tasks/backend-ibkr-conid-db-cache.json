@@ -3,7 +3,7 @@
   "title": "Persist IBKR conid resolutions in the DB so they survive a process restart",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "docs/tasks/done/backend-ibkr-primary-data-provider.json",
@@ -14,21 +14,40 @@
   "checklist": [
     {
       "step": "Design a new `IBKRConidCacheORM` table (ticker as primary key, nullable conid, a `resolved_at` timestamp, and whatever else `_resolve_stk_conid`'s result shape needs to persist -- e.g. the disambiguating exchange/description if useful for debugging a wrong resolution later). Add the Alembic migration. Decide and record (decisions entry) whether a resolved-to-None (genuinely ambiguous) result is also persisted (to avoid re-querying a ticker that's known to need manual disambiguation) or only successful resolutions are cached.",
-      "done": false
+      "done": true
     },
     {
       "step": "Wire `IBKRProvider.resolve_conid` to check the DB cache before falling back to its existing in-memory cache and then a live `/iserver/secdef/search` call -- in-memory cache stays as the fast path for repeated resolutions within a single process's lifetime, DB cache becomes the fallback that survives a restart. Decide and record (decisions entry) whether the DB cache entry should ever expire/be re-validated (e.g. a long TTL as a safety net against a real re-listing event going unnoticed) or be treated as permanent until manually invalidated.",
-      "done": false
+      "done": true
     },
     {
       "step": "Handle the concurrent-write case for this new cache table using the same `IntegrityError`/`OperationalError`-catch convention already established in `app/data/cache.py`'s `CachedDataProvider._upsert` (two concurrent requests resolving the same previously-unresolved ticker).",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests (no live network calls per Testing.md, mocked IBKR HTTP boundary matching `tests/unit/data/test_ibkr_provider.py`'s existing convention): DB-cache hit/miss/fallback-to-live paths, the concurrent-write race, and a test confirming a fresh `IBKRProvider` instance (simulating a process restart) reads a previously-resolved conid from the DB without a live `/iserver/secdef/search` call.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-03T22:28:48Z",
+      "recorded_by": "task-worker",
+      "decision": "Only a successful (non-null) conid resolution is persisted to the new `IBKRConidCacheORM` table. A genuinely ambiguous/unresolvable ticker (`resolve_conid` returning `None`) is NOT written to this permanent DB cache, even though the existing in-memory `_conid_cache` already caches a `None` result (on its own, much shorter 24h TTL).",
+      "rationale": "This table's whole premise is that a successful resolution is effectively permanent and safe to trust indefinitely -- true for a real conid (only a genuine re-listing/delisting event changes it), but NOT true the same way for 'this ticker is ambiguous': the live research behind `_US_PRIMARY_EXCHANGES` (backend-ibkr-primary-data-provider) found a ticker's set of candidate listings can itself change (a feeder-exchange listing appearing/disappearing) in ways this app has no notification of. Permanently freezing a once-ambiguous ticker as unresolvable in the DB would mean a later, now-resolvable state could only ever be picked back up by waiting out the in-memory cache's 24h TTL or restarting the process -- directly undermining the restart-survival property this table exists to provide. Ambiguous tickers are also rare in practice (the primary-US-exchange-preference heuristic already resolves the common multi-listing case), so the cost of occasionally re-querying one live is low. Alternative considered and rejected: caching `None` here too (matching the in-memory cache's behavior) for symmetry and to avoid ever re-querying a known-ambiguous ticker -- rejected because the two caches have very different staleness tolerances (24h vs. effectively forever) and the failure mode of a wrong answer frozen forever is worse than an occasional redundant live call."
+    },
+    {
+      "timestamp": "2026-10-03T22:28:48Z",
+      "recorded_by": "task-worker",
+      "decision": "The DB cache entry has no TTL/expiry and is never automatically re-validated -- once a conid is persisted, `resolve_conid` trusts it indefinitely (skipping even `_require_available()`'s gateway-status check) until the row is manually deleted/edited in the database.",
+      "rationale": "Matches this task's own `description`: an IBKR conid-to-ticker mapping is, for all practical purposes, permanent, changing only on a rare re-listing/delisting event. Adding a safety-net re-validation TTL (e.g. re-checking against a live gateway every N days) would reintroduce exactly the per-process-restart or per-N-days live round trip this table exists to eliminate, for a staleness risk that's both rare and, when it does happen (an actual re-listing), would surface as a wrong/stale OHLCV fetch an operator can diagnose and fix by deleting the stale row -- not a silent data-corruption risk this app can't recover from. Alternative considered and rejected: a long (e.g. 30-90 day) re-validation TTL as a safety net against an unnoticed re-listing -- rejected as added complexity (a second TTL concept alongside the existing in-memory 24h one) for a risk this task's own description already characterizes as rare enough not to weigh heavily, with a simple manual fix available if it ever does happen."
+    },
+    {
+      "timestamp": "2026-10-03T22:28:48Z",
+      "recorded_by": "task-worker",
+      "decision": "`IBKRProvider` gets DB access via an injected `session_factory: Callable[[], Session] | None` (a zero-arg callable that returns a fresh `Session`, e.g. `app.db.session.SessionLocal` itself) rather than a `db: Session` parameter threaded through `resolve_conid` and every one of its callers (`IBKRDataProvider`, `app.api.day_trader_signal`, etc.). `resolve_conid`'s DB-cache read/write each open and close their own short-lived session via this factory.",
+      "rationale": "`IBKRProvider` is constructed once as a process-wide singleton (`app.api.dependencies._get_ibkr_provider_singleton`) that outlives any single request's own `Depends(get_db)` session, and `resolve_conid` already has several callers beyond the one (`IBKRDataProvider`) that happens to be constructed per-request with a `db` session available -- `app.api.day_trader_signal._fan_out_per_ticker` calls `provider.resolve_conid(ticker)` directly with no session in scope at all. Threading a `db` parameter through every call site would mean either plumbing a session into call sites that have no natural one (day_trader_signal's per-ticker fan-out) or making the DB cache conditional on which call path was used, inconsistently. A session-factory mirrors the exact pattern `app.api.dependencies.get_data_provider_factory` already established for the same underlying problem (a long-lived/cross-request object that needs its own short-lived DB sessions, opened and closed per use rather than borrowing a request-scoped one it doesn't own). Alternative considered and rejected: adding an optional `db: Session | None` parameter to `resolve_conid` itself, falling back to no DB cache when omitted -- rejected because it would make the DB cache's availability depend on which of several call sites happened to pass one, rather than being a property of the `IBKRProvider` instance itself, and because `IBKRProvider` already can't assume a single request-scoped session exists at all given its singleton lifetime."
+    }
+  ],
   "questions": []
 }

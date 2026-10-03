@@ -377,3 +377,54 @@ class CFTCCOTCacheORM(Base):
     small_speculator_long: Mapped[int] = mapped_column(Integer)
     small_speculator_short: Mapped[int] = mapped_column(Integer)
     fetched_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class IBKRConidCacheORM(Base):
+    """DB-backed fallback cache for `IBKRProvider.resolve_conid`'s ticker -> IBKR conid
+    resolution (docs/tasks/backend-ibkr-conid-db-cache.json), so a resolution survives a
+    process restart instead of being lost with `IBKRProvider._conid_cache` (the existing
+    in-memory, 24h-TTL cache that stays the fast path for repeated calls within one
+    process's lifetime -- this table is only ever consulted on an in-memory miss).
+
+    Keyed by (uppercased) `ticker` alone, matching `_conid_cache`'s own cache-key
+    convention (`resolve_conid`'s `ticker.upper()`) -- one row per ticker, not one per
+    (ticker, conid) pair, since a ticker only ever has one *current* resolution worth
+    persisting.
+
+    Only a **successful** resolution (`conid` not null) is ever written here -- a
+    genuinely ambiguous/unresolvable ticker (`resolve_conid` returning `None`) is
+    deliberately NOT persisted to this table, unlike the in-memory cache which caches a
+    `None` result too (see `_CONID_CACHE_TTL_SECONDS`'s own comment for why that's the
+    right call for the in-memory cache's much shorter 24h horizon). This table's whole
+    premise is "a resolution is effectively permanent, safe to trust indefinitely" --
+    that premise holds for a *successful* resolution (an IBKR conid only changes on a
+    genuine re-listing event), but does NOT hold the same way for "this ticker is
+    ambiguous": the live research behind `_US_PRIMARY_EXCHANGES` found real examples of a
+    ticker's set of candidate listings changing in ways this app doesn't control or get
+    notified of (a feeder-exchange listing appearing/disappearing), so a once-ambiguous
+    ticker freezing as permanently-unresolvable here would mean a later, now-resolvable
+    state is never picked back up except by waiting out the in-memory cache's 24h TTL or
+    restarting the process -- the exact restart-survival property this table otherwise
+    exists to provide, working against itself. An ambiguous ticker is also rare (the
+    primary-US-exchange-preference heuristic already resolves the common multi-listing
+    case), so the cost of re-querying it occasionally rather than caching it forever is
+    low. See this task's `decisions` entry.
+
+    No TTL/expiry column, unlike every other cache table in this file -- a successfully
+    resolved conid is treated as valid indefinitely once persisted, matching this task's
+    own `description` ("for all practical purposes, permanent... only changes on a rare
+    re-listing/delisting event"); re-validating it periodically (the way `OHLCVCacheORM`'s
+    `_CACHE_TTL` or even `_conid_cache`'s own 24h TTL do) would defeat the specific
+    problem this table exists to solve, which is restart survival for data that doesn't
+    meaningfully go stale. `resolved_at` is kept purely as audit/debugging metadata (when
+    this row was first/last written), not consulted by any freshness check. There is no
+    automated re-validation or invalidation mechanism (manual DB edit/row delete only) --
+    see this task's `decisions` entry for why that trade-off was accepted rather than
+    building a safety-net re-validation TTL.
+    """
+
+    __tablename__ = "ibkr_conid_cache"
+
+    ticker: Mapped[str] = mapped_column(String, primary_key=True)
+    conid: Mapped[int] = mapped_column(Integer)
+    resolved_at: Mapped[datetime] = mapped_column(DateTime)
