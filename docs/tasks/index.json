@@ -2518,8 +2518,15 @@
       "id": "backend-cftc-cot-caching-scheduler",
       "area": "backend/data",
       "skill": "add-indicator",
-      "state": "testing",
+      "state": "implementing",
       "path": "docs/tasks/backend-cftc-cot-caching-scheduler.json"
+    },
+    {
+      "id": "backend-cftc-cot-caching-scheduler-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-cftc-cot-caching-scheduler-followups.json"
     },
     {
       "id": "backend-ibkr-conid-db-cache",

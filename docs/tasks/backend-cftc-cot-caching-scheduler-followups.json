@@ -1,0 +1,27 @@
+{
+  "id": "backend-cftc-cot-caching-scheduler-followups",
+  "title": "Non-blocking follow-ups from backend-cftc-cot-caching-scheduler's PR #380 review",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-cftc-cot-caching-scheduler"],
+  "references": [
+    "docs/tasks/backend-cftc-cot-caching-scheduler.json",
+    "https://github.com/rainoko/fintrade/pull/380",
+    "docs/architecture/Backend.md",
+    "backend/tests/unit/test_main.py"
+  ],
+  "description": "Non-blocking findings from the PR #380 review of backend-cftc-cot-caching-scheduler (whose blocking finding -- docs/architecture/Backend.md §9 and docs/architecture/API.md's GET /api/cftc/cot section describing the endpoint as having no local caching, now false -- was recorded directly on that task's own review.comments and sent back for rework, since it's blocking). These two items are secondary/lower-severity gaps surfaced by the same review pass; file here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' convention so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "docs/architecture/Backend.md §2's module-layout tree (the `data/` directory listing) doesn't mention the new `cftc_cot_cache.py` file, and §7's cache-table enumeration prose doesn't mention the new `cftc_cot_cache` table either. Likely to get fixed incidentally when the PR's blocking §9/API.md doc-staleness finding is addressed, but worth confirming explicitly rather than assuming -- fold into that same doc pass if it hasn't already landed by the time this is picked up.",
+      "done": false
+    },
+    {
+      "step": "`app.main._cftc_cot_refresh_loop` has no dedicated test exercising the 'shutdown doesn't block on an in-flight refresh call' path, unlike `_ibkr_tickle_loop`'s own `TestLifespanIbkrTickleGate.test_shutdown_does_not_block_on_an_in_flight_tickle_call` (born from a real timing bug per that test's own docstring). The CFTC loop uses the identical `asyncio.to_thread` + `Future.cancel()` cancellation mechanism, so this is very likely already correct, but it's untested specifically for this loop -- add an equivalent test (slow/blocking `_refresh_cftc_cot_cache_if_stale` stand-in, cancel mid-flight, assert `lifespan()`'s shutdown returns promptly) for parity and to guard against a future divergence between the two loops' shutdown behavior.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

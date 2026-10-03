@@ -3,7 +3,7 @@
   "title": "Cache CFTC COT data in the DB and refresh it on a weekly schedule instead of fetching live on every request",
   "area": "backend/data",
   "skill": "add-indicator",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "docs/tasks/done/backend-cftc-cot-data.json",
@@ -68,5 +68,23 @@
     "pr_number": 380,
     "pr_url": "https://github.com/rainoko/fintrade/pull/380",
     "pushed_at": "2026-10-03T13:20:48Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-03T13:33:45Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/380",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "docs/architecture/Backend.md §9 and docs/architecture/API.md's GET /api/cftc/cot section both still affirmatively state there is no local caching/persistence layer and that the endpoint fetches fresh on every request -- this PR's entire point is to add exactly that caching layer and reverse that \"minimal scope\" framing, but neither doc was touched. This is a 'code diverges from doc, deliberately' architecture-doc staleness per the architecture-review skill's own classification, and must be fixed in this PR, not left for a follow-up, since it leaves both docs actively wrong about the exact endpoint this PR changed.",
+        "file": "docs/architecture/Backend.md",
+        "line": 298
+      },
+      {
+        "summary": "docs/architecture/API.md's GET /api/cftc/cot section has the same stale \"fetched fresh on every request -- no local caching in this minimal scope\" claim as Backend.md §9.",
+        "file": "docs/architecture/API.md",
+        "line": 699
+      }
+    ],
+    "notes": "Verified independently: pytest --cov=app --cov-fail-under=90 (1567 passed, 100% coverage), ruff check ./mypy clean, openapi.json regenerated output byte-identical to the committed snapshot. Migration f9c52e69b04a verified both against a brand-new scratch SQLite DB and via a downgrade/upgrade round-trip against a copy of the real, fully-tracked backend/fintrade.db (left untouched, hash-verified) -- clean both ways. Mutation-tested CFTCCOTCache.refresh's IntegrityError/OperationalError swallow (narrowing the catch breaks the two dedicated race tests), the pruning logic (disabling it breaks the two dedicated prune tests), and _cftc_cot_refresh_loop's staleness gate (removing the is_stale check breaks test_skips_refresh_when_cache_is_already_fresh) -- all three genuinely exercise what they claim to. Also mutation-tested the adjusted TestLifespanIbkrTickleGate.test_disabled_never_starts_an_ibkr_task_or_touches_the_gateway (removing the ibkr_enabled gate still fails it) to confirm it wasn't weakened when adapted for the new always-on CFTC task. All 4 decisions entries are genuine (real alternatives considered/rejected with rationale). No UI surface in this PR (no frontend consumer of this endpoint exists) -- browser walkthrough and e2e suite steps correctly not applicable. Two non-blocking findings filed on backend-cftc-cot-caching-scheduler-followups: Backend.md §2's module-layout tree and §7's cache-table list also don't mention the new cftc_cot_cache.py/table (fold into the same doc fix); and the CFTC refresh loop has no dedicated 'shutdown doesn't block on an in-flight refresh' test (TestLifespanIbkrTickleGate has one for the IBKR loop's identical asyncio.to_thread cancellation pattern; the CFTC loop doesn't)."
   }
 }
