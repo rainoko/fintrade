@@ -3,7 +3,7 @@
   "title": "Add a single quick retry to IBKRProvider's HTTP requests before failing, given the gateway's demonstrated transient flakiness",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/app/data/ibkr_provider.py",
@@ -45,5 +45,28 @@
     "pr_number": 383,
     "pr_url": "https://github.com/rainoko/fintrade/pull/383",
     "pushed_at": "2026-10-03T22:03:38Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-03T22:14:00Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/383",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "`run_scanner`'s `_request` retry doesn't account for `/iserver/scanner/run`'s own externally-enforced 1-req/sec rate limit (docs/ideas.md, mirrored client-side by `_SCANNER_RUN_MIN_INTERVAL_SECONDS`). A retryable failure (connection error or 5xx) on that specific endpoint fires a second real HTTP call only `_REQUEST_RETRY_DELAY_SECONDS` (300ms) later -- well inside the 1-second window IBKR's own gateway enforces -- so the retry is plausibly rejected by that same limiter (and risks IBKR-side abuse flagging) rather than recovering. Non-blocking: the worst case is a wasted retry (same eventual failure as without one), not incorrect behavior, and IBKR's exact server-side counting of failed requests against the window is unconfirmed (no live gateway available per this module's own testing constraint). Found by the code-review skill pass.",
+        "file": "backend/app/data/ibkr_provider.py",
+        "line": 755
+      },
+      {
+        "summary": "`get_gateway_status`'s cold-cache path calls `_request(\"GET\", \"/iserver/auth/status\")` entirely inside `_gateway_status_lock`, so the new retry (up to one extra round trip plus a 300ms sleep) roughly doubles the worst-case time that lock is held -- extending contention for every other thread racing the same cache-miss/expiry (e.g. `get_analysis`'s 3-leg `ThreadPoolExecutor` fan-out, which shares one `IBKRProvider` singleton and hence this one lock) during exactly the gateway-flapping window this retry targets. Non-blocking: the extra delay is shared once across all blocked threads (not multiplied per leg, since double-checked locking means only the first thread pays for the retry), and the task's own decisions entry's headline conclusion (worst case stays sub-second and bounded) still holds -- it just didn't call out this specific shared-lock serialization effect. Found by the code-review skill pass.",
+        "file": "backend/app/data/ibkr_provider.py",
+        "line": 513
+      },
+      {
+        "summary": "The second `decisions` entry's claim that the retry's worst-case added cost is 'exactly one extra `_REQUEST_RETRY_DELAY_SECONDS` (0.3s) plus one extra fast ... round trip' per leg is imprecise for a cold-conid-cache leg in `get_analysis`'s daily/weekly fetches: `IBKRDataProvider.get_daily_ohlcv`/`get_weekly_ohlcv` each issue two sequential `_request` calls (`resolve_conid` via `_resolve_conid_or_raise`, then `get_daily_bars`/`get_weekly_bars`), so an uncached ticker's leg could independently retry both calls, adding up to ~0.6s rather than ~0.3s on that leg. Still small and bounded (and only on a cold `_conid_cache`, which has a 24h TTL), but the written rationale understates it for that specific case. Verified by tracing `resolve_conid`/`get_daily_bars`/`get_weekly_bars` call sites myself during review.",
+        "file": "docs/tasks/done/backend-ibkr-request-retry.json",
+        "line": 39
+      }
+    ],
+    "notes": "Full review: gh pr checkout 383. Backend suite: `pytest --cov=app --cov-report=term-missing` -> 1585 passed, 100% line/branch coverage (matches PR claim). Static analysis: `ruff check .` clean; `mypy --no-incremental app` clean (sandbox auto-mode workaround per dispatch instructions -- plain `mypy`'s incremental-cache write gets blocked as 'Irreversible Local Destruction'). `python3 scripts/validate_tasks.py` -> no violations. Mutation-tested the retry logic myself: (1) set `_REQUEST_MAX_ATTEMPTS = 1` (disables the retry loop) -> the 4 retry-recovery/retry-bound tests in `TestRequestRetry` correctly failed, confirming they actually exercise the retry; (2) removed the `isinstance(exc, httpx.TimeoutException)` guard from the `RequestError` except-branch -> `test_timeout_exception_is_not_retried` correctly failed, confirming that test genuinely catches a timeout-gets-retried regression. Restored the file cleanly after each mutation (`git status --porcelain` empty afterward). Confirmed `httpx.TimeoutException` is a real subclass of `httpx.RequestError` (`issubclass(httpx.TimeoutException, httpx.RequestError) == True`) and that the code's `isinstance` check inside the single `except httpx.RequestError` clause correctly excludes it from retry regardless of except-clause ordering (there's only one except clause here, so the subclass-shadowing concern the dispatch flagged doesn't actually apply -- it's a single catch + explicit isinstance check, not two except clauses that could shadow each other). Traced the latency-multiplication analysis myself: `get_analysis`'s 3-leg fetch (`app/api/routers/stocks.py`, `ThreadPoolExecutor(max_workers=3)`, all 3 legs submitted/started concurrently) and `day_trader_intraday._fetch_legs_concurrently` (`max_workers=len(legs)`, same concurrent-start pattern) both run their legs in parallel, so the retry's worst-case added latency is bounded by the single slowest leg's own extra delay, not summed across legs -- confirms the decisions entry's headline conclusion, modulo the two precision findings above (scanner rate-limit interaction, shared gateway-status-lock hold time, and my own cold-conid-cache two-call-per-leg nuance). No API route or schema touched (no `backend/openapi.json` staleness concern). Area is `backend/data`, not `backend/signals`/`backend/portfolio`, so `verify-elder-signal` doesn't apply. No new module/dependency/layer added (an injectable `sleep` param mirroring the existing `clock` pattern), so `architecture-review` doesn't apply. No frontend/UI surface touched by this PR (diff is `backend/app/data/ibkr_provider.py`, its test file, and the task board) -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) are explicitly skipped as not applicable. Checklist item 1 ('decide and record the retry policy') has a corresponding, thorough `decisions` entry -- no undocumented judgment call. All three findings above are non-blocking (no correctness bug causing wrong behavior, no coverage regression, no failing test) and are tracked on `docs/tasks/backend-ibkr-request-retry-followups.json`."
   }
 }

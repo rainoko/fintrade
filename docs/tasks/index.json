@@ -2539,8 +2539,8 @@
       "id": "backend-ibkr-request-retry",
       "area": "backend/data",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-ibkr-request-retry.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-request-retry.json"
     },
     {
       "id": "backend-position-watchlist-race-condition",
@@ -2555,6 +2555,13 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/backend-position-watchlist-race-condition-followups.json"
+    },
+    {
+      "id": "backend-ibkr-request-retry-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-ibkr-request-retry-followups.json"
     }
   ]
 }
