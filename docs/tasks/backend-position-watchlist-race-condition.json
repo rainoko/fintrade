@@ -3,7 +3,7 @@
   "title": "Handle the concurrent-insert race on POST /api/portfolio/positions and POST /api/watchlist with the same IntegrityError-catch convention used elsewhere",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/api/routers/portfolio.py",
@@ -14,17 +14,30 @@
   "checklist": [
     {
       "step": "In `POST /api/portfolio/positions`'s create/merge handler, wrap the `db.commit()` for the newly-constructed-row path in a `try`/`except (IntegrityError, OperationalError)`: on a concurrent-duplicate race, roll back and re-query for the now-existing row (the winner's), then fall into the same merge logic the handler already uses when `existing` is found on the first query -- mirroring `CachedDataProvider._upsert`'s re-read-the-winner pattern. Record the exact merge-on-race-loss behavior as a decisions entry (e.g. does the loser's own position data get merged into the winner's row the same way a genuine pre-existing-ticker request would, or is the loser's request simply discarded in favor of the winner's row as-is -- pick one and justify it).",
-      "done": false
+      "done": true
     },
     {
       "step": "Apply the equivalent fix to `POST /api/watchlist`'s `add_watchlist_item` handler: wrap its `db.commit()` in the same `try`/`except`, and on a race, re-query via `db.get(WatchlistItemORM, ticker)` and return that existing row (matching the endpoint's own documented 'adding a ticker that's already watched is a no-op' behavior for the already-exists-at-first-query case).",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests (no live network calls per Testing.md): a concurrent-insert race test for each endpoint (e.g. two near-simultaneous requests for the same new ticker, using a pattern similar to however `CachedDataProvider`'s own upsert-race tests are structured, or a direct unit test that simulates the race by pre-inserting a conflicting row between the handler's own existence-check and its commit) confirming both endpoints now resolve gracefully instead of raising an unhandled 500.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-03T15:21:43Z",
+      "recorded_by": "task-worker",
+      "decision": "On a concurrent-insert race on `POST /api/portfolio/positions`, the loser's incoming `PositionIn` payload is merged into the winner's already-committed row via the exact same merge logic (`_merge_position`, newly extracted so both the genuine already-exists-at-first-query path and the race-recovery path share one implementation) a normal already-exists request would take -- not discarded in favor of the winner's row as-is.",
+      "rationale": "Rejected discard-in-favor-of-winner (the pattern `CachedDataProvider._upsert`/`_upsert_extended` and the IBKR breadth-snapshot insert use) because those two are safe to discard specifically because the loser's own value is either independently returned to its caller regardless of persistence (the cache) or trivially re-derivable on the next request (a scan count) -- there is nothing analogous for a position add: `position.quantity`/`avg_cost_basis`/`entry_notes`/`strategy` is data the user explicitly typed into this one request, and silently dropping it on an unlucky race would mean a real buy the user just recorded vanishes from the book with a misleading 201 response. Merging is also what the checklist item itself already pointed at (\"fall into the same merge logic the handler already uses when `existing` is found on the first query\"), and it costs nothing extra: the merge helper was already being extracted to de-duplicate the normal-merge and race-recovery code paths."
+    },
+    {
+      "timestamp": "2026-10-03T15:21:43Z",
+      "recorded_by": "task-worker",
+      "decision": "For both endpoints, an `OperationalError` caught on the initial insert whose re-query then finds no same-ticker/same-primary-key winner row (i.e. the lock contention was against some unrelated write elsewhere in the SQLite file, not actually a race on this key) surfaces as a clean `HTTP 503` with a generic, non-leaking detail message, rather than proceeding with a `None` row or retrying automatically.",
+      "rationale": "Mirrors `POST /api/ibkr/breadth/snapshot`'s own identical `IntegrityError`-narrow-but-`OperationalError`-broad reasoning (`app/api/routers/ibkr.py`, `backend-ibkr-data-provider`'s task history): `IntegrityError` on these tables can only ever mean the same-key race (ticker is the only non-PK unique constraint on `PositionORM`, and the sole PK on `WatchlistItemORM`), but SQLite's default whole-file write locking can raise `OperationalError` (\"database is locked\") from any concurrent write anywhere in the file, so a same-key winner isn't guaranteed to exist just because this exception was raised. Auto-retrying inside the request was rejected as unnecessary complexity for a single-user MVP (per the task description's own framing) -- a 503 with a 'retry' detail message, consistent with the existing breadth-snapshot convention, lets the client (or the user) decide to resubmit."
+    }
+  ],
   "questions": []
 }

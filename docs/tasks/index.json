@@ -2546,7 +2546,7 @@
       "id": "backend-position-watchlist-race-condition",
       "area": "backend/portfolio",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-position-watchlist-race-condition.json"
     }
   ]

@@ -8,6 +8,7 @@ from typing import cast, get_args
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.api.day_trader_signal import (
@@ -532,6 +533,116 @@ def get_portfolio(
     )
 
 
+def _merge_position(existing: PositionORM, position: PositionIn, provider: DataProvider) -> PositionORM:
+    """Merges an incoming `PositionIn` into an already-persisted same-ticker `existing` row
+    (mutated and returned, not yet committed) -- the one merge implementation shared by
+    `add_position`'s two callers: a genuine already-exists-at-first-query request, and a
+    concurrent-insert-race loser that re-queried and found `existing` was committed by a
+    winner in between (see `add_position`'s own `except (IntegrityError, OperationalError)`
+    block, and this task's `decisions` entry for why a race loser merges here rather than
+    discarding its own data).
+
+    Quantities are summed and avg_cost_basis becomes the quantity-weighted average of the
+    existing and incoming cost bases (mirrors how a brokerage averages up/down a position
+    instead of tracking separate lots) -- see the api-portfolio-add-position task's
+    `decisions` for the full rationale and the rejected reject-with-409 alternative.
+    entry_date keeps the earlier of the two dates."""
+    # Merge arithmetic runs on decimal.Decimal rather than the native floats directly:
+    # two individually-valid, individually-finite floats (each already rejected if
+    # non-finite/non-positive at the schema layer) can still overflow Python float64
+    # arithmetic to inf, and an inf/inf weighted-average division silently produces nan
+    # rather than raising -- see this task's `decisions` for the full round-3 history.
+    # Decimal's default context has far more exponent headroom than float64, so the sum
+    # and weighted-average division themselves don't silently overflow; the remaining
+    # risk is the final float64 conversion for storage (the ORM columns are SQLAlchemy
+    # Float), which *also* silently saturates to inf rather than raising -- so the
+    # explicit math.isfinite() check below, not Decimal alone, is what turns that case
+    # into a clean 422 instead of an unhandled 500 from db.commit(). (existing.quantity/
+    # avg_cost_basis and position.quantity/avg_cost_basis are always finite floats by the
+    # time execution reaches here -- either already-committed rows or schema-validated
+    # `allow_inf_nan=False`/`gt=0` request fields -- so Decimal construction and division
+    # below can't themselves raise; there's deliberately no try/except DecimalException
+    # around them.)
+    existing_quantity_dec = Decimal(existing.quantity)
+    incoming_quantity_dec = Decimal(position.quantity)
+    merged_quantity_dec = existing_quantity_dec + incoming_quantity_dec
+    merged_avg_cost_basis_dec = (
+        existing_quantity_dec * Decimal(existing.avg_cost_basis)
+        + incoming_quantity_dec * Decimal(position.avg_cost_basis)
+    ) / merged_quantity_dec
+    merged_quantity = float(merged_quantity_dec)
+    merged_avg_cost_basis = float(merged_avg_cost_basis_dec)
+
+    if not (math.isfinite(merged_quantity) and math.isfinite(merged_avg_cost_basis)):
+        raise HTTPException(
+            status_code=422,
+            detail="Merging this position with the existing one would produce a quantity "
+            "or average cost basis too large to represent (overflow). Reduce the "
+            "quantity/avg_cost_basis or split the addition into smaller increments.",
+        )
+
+    # Locks in `trailing_stop_high_water_mark` (app.portfolio.risk
+    # .trailing_stop_floor_before_merge) against this position's OLD avg_cost_basis/
+    # entry_date, BEFORE they're overwritten just below -- the one write path for this
+    # column now that GET /api/portfolio/risk is a pure read again. A `daily_ohlcv` fetch
+    # failure (unknown/delisted ticker, provider unavailable) degrades to `daily_ohlcv=None`
+    # -- trailing_stop_floor_before_merge itself then leaves the floor untouched -- rather
+    # than blocking this merge on live market data being reachable. `daily_ohlcv` is run
+    # through `drop_malformed_daily_bars` here, exactly like `get_portfolio`/`get_risk`'s own
+    # OHLCV consumption in this same file (`require_full_ohlc_on_latest_bar=False`, since the
+    # latest bar can legitimately be today's still-settling one) -- `trailing_stop_high_water
+    # _mark` is a permanent MAX-floor, so an unfiltered malformed bar here would lock in a
+    # value no later correct computation could ever bring back down (PR #240 round-3 finding).
+    old_position = Position(
+        id=existing.id,
+        ticker=existing.ticker,
+        quantity=existing.quantity,
+        avg_cost_basis=existing.avg_cost_basis,
+        entry_date=existing.entry_date,
+    )
+    try:
+        daily_ohlcv = provider.get_daily_ohlcv(existing.ticker)
+    except DataProviderError:
+        daily_ohlcv = None
+    if daily_ohlcv is not None:
+        daily_ohlcv = drop_malformed_daily_bars(daily_ohlcv, require_full_ohlc_on_latest_bar=False)
+    floor = trailing_stop_floor_before_merge(
+        old_position, daily_ohlcv, existing.trailing_stop_high_water_mark
+    )
+    if floor is not None:
+        existing.trailing_stop_high_water_mark = floor
+
+    existing.quantity = merged_quantity
+    existing.avg_cost_basis = merged_avg_cost_basis
+    existing.entry_date = min(existing.entry_date, position.entry_date)
+    # entry_notes merges by appending rather than overwriting -- see this task's
+    # `decisions` entry: an incoming note is never silently dropped just because a
+    # position already existed, and a merge with no incoming note leaves the existing
+    # one untouched (there's nothing to append). PositionIn's own field_validator already
+    # strips whitespace and normalizes a blank/whitespace-only note to None before this
+    # handler ever runs, so a whitespace-only incoming note is falsy here too -- see the
+    # backend-trade-journal-entry-notes-followups task's `decisions`.
+    if position.entry_notes:
+        existing.entry_notes = (
+            f"{existing.entry_notes}\n\n{position.entry_notes}"
+            if existing.entry_notes
+            else position.entry_notes
+        )
+    # strategy merges by overwriting rather than appending -- see the
+    # backend-trade-strategy-tagging task's `decisions` entry: unlike entry_notes'
+    # narrative text, strategy is meant to be grouped/aggregated on exactly
+    # (equity-curves-by-strategy, the future backend-trade-apgar task), so a merge with an
+    # incoming strategy replaces the existing tag outright. A merge with no incoming
+    # strategy leaves the existing one untouched (nothing to replace it with).
+    # PositionIn's own field_validator already strips whitespace and normalizes a blank/
+    # whitespace-only tag to None before this handler ever runs, so a whitespace-only
+    # incoming tag is falsy here too and never overwrites an existing tag with whitespace
+    # -- see the backend-trade-strategy-tagging-followups task's `decisions`.
+    if position.strategy:
+        existing.strategy = position.strategy
+    return existing
+
+
 @router.post(
     "/positions",
     response_model=PositionOut,
@@ -555,6 +666,13 @@ def get_portfolio(
                     },
                 },
             },
+        },
+        503: {
+            "model": ErrorDetail,
+            "description": "A concurrent-insert conflict was raised while adding this "
+            "brand-new ticker, but no same-ticker row was actually found afterwards (see "
+            "this task's `decisions` entry) -- a transient SQLite lock contention unrelated "
+            "to this ticker specifically, safe to retry.",
         },
     },
 )
@@ -618,105 +736,63 @@ def add_position(
             strategy=position.strategy,
         )
         db.add(row)
-    else:
-        # Merge arithmetic runs on decimal.Decimal rather than the native floats directly:
-        # two individually-valid, individually-finite floats (each already rejected if
-        # non-finite/non-positive at the schema layer) can still overflow Python float64
-        # arithmetic to inf, and an inf/inf weighted-average division silently produces nan
-        # rather than raising -- see this task's `decisions` for the full round-3 history.
-        # Decimal's default context has far more exponent headroom than float64, so the sum
-        # and weighted-average division themselves don't silently overflow; the remaining
-        # risk is the final float64 conversion for storage (the ORM columns are SQLAlchemy
-        # Float), which *also* silently saturates to inf rather than raising -- so the
-        # explicit math.isfinite() check below, not Decimal alone, is what turns that case
-        # into a clean 422 instead of an unhandled 500 from db.commit(). (existing.quantity/
-        # avg_cost_basis and position.quantity/avg_cost_basis are always finite floats by the
-        # time execution reaches here -- either already-committed rows or schema-validated
-        # `allow_inf_nan=False`/`gt=0` request fields -- so Decimal construction and division
-        # below can't themselves raise; there's deliberately no try/except DecimalException
-        # around them.)
-        existing_quantity_dec = Decimal(existing.quantity)
-        incoming_quantity_dec = Decimal(position.quantity)
-        merged_quantity_dec = existing_quantity_dec + incoming_quantity_dec
-        merged_avg_cost_basis_dec = (
-            existing_quantity_dec * Decimal(existing.avg_cost_basis)
-            + incoming_quantity_dec * Decimal(position.avg_cost_basis)
-        ) / merged_quantity_dec
-        merged_quantity = float(merged_quantity_dec)
-        merged_avg_cost_basis = float(merged_avg_cost_basis_dec)
-
-        if not (math.isfinite(merged_quantity) and math.isfinite(merged_avg_cost_basis)):
-            raise HTTPException(
-                status_code=422,
-                detail="Merging this position with the existing one would produce a quantity "
-                "or average cost basis too large to represent (overflow). Reduce the "
-                "quantity/avg_cost_basis or split the addition into smaller increments.",
-            )
-
-        # Locks in `trailing_stop_high_water_mark` (app.portfolio.risk
-        # .trailing_stop_floor_before_merge) against this position's OLD avg_cost_basis/
-        # entry_date, BEFORE they're overwritten just below -- the one write path for this
-        # column now that GET /api/portfolio/risk is a pure read again. A `daily_ohlcv` fetch
-        # failure (unknown/delisted ticker, provider unavailable) degrades to `daily_ohlcv=None`
-        # -- trailing_stop_floor_before_merge itself then leaves the floor untouched -- rather
-        # than blocking this merge on live market data being reachable. `daily_ohlcv` is run
-        # through `drop_malformed_daily_bars` here, exactly like `get_portfolio`/`get_risk`'s own
-        # OHLCV consumption in this same file (`require_full_ohlc_on_latest_bar=False`, since the
-        # latest bar can legitimately be today's still-settling one) -- `trailing_stop_high_water
-        # _mark` is a permanent MAX-floor, so an unfiltered malformed bar here would lock in a
-        # value no later correct computation could ever bring back down (PR #240 round-3 finding).
-        old_position = Position(
-            id=existing.id,
-            ticker=existing.ticker,
-            quantity=existing.quantity,
-            avg_cost_basis=existing.avg_cost_basis,
-            entry_date=existing.entry_date,
-        )
         try:
-            daily_ohlcv = provider.get_daily_ohlcv(ticker)
-        except DataProviderError:
-            daily_ohlcv = None
-        if daily_ohlcv is not None:
-            daily_ohlcv = drop_malformed_daily_bars(
-                daily_ohlcv, require_full_ohlc_on_latest_bar=False
+            db.commit()
+        except (IntegrityError, OperationalError) as exc:
+            # Two concurrent requests for the same brand-new ticker can both see
+            # `existing is None` above and both attempt to insert this row, so the loser's
+            # commit hits `PositionORM.ticker`'s unique constraint (IntegrityError) -- or,
+            # under SQLite's default file-level locking (no WAL mode/busy_timeout configured,
+            # app/db/session.py), OperationalError ("database is locked"). Same category of
+            # race already caught this way for OHLCVCacheORM's `_upsert`/`_upsert_extended`
+            # (app/data/cache.py) and the IBKR breadth-snapshot insert
+            # (app/api/routers/ibkr.py). Unlike those two (which can safely discard or have
+            # nothing to merge for the loser's write), this request's own `position` payload
+            # is user-submitted trade data (a real quantity/avg_cost_basis the user just typed
+            # in) that must not be silently dropped just because it lost the race -- so the
+            # loser rolls back its own failed insert and instead merges its data into the
+            # winner's already-committed row via the exact same merge logic below that a
+            # genuine already-exists-at-first-query request would take. See this task's
+            # `decisions` entry for why merge (not discard) was chosen here.
+            #
+            # `ticker`'s uniqueness is this table's only non-PK constraint (`id` is a
+            # freshly-generated uuid-based string, so it never collides) -- so an
+            # IntegrityError here can only mean the same-ticker race above. OperationalError's
+            # scope is *not* pinned down the same way: SQLite's whole-file write locking can
+            # raise "database is locked" from *any* concurrent write anywhere in the file, not
+            # only a race on this exact ticker -- see app/data/cache.py's `_upsert`
+            # OperationalError branch for the identical caveat. So the re-query below may
+            # legitimately find no winner row even after a genuine OperationalError; that case
+            # surfaces as a clean 503 rather than a bare `None`-row crash.
+            db.rollback()
+            winner = db.query(PositionORM).filter(PositionORM.ticker == ticker).one_or_none()
+            if winner is None:
+                logger.warning(
+                    "Concurrent-write conflict adding position for ticker=%r, but no "
+                    "same-ticker row was found afterwards -- likely an unrelated SQLite lock "
+                    "contention, not a race on this ticker. (%s: %s)",
+                    ticker,
+                    type(exc).__name__,
+                    exc,
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Transient write conflict adding position for ticker={ticker!r}; "
+                    "retry.",
+                ) from exc
+            logger.warning(
+                "Concurrent position-add for ticker=%r raced this insert; merging this "
+                "attempt's data into the concurrently-committed row instead. (%s: %s)",
+                ticker,
+                type(exc).__name__,
+                exc,
             )
-        floor = trailing_stop_floor_before_merge(
-            old_position, daily_ohlcv, existing.trailing_stop_high_water_mark
-        )
-        if floor is not None:
-            existing.trailing_stop_high_water_mark = floor
+            row = _merge_position(winner, position, provider)
+            db.commit()
+    else:
+        row = _merge_position(existing, position, provider)
+        db.commit()
 
-        existing.quantity = merged_quantity
-        existing.avg_cost_basis = merged_avg_cost_basis
-        existing.entry_date = min(existing.entry_date, position.entry_date)
-        # entry_notes merges by appending rather than overwriting -- see this task's
-        # `decisions` entry: an incoming note is never silently dropped just because a
-        # position already existed, and a merge with no incoming note leaves the existing
-        # one untouched (there's nothing to append). PositionIn's own field_validator already
-        # strips whitespace and normalizes a blank/whitespace-only note to None before this
-        # handler ever runs, so a whitespace-only incoming note is falsy here too -- see the
-        # backend-trade-journal-entry-notes-followups task's `decisions`.
-        if position.entry_notes:
-            existing.entry_notes = (
-                f"{existing.entry_notes}\n\n{position.entry_notes}"
-                if existing.entry_notes
-                else position.entry_notes
-            )
-        # strategy merges by overwriting rather than appending -- see the
-        # backend-trade-strategy-tagging task's `decisions` entry: unlike entry_notes'
-        # narrative text, strategy is meant to be grouped/aggregated on exactly
-        # (equity-curves-by-strategy, the future backend-trade-apgar task), so a merge with an
-        # incoming strategy replaces the existing tag outright. A merge with no incoming
-        # strategy leaves the existing one untouched (nothing to replace it with).
-        # PositionIn's own field_validator already strips whitespace and normalizes a blank/
-        # whitespace-only tag to None before this handler ever runs, so a whitespace-only
-        # incoming tag is falsy here too and never overwrites an existing tag with whitespace
-        # -- see the backend-trade-strategy-tagging-followups task's `decisions`.
-        if position.strategy:
-            existing.strategy = position.strategy
-        row = existing
-
-    db.commit()
     db.refresh(row)
 
     return PositionOut(

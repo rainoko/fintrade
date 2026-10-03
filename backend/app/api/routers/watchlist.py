@@ -11,7 +11,10 @@ different, aggregate view spanning both the watchlist and the portfolio -- see i
 docstring below.
 """
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.api.day_trader_signal import (
@@ -38,6 +41,8 @@ from app.time_utils import utcnow
 from app.trading_mode import TradingModeSetting, get_trading_mode_setting
 
 router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
+
+logger = logging.getLogger(__name__)
 
 
 def _compute_signal(
@@ -322,6 +327,15 @@ def get_watchlist_breadth(
     status_code=201,
     operation_id="add_watchlist_item",
     summary="Add a ticker to the watchlist",
+    responses={
+        503: {
+            "model": ErrorDetail,
+            "description": "A concurrent-insert conflict was raised while adding this "
+            "ticker, but no same-ticker row was actually found afterwards (see this task's "
+            "`decisions` entry) -- a transient SQLite lock contention unrelated to this "
+            "ticker specifically, safe to retry.",
+        },
+    },
 )
 def add_watchlist_item(item: WatchlistItemIn, db: Session = Depends(get_db)) -> WatchlistItemOut:
     """Adds `ticker` to the watchlist. Adding a ticker that's already watched is a no-op:
@@ -338,8 +352,63 @@ def add_watchlist_item(item: WatchlistItemIn, db: Session = Depends(get_db)) -> 
     if row is None:
         row = WatchlistItemORM(ticker=ticker, added_at=utcnow())
         db.add(row)
-        db.commit()
-        db.refresh(row)
+        try:
+            db.commit()
+        except (IntegrityError, OperationalError) as exc:
+            # Two concurrent first-add requests for the same never-yet-watched ticker can
+            # both see `row is None` above and both attempt to insert it, so the loser's
+            # commit hits `WatchlistItemORM.ticker`'s primary key (IntegrityError) -- or,
+            # under SQLite's default file-level locking (no WAL mode/busy_timeout configured,
+            # app/db/session.py), OperationalError ("database is locked"). Same category of
+            # race already caught this way for OHLCVCacheORM's `_upsert`/`_upsert_extended`
+            # (app/data/cache.py), the IBKR breadth-snapshot insert
+            # (app/api/routers/ibkr.py), and `POST /api/portfolio/positions` (this same task).
+            #
+            # Unlike that positions endpoint (whose incoming payload is user-submitted
+            # quantity/cost-basis data that must not be silently dropped on a race), a
+            # `WatchlistItemORM` row is just a ticker plus `added_at` -- there's no incoming
+            # data to merge, and this endpoint's own documented contract already treats
+            # adding an already-watched ticker as a no-op that returns the existing row
+            # unchanged. So the loser here simply discards its own failed insert and returns
+            # the winner's already-committed row, exactly like a genuine
+            # already-exists-at-first-query request would -- see this task's `decisions`
+            # entry.
+            #
+            # `ticker` is this table's primary key and sole constraint (app/db/models.py), so
+            # an IntegrityError here can only mean the same-ticker race above.
+            # OperationalError's scope is *not* pinned down the same way: SQLite's whole-file
+            # write locking can raise "database is locked" from *any* concurrent write
+            # anywhere in the file, not only a race on this exact ticker -- see
+            # app/data/cache.py's `_upsert` OperationalError branch for the identical caveat.
+            # So the re-query below may legitimately find no winner row even after a genuine
+            # OperationalError; that case surfaces as a clean 503 rather than a bare
+            # `None`-row crash.
+            db.rollback()
+            winner = db.get(WatchlistItemORM, ticker)
+            if winner is None:
+                logger.warning(
+                    "Concurrent-write conflict adding watchlist item for ticker=%r, but no "
+                    "same-ticker row was found afterwards -- likely an unrelated SQLite lock "
+                    "contention, not a race on this ticker. (%s: %s)",
+                    ticker,
+                    type(exc).__name__,
+                    exc,
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Transient write conflict adding watchlist item for "
+                    f"ticker={ticker!r}; retry.",
+                ) from exc
+            logger.warning(
+                "Concurrent watchlist-item add for ticker=%r raced this insert; discarding "
+                "this attempt in favor of the concurrently-committed row. (%s: %s)",
+                ticker,
+                type(exc).__name__,
+                exc,
+            )
+            row = winner
+        else:
+            db.refresh(row)
 
     return _to_out(row, None)
 
