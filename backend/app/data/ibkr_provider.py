@@ -47,6 +47,7 @@ against a real running gateway.
 
 from __future__ import annotations
 
+import logging
 import math
 import threading
 import time
@@ -56,6 +57,13 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 import httpx
+from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.orm import Session
+
+from app.db.models import IBKRConidCacheORM
+from app.time_utils import utcnow
+
+logger = logging.getLogger(__name__)
 
 # IBKR's own default: the gateway listens locally, over HTTPS with a self-signed cert
 # (hence `verify=False` on the client below -- there's no real TLS trust chain to check
@@ -288,6 +296,17 @@ _GATEWAY_STATUS_TTL_SECONDS = 5.0
 # live example found during this task's own research).
 _CONID_CACHE_TTL_SECONDS = 24 * 60 * 60.0
 
+# `backend-ibkr-conid-db-cache`: `_CONID_CACHE_TTL_SECONDS` above only ever protected a
+# single process's lifetime -- every restart (a deploy, a crash, a dev-container rebuild)
+# lost every resolution and re-paid the live `/iserver/secdef/search` + ambiguity-scan
+# cost on next use, even though a *successful* conid resolution is, for all practical
+# purposes, permanent (only a genuine re-listing/delisting event changes it, never a
+# routine restart). `IBKRConidCacheORM` (app/db/models.py) persists exactly that
+# successful-resolution case so it survives a restart; see that model's own docstring for
+# the full rationale, and `resolve_conid`'s docstring for how it's layered under the
+# existing in-memory cache (fast path) as a fallback (survives-restart path) ahead of a
+# live call. See this task's `decisions` entry.
+
 GatewayState = Literal["available", "gateway_unreachable", "not_authenticated"]
 
 
@@ -419,6 +438,7 @@ class IBKRProvider:
         timeout: float = 10.0,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        session_factory: Callable[[], Session] | None = None,
     ) -> None:
         """`client`, `clock`, and `sleep` are injectable purely for testability (per this
         task's mocked-HTTP-only testing constraint) -- production callers should leave all
@@ -429,12 +449,26 @@ class IBKRProvider:
         single-quick-retry delay (`backend-ibkr-request-retry`) -- a test exercising the
         retry path injects a no-op/recording stub instead of a real `time.sleep` so the
         suite doesn't actually pause for `_REQUEST_RETRY_DELAY_SECONDS` on every retry test.
+
+        `session_factory` (`backend-ibkr-conid-db-cache`) is how `resolve_conid` reaches
+        `IBKRConidCacheORM` -- a zero-arg callable returning a fresh `Session` each time it's
+        called, e.g. `app.db.session.SessionLocal` itself (not a pre-opened `Session`
+        instance), because this class is constructed once as a process-wide singleton
+        (`app.api.dependencies._get_ibkr_provider_singleton`) that long outlives any single
+        request's own DB session -- mirrors `app.api.dependencies.get_data_provider_factory`'s
+        own "open a session, use it, close it" pattern for the same reason (a long-lived
+        object that can't hold one request-scoped `Session` open indefinitely). Defaults to
+        `None`, which disables the DB cache entirely (every test in this module that doesn't
+        care about it keeps working unmodified, and `resolve_conid` falls straight through to
+        the in-memory cache + live call exactly as before this task) -- production wiring
+        passes `SessionLocal`.
         """
         self._base_url = base_url.rstrip("/")
         self._client = client or httpx.Client(verify=False, timeout=timeout)
         self._owns_client = client is None
         self._clock = clock
         self._sleep = sleep
+        self._session_factory = session_factory
         self._scanner_params_cache: tuple[float, dict] | None = None
         self._last_scanner_run_at: float | None = None
         self._gateway_status_cache: tuple[float, GatewayStatus] | None = None
@@ -792,17 +826,37 @@ class IBKRProvider:
         same ticker's conid on every single request. Caches a `None` (unresolved/
         ambiguous) result too, on the same TTL -- see that constant's own comment for why.
 
+        On an in-memory cache miss (including every miss right after a process restart,
+        which clears `_conid_cache` entirely), falls back to `IBKRConidCacheORM`
+        (`backend-ibkr-conid-db-cache`, only when `session_factory` was supplied to
+        `__init__`) before ever making a live call -- a DB-cache hit both returns
+        immediately *and* repopulates `_conid_cache` so this process's later calls for the
+        same ticker hit the fast in-memory path again. Only a **successful** resolution is
+        ever persisted there (a `None`/ambiguous result is not) -- see
+        `IBKRConidCacheORM`'s own docstring for why, and this task's `decisions` entry. A
+        DB-cache hit skips `_require_available()` entirely (no gateway call at all for an
+        already-known-permanent mapping); only a genuine DB-cache miss falls through to the
+        live `GET /iserver/secdef/search` path below, same as before this task.
+
         Double-checked locking per ticker (`_conid_cache_locks`, `backend-ibkr-primary-
         data-provider-followups`) so a concurrent cold-cache race for the *same* ticker
         can't make more than one thread issue the real `GET /iserver/secdef/search` call
         -- while still letting concurrent resolution of *different* tickers (e.g. this
         app's own per-ticker `ThreadPoolExecutor` fan-out) proceed fully in parallel. See
         `__init__`'s own comment on `_conid_cache_locks` for why this is per-ticker rather
-        than one lock for the whole cache (unlike `_gateway_status_lock`).
+        than one lock for the whole cache (unlike `_gateway_status_lock`). The DB read/write
+        below also happens inside this same per-ticker lock -- simpler than a second,
+        independent locking scheme, and the DB-write side still has its own
+        `IntegrityError`/`OperationalError` handling (`_write_conid_db_cache`) for the
+        cross-*instance* race this in-process lock can't prevent (two separate
+        `IBKRProvider` instances, e.g. across a process restart racing a lingering old
+        process, or two instances in a test, both resolving the same previously-unresolved
+        ticker at once).
 
         Raises:
             IBKRUnavailableError: the gateway isn't `available` (see
-                `get_gateway_status`), or the request itself fails.
+                `get_gateway_status`), or the request itself fails. Never raised on a
+                DB-cache hit (no gateway call is made in that case).
         """
         cache_key = ticker.upper()
         cached = self._conid_cache.get(cache_key)
@@ -820,10 +874,17 @@ class IBKRProvider:
                 if self._clock() - cached_at < _CONID_CACHE_TTL_SECONDS:
                     return conid
 
+            db_conid = self._read_conid_db_cache(cache_key)
+            if db_conid is not None:
+                self._conid_cache[cache_key] = (self._clock(), db_conid)
+                return db_conid
+
             self._require_available()
             payload = self._request("GET", "/iserver/secdef/search", params={"symbol": ticker})
             conid = _resolve_stk_conid(payload, ticker)
             self._conid_cache[cache_key] = (self._clock(), conid)
+            if conid is not None:
+                self._write_conid_db_cache(cache_key, conid)
             return conid
 
     def _get_conid_cache_lock(self, cache_key: str) -> threading.Lock:
@@ -839,6 +900,66 @@ class IBKRProvider:
                 lock = threading.Lock()
                 self._conid_cache_locks[cache_key] = lock
             return lock
+
+    def _read_conid_db_cache(self, cache_key: str) -> int | None:
+        """`IBKRConidCacheORM` lookup for `resolve_conid`'s DB-cache fallback -- a no-op
+        (`None`, same as a genuine miss) when `self._session_factory` wasn't supplied
+        (`__init__`'s default), so this method is always safe to call unconditionally from
+        `resolve_conid` regardless of whether the DB cache is wired up.
+
+        Opens and closes its own short-lived `Session` per call (`self._session_factory()`)
+        rather than holding one open for this long-lived singleton's lifetime -- see
+        `__init__`'s own docstring on `session_factory` for why.
+        """
+        if self._session_factory is None:
+            return None
+        db = self._session_factory()
+        try:
+            row = db.query(IBKRConidCacheORM).filter(IBKRConidCacheORM.ticker == cache_key).one_or_none()
+            return row.conid if row is not None else None
+        finally:
+            db.close()
+
+    def _write_conid_db_cache(self, cache_key: str, conid: int) -> None:
+        """Persist a freshly, successfully resolved `conid` to `IBKRConidCacheORM` -- a
+        no-op when `self._session_factory` wasn't supplied, same as `_read_conid_db_cache`.
+        Only ever called with a non-`None` `conid` (see `resolve_conid`) -- this table never
+        stores an unresolved/ambiguous result (`IBKRConidCacheORM`'s own docstring).
+        """
+        if self._session_factory is None:
+            return
+        db = self._session_factory()
+        try:
+            row = db.query(IBKRConidCacheORM).filter(IBKRConidCacheORM.ticker == cache_key).one_or_none()
+            if row is None:
+                row = IBKRConidCacheORM(ticker=cache_key)
+                db.add(row)
+            row.conid = conid
+            row.resolved_at = utcnow()
+            try:
+                db.commit()
+            except (IntegrityError, OperationalError) as exc:
+                # Same benign concurrent-first-population race `CachedDataProvider._upsert`
+                # (app/data/cache.py) documents at length: two concurrent callers resolving
+                # the same previously-unresolved ticker for the first time (e.g. two
+                # `IBKRProvider` instances, since this in-process per-ticker lock
+                # (`_get_conid_cache_lock`) already prevents this race within one instance)
+                # can both attempt to insert this row; the loser discards its own write
+                # rather than erroring, since `conid` (this call's own freshly resolved
+                # result) is still returned to `resolve_conid`'s caller regardless of
+                # whether this commit succeeds -- only a redundant write is lost, not the
+                # answer itself.
+                db.rollback()
+                logger.warning(
+                    "Concurrent IBKR conid DB-cache population for %r raced this write; "
+                    "discarding this attempt in favor of the concurrently-committed row. "
+                    "(%s: %s)",
+                    cache_key,
+                    type(exc).__name__,
+                    exc,
+                )
+        finally:
+            db.close()
 
     def get_account_positions(self) -> list[IBKRAccountPosition]:
         """The connected IBKR account's current equity positions

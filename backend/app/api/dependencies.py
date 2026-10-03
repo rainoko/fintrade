@@ -221,12 +221,21 @@ def _get_ibkr_provider_singleton() -> IBKRProvider:
     before constructing, so only one `IBKRProvider` is ever built. Tests reset this
     between runs via `_reset_ibkr_provider_singleton_for_tests()` (see
     tests/unit/api/test_dependencies.py's autouse fixture).
+
+    Passes `SessionLocal` itself (`app.db.session`) as `session_factory`
+    (`backend-ibkr-conid-db-cache`) -- not a pre-opened `Session` -- so
+    `IBKRProvider.resolve_conid`'s DB conid cache can open and close its own short-lived
+    session per lookup/write, independent of any request's own `Depends(get_db)` session
+    (this singleton is constructed once and outlives every individual request). See
+    `IBKRProvider.__init__`'s own docstring on `session_factory`.
     """
     global _ibkr_provider_singleton
     if _ibkr_provider_singleton is None:
         with _ibkr_provider_singleton_lock:
             if _ibkr_provider_singleton is None:
-                _ibkr_provider_singleton = IBKRProvider(base_url=get_settings().ibkr_base_url)
+                _ibkr_provider_singleton = IBKRProvider(
+                    base_url=get_settings().ibkr_base_url, session_factory=SessionLocal
+                )
     return _ibkr_provider_singleton
 
 
