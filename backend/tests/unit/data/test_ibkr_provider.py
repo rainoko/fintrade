@@ -8,6 +8,7 @@ response shapes (docs/ideas.md). A dedicated `TestRequest` class instead mocks t
 underlying `httpx.Client` to exercise `_request` itself.
 """
 
+import inspect
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -1708,19 +1709,24 @@ class TestRequest:
         )
 
     def test_transport_error_raises_ibkr_unavailable(self, mocker) -> None:
+        """A `ConnectError` is retryable (`backend-ibkr-request-retry`); persisting across
+        both attempts still eventually raises -- see `TestRequestRetry` for the
+        retry-then-succeed case and an assertion on the retry count itself."""
         mock_client = mocker.Mock()
         mock_client.request.side_effect = httpx.ConnectError("connection refused")
 
         with pytest.raises(IBKRUnavailableError):
-            IBKRProvider(client=mock_client)._request("GET", "/iserver/auth/status")
+            IBKRProvider(client=mock_client, sleep=mocker.Mock())._request("GET", "/iserver/auth/status")
 
     def test_non_200_raises_ibkr_unavailable(self, mocker) -> None:
+        """A 5xx response is retryable (`backend-ibkr-request-retry`); persisting across
+        both attempts still eventually raises -- see `TestRequestRetry`."""
         mock_response = mocker.Mock(status_code=503)
         mock_client = mocker.Mock()
         mock_client.request.return_value = mock_response
 
         with pytest.raises(IBKRUnavailableError):
-            IBKRProvider(client=mock_client)._request("GET", "/iserver/auth/status")
+            IBKRProvider(client=mock_client, sleep=mocker.Mock())._request("GET", "/iserver/auth/status")
 
     def test_unparseable_body_raises_ibkr_unavailable(self, mocker) -> None:
         mock_response = mocker.Mock(status_code=200)
@@ -1730,6 +1736,135 @@ class TestRequest:
 
         with pytest.raises(IBKRUnavailableError):
             IBKRProvider(client=mock_client)._request("GET", "/iserver/auth/status")
+
+
+class TestRequestRetry:
+    """`_request`'s single-quick-retry policy (`backend-ibkr-request-retry`) -- a transient
+    failure genuinely observed live (gateway flipping between unreachable/400/401/200
+    within a ~20-minute window, see that task's `description`) should get one quick retry
+    before giving up, but a failure retrying can't fix (auth/4xx) should not. Every test
+    here injects a `sleep` stub (recording the delay it was called with, never actually
+    pausing) so the suite stays fast and deterministic -- matches `_GATEWAY_STATUS_TTL_
+    SECONDS`'s own `_FakeClock` precedent for not sleeping in a test."""
+
+    def test_transient_connect_error_then_success_recovers(self, mocker) -> None:
+        mock_response = mocker.Mock(status_code=200)
+        mock_response.json.return_value = {"authenticated": True}
+        mock_client = mocker.Mock()
+        mock_client.request.side_effect = [httpx.ConnectError("connection refused"), mock_response]
+        sleep = mocker.Mock()
+
+        result = IBKRProvider(client=mock_client, sleep=sleep)._request("GET", "/iserver/auth/status")
+
+        assert result == {"authenticated": True}
+        assert mock_client.request.call_count == 2
+        sleep.assert_called_once_with(0.3)
+
+    def test_transient_5xx_then_success_recovers(self, mocker) -> None:
+        failing_response = mocker.Mock(status_code=503)
+        succeeding_response = mocker.Mock(status_code=200)
+        succeeding_response.json.return_value = {"authenticated": True}
+        mock_client = mocker.Mock()
+        mock_client.request.side_effect = [failing_response, succeeding_response]
+        sleep = mocker.Mock()
+
+        result = IBKRProvider(client=mock_client, sleep=sleep)._request("GET", "/iserver/auth/status")
+
+        assert result == {"authenticated": True}
+        assert mock_client.request.call_count == 2
+        sleep.assert_called_once_with(0.3)
+
+    def test_persistent_connect_error_still_raises_after_one_retry(self, mocker) -> None:
+        """Confirms the retry is bounded (exactly one), not an infinite loop -- two
+        attempts total, then `IBKRUnavailableError`."""
+        mock_client = mocker.Mock()
+        mock_client.request.side_effect = httpx.ConnectError("connection refused")
+        sleep = mocker.Mock()
+
+        with pytest.raises(IBKRUnavailableError):
+            IBKRProvider(client=mock_client, sleep=sleep)._request("GET", "/iserver/auth/status")
+
+        assert mock_client.request.call_count == 2
+        sleep.assert_called_once_with(0.3)
+
+    def test_persistent_5xx_still_raises_after_one_retry(self, mocker) -> None:
+        mock_response = mocker.Mock(status_code=502)
+        mock_client = mocker.Mock()
+        mock_client.request.return_value = mock_response
+        sleep = mocker.Mock()
+
+        with pytest.raises(IBKRUnavailableError):
+            IBKRProvider(client=mock_client, sleep=sleep)._request("GET", "/iserver/auth/status")
+
+        assert mock_client.request.call_count == 2
+        sleep.assert_called_once_with(0.3)
+
+    def test_401_is_not_retried(self, mocker) -> None:
+        """An authentication failure won't be fixed by an identical request 300ms later --
+        fails fast on the first attempt, no sleep."""
+        mock_response = mocker.Mock(status_code=401)
+        mock_client = mocker.Mock()
+        mock_client.request.return_value = mock_response
+        sleep = mocker.Mock()
+
+        with pytest.raises(IBKRUnavailableError):
+            IBKRProvider(client=mock_client, sleep=sleep)._request("GET", "/iserver/auth/status")
+
+        mock_client.request.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_400_client_error_is_not_retried(self, mocker) -> None:
+        mock_response = mocker.Mock(status_code=400)
+        mock_client = mocker.Mock()
+        mock_client.request.return_value = mock_response
+        sleep = mocker.Mock()
+
+        with pytest.raises(IBKRUnavailableError):
+            IBKRProvider(client=mock_client, sleep=sleep)._request("GET", "/iserver/auth/status")
+
+        mock_client.request.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_timeout_exception_is_not_retried(self, mocker) -> None:
+        """A timeout already spent this call's full budget waiting -- retrying would
+        silently double worst-case latency for a caller with its own timeout expectations
+        (`get_analysis`'s concurrent fan-out) rather than plausibly recovering a fast flip,
+        so this is deliberately excluded from the otherwise-retryable `httpx.RequestError`
+        family -- see `_request`'s own docstring."""
+        mock_client = mocker.Mock()
+        mock_client.request.side_effect = httpx.ReadTimeout("timed out")
+        sleep = mocker.Mock()
+
+        with pytest.raises(IBKRUnavailableError):
+            IBKRProvider(client=mock_client, sleep=sleep)._request("GET", "/iserver/auth/status")
+
+        mock_client.request.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_unparseable_body_is_not_retried(self, mocker) -> None:
+        """A malformed 200 body is not retried -- this session never actually observed this
+        failure mode live, unlike the status/connectivity-level flips the retry policy
+        targets; see this task's `decisions` entry."""
+        mock_response = mocker.Mock(status_code=200)
+        mock_response.json.side_effect = ValueError("not json")
+        mock_client = mocker.Mock()
+        mock_client.request.return_value = mock_response
+        sleep = mocker.Mock()
+
+        with pytest.raises(IBKRUnavailableError):
+            IBKRProvider(client=mock_client, sleep=sleep)._request("GET", "/iserver/auth/status")
+
+        mock_client.request.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_default_sleep_parameter_is_time_sleep(self) -> None:
+        """Confirms production behavior (no `sleep` injected) wires up the real
+        `time.sleep` -- every other test in this class injects a stub instead, which only
+        proves the retry *logic*, not that a real deployment actually delays between
+        attempts rather than silently calling nothing."""
+        default_sleep = inspect.signature(IBKRProvider.__init__).parameters["sleep"].default
+
+        assert default_sleep is time.sleep
 
 
 class TestLifecycle:

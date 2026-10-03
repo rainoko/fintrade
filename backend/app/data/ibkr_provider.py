@@ -230,6 +230,26 @@ _SCANNER_PARAMS_TTL_SECONDS = 15 * 60.0
 # docs/ideas.md: "`run` to 1 request per second".
 _SCANNER_RUN_MIN_INTERVAL_SECONDS = 1.0
 
+# `_request`'s single-quick-retry policy (`backend-ibkr-request-retry`) -- confirmed via
+# this session's own direct observation while working `backend-ibkr-primary-data-provider`:
+# the configured gateway flipped between unreachable, HTTP 400, HTTP 401, and
+# 200-authenticated states multiple times within a ~20-minute window, genuine empirical
+# transient flakiness rather than a hypothetical concern. `_REQUEST_MAX_ATTEMPTS = 2` (the
+# original attempt plus exactly one retry, not an open-ended backoff loop) is deliberately
+# minimal: every flip this session actually observed was a fast failure (an immediate
+# connection refusal or an immediate non-200 response), not a slow one, so a single quick
+# retry is already enough to plausibly absorb one of those -- a second or third retry would
+# only add latency for a case with no evidence it would ever succeed where the first retry
+# didn't. `_REQUEST_RETRY_DELAY_SECONDS = 0.3` (300ms) sits in the middle of this task's own
+# description's suggested 200-500ms range: long enough to give a flapping gateway process a
+# moment to settle, short enough that doubling it (one retry) stays well under what a caller
+# fanning out several concurrent IBKR calls (`app.api.routers.stocks.get_analysis`'s daily/
+# weekly/extended `ThreadPoolExecutor`, `app.data.day_trader_intraday`'s per-leg fan-out)
+# would notice against its own timeout expectations. See `_request`'s own docstring and
+# this task's `decisions` entry for which failure types this retries vs. doesn't.
+_REQUEST_MAX_ATTEMPTS = 2
+_REQUEST_RETRY_DELAY_SECONDS = 0.3
+
 # `backend-ibkr-primary-data-provider`'s checklist item 3: once IBKR can be this app's
 # *primary* data source, `app.api.dependencies.get_data_provider` needs to check "is IBKR
 # connected" on every single incoming request (unlike `get_ibkr_provider`'s existing
@@ -398,18 +418,23 @@ class IBKRProvider:
         client: httpx.Client | None = None,
         timeout: float = 10.0,
         clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
-        """`client` and `clock` are injectable purely for testability (per this task's
-        mocked-HTTP-only testing constraint) -- production callers should leave both at
-        their defaults. `clock` uses `time.monotonic` (not wall-clock time) since it only
-        ever measures elapsed intervals for the two rate limits, never an absolute
+        """`client`, `clock`, and `sleep` are injectable purely for testability (per this
+        task's mocked-HTTP-only testing constraint) -- production callers should leave all
+        three at their defaults. `clock` uses `time.monotonic` (not wall-clock time) since
+        it only ever measures elapsed intervals for the two rate limits, never an absolute
         timestamp; a test can inject a simple counter instead of a real clock to make
-        rate-limit behavior deterministic without sleeping.
+        rate-limit behavior deterministic without sleeping. `sleep` backs `_request`'s own
+        single-quick-retry delay (`backend-ibkr-request-retry`) -- a test exercising the
+        retry path injects a no-op/recording stub instead of a real `time.sleep` so the
+        suite doesn't actually pause for `_REQUEST_RETRY_DELAY_SECONDS` on every retry test.
         """
         self._base_url = base_url.rstrip("/")
         self._client = client or httpx.Client(verify=False, timeout=timeout)
         self._owns_client = client is None
         self._clock = clock
+        self._sleep = sleep
         self._scanner_params_cache: tuple[float, dict] | None = None
         self._last_scanner_run_at: float | None = None
         self._gateway_status_cache: tuple[float, GatewayStatus] | None = None
@@ -889,20 +914,58 @@ class IBKRProvider:
         other method on this class goes through this, so tests mock this single boundary
         (per docs/architecture/Testing.md, matching `StooqProvider._fetch_csv`'s role in
         that provider) rather than the `httpx.Client` internals.
+
+        Retries exactly once (`_REQUEST_MAX_ATTEMPTS`, `backend-ibkr-request-retry`) after
+        `_REQUEST_RETRY_DELAY_SECONDS`, but only for a failure genuinely plausible as a
+        transient blip rather than one retrying can't fix:
+
+        - A network/connection-level `httpx.RequestError` (refused/reset/DNS failure etc.)
+          -- retried, **except** when it's specifically a `httpx.TimeoutException` (a
+          connect/read/write/pool timeout already spent this call's full `timeout` budget
+          waiting -- retrying would silently double a slow-failure's already-worst-case
+          latency for a caller with its own timeout expectations, most notably
+          `get_analysis`'s concurrent daily/weekly/extended `ThreadPoolExecutor` fan-out and
+          day-trader-mode's per-leg fan-out, see `_REQUEST_MAX_ATTEMPTS`'s own comment --
+          with no evidence from this session's own observed flakiness that a slow gateway
+          would recover any faster on a second attempt than a fast one would).
+        - An HTTP 5xx response -- retried (server-side failure, plausibly transient).
+        - An HTTP 4xx response (401/403 unauthenticated, 400 "no bridge", etc.) -- **not**
+          retried: these reflect the gateway's current session/request state, which a
+          300ms-later identical request won't change.
+        - An unparseable (non-JSON) 200 body -- **not** retried: this session never actually
+          observed this failure mode (every flip observed was status/connectivity-level, not
+          a malformed success body), and retrying a response that was already a 200 is a
+          materially different risk profile than retrying a connection/5xx failure -- see
+          this task's `decisions` entry.
+
+        See this task's own `decisions` entry for the full policy rationale (why a single
+        retry, why this exact delay, why this exact retryable/non-retryable split).
         """
         url = f"{self._base_url}{path}"
-        try:
-            response = self._client.request(method, url, **kwargs)  # type: ignore[arg-type]
-        except httpx.RequestError as exc:
-            raise IBKRUnavailableError(f"IBKR gateway request to {path} failed: {exc}") from exc
+        attempt = 1
+        while True:
+            try:
+                response = self._client.request(method, url, **kwargs)  # type: ignore[arg-type]
+            except httpx.RequestError as exc:
+                if isinstance(exc, httpx.TimeoutException) or attempt >= _REQUEST_MAX_ATTEMPTS:
+                    raise IBKRUnavailableError(f"IBKR gateway request to {path} failed: {exc}") from exc
+                attempt += 1
+                self._sleep(_REQUEST_RETRY_DELAY_SECONDS)
+                continue
 
-        if response.status_code != 200:
-            raise IBKRUnavailableError(f"IBKR gateway returned HTTP {response.status_code} from {path}")
+            if response.status_code != 200:
+                if response.status_code < 500 or attempt >= _REQUEST_MAX_ATTEMPTS:
+                    raise IBKRUnavailableError(f"IBKR gateway returned HTTP {response.status_code} from {path}")
+                attempt += 1
+                self._sleep(_REQUEST_RETRY_DELAY_SECONDS)
+                continue
 
-        try:
-            return response.json()
-        except ValueError as exc:
-            raise IBKRUnavailableError(f"IBKR gateway returned an unparseable response from {path}: {exc}") from exc
+            try:
+                return response.json()
+            except ValueError as exc:
+                raise IBKRUnavailableError(
+                    f"IBKR gateway returned an unparseable response from {path}: {exc}"
+                ) from exc
 
 
 def _parse_bars(payload: object) -> list[IBKRBar]:
