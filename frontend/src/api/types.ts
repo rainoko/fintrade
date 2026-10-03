@@ -20,13 +20,18 @@ export interface paths {
          *     matching the ch. 57 daily-homework idea's own list; `app.data.cftc_cot_provider.
          *     COT_MARKETS`).
          *
-         *     Always fetches fresh from the CFTC's own public Socrata endpoint (no local caching in
-         *     this minimal scope -- see this task's `decisions` entry): the underlying data changes at
-         *     most weekly, so this app doesn't add its own staleness logic on top of the CFTC's.
+         *     Served from a DB-backed cache (`app.data.cftc_cot_cache.CFTCCOTCache`,
+         *     docs/tasks/backend-cftc-cot-caching-scheduler.json) kept fresh by a weekly scheduled
+         *     background refresh (`app.main._cftc_cot_refresh_loop`) -- matching the CFTC's own
+         *     weekly publication cadence, this endpoint deliberately does NOT re-check staleness or
+         *     re-fetch live on every call once the cache is populated (see this task's `decisions`
+         *     entry for why that's structurally correct here, unlike this app's other, TTL-based
+         *     caches). It only falls back to a live CFTC fetch on a genuine cache miss -- an empty
+         *     cache, e.g. before the scheduled refresh loop has run even once since this app started.
          *
-         *     Raises `503` if the CFTC request itself fails, or unexpectedly returns no rows for one
-         *     of this app's fixed contract codes -- there is no per-market "not found" case the way
-         *     there is for an arbitrary user-supplied stock ticker, since these are all long-
+         *     Raises `503` if a cache-miss live fetch itself fails, or unexpectedly returns no rows
+         *     for one of this app's fixed contract codes -- there is no per-market "not found" case
+         *     the way there is for an arbitrary user-supplied stock ticker, since these are all long-
          *     established, actively-traded futures contracts.
          */
         get: operations["get_cftc_cot"];

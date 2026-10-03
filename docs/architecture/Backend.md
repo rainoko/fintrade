@@ -22,6 +22,7 @@ backend/
       ibkr_provider.py # IBKR Client Portal Web API provider (conid-keyed hourly/daily/weekly bars + scanner) -- not itself a DataProvider, see §8
       ibkr_data_provider.py # ticker-keyed DataProvider adapter over ibkr_provider.py -- the app's primary market-data source whenever IBKR is connected, see §8
       cftc_cot_provider.py # CFTC Commitments of Traders (futures positioning) -- not a DataProvider, see §9
+      cftc_cot_cache.py # DB-backed read-through + scheduled-refresh cache in front of cftc_cot_provider.py, see §9
       day_trader_intraday.py # IBKR intraday bars for the active day-trader TimeframeTriple's MINUTE-unit leg(s) -- see §10
     indicators/    # pure functions, one indicator per module
       ema.py
@@ -105,7 +106,7 @@ Implement each indicator directly against its Analyse.md §4 definition and para
 
 ## 7. Persistence
 
-SQLite via SQLAlchemy for MVP: positions, account equity, a watchlist (ticker + added_at, keyed by ticker itself), closed trades (one row per closed position, realized P&L and exit details), a cache table for fetched OHLCV (ticker, date, interval, OHLCV columns, `source`, fetched_at) to avoid re-hitting yfinance/Stooq/IBKR on every request, a cache table for fetched extended data (fundamentals/sentiment, ticker + kind, fetched_at), a cache table for the fully-computed `GET /api/stocks/{ticker}/indicators` response itself (`indicator_history_cache`, keyed by `ticker` + `range`, same-calendar-day TTL rather than OHLCV's rolling 24h one -- `app.api.indicator_history_cache.IndicatorHistoryResponseCache`, docs/tasks/backend-indicator-history-performance.json), and a daily homework entries table (one row per calendar day, keyed by `date` itself, for ch. 57's "Am I ready to trade?" self-test -- see `app/portfolio/homework.py`). The OHLCV cache's `source` column (`backend-ibkr-primary-data-provider`'s PR #369 review -- `app.db.models.OHLCVCacheORM`, `app.data.cache.CachedDataProvider`) tags each row with which provider chain (yfinance/Stooq vs. IBKR, §8) wrote it, so a mode switch never silently serves a still-fresh row left behind by the other chain as a cache hit. Migrations via Alembic (`app/db/migrations/`), wired to `app.db.models.Base.metadata` for autogenerate and to `app.config.get_settings().database_url` for the target database (see `app/db/migrations/env.py`) — see README.md's "Database migrations" section for the day-to-day workflow.
+SQLite via SQLAlchemy for MVP: positions, account equity, a watchlist (ticker + added_at, keyed by ticker itself), closed trades (one row per closed position, realized P&L and exit details), a cache table for fetched OHLCV (ticker, date, interval, OHLCV columns, `source`, fetched_at) to avoid re-hitting yfinance/Stooq/IBKR on every request, a cache table for fetched extended data (fundamentals/sentiment, ticker + kind, fetched_at), a cache table for the fully-computed `GET /api/stocks/{ticker}/indicators` response itself (`indicator_history_cache`, keyed by `ticker` + `range`, same-calendar-day TTL rather than OHLCV's rolling 24h one -- `app.api.indicator_history_cache.IndicatorHistoryResponseCache`, docs/tasks/backend-indicator-history-performance.json), a cache table for CFTC Commitments of Traders data (`cftc_cot_cache`, keyed by `market_key` + `report_date` -- `app.db.models.CFTCCOTCacheORM`, `app.data.cftc_cot_cache.CFTCCOTCache`, §9) kept warm by a scheduled background refresh rather than a per-request TTL check, and a daily homework entries table (one row per calendar day, keyed by `date` itself, for ch. 57's "Am I ready to trade?" self-test -- see `app/portfolio/homework.py`). The OHLCV cache's `source` column (`backend-ibkr-primary-data-provider`'s PR #369 review -- `app.db.models.OHLCVCacheORM`, `app.data.cache.CachedDataProvider`) tags each row with which provider chain (yfinance/Stooq vs. IBKR, §8) wrote it, so a mode switch never silently serves a still-fresh row left behind by the other chain as a cache hit. Migrations via Alembic (`app/db/migrations/`), wired to `app.db.models.Base.metadata` for autogenerate and to `app.config.get_settings().database_url` for the target database (see `app/db/migrations/env.py`) — see README.md's "Database migrations" section for the day-to-day workflow.
 
 `app/main.py`'s FastAPI lifespan hook still calls `Base.metadata.create_all(bind=engine)` on startup — this is now just a convenience bootstrap (idempotent, a no-op against a database Alembic already migrated) so a brand-new dev/test SQLite file works immediately without running `alembic upgrade head` first, not a substitute for migrations going forward.
 
@@ -294,10 +295,54 @@ grouped client-side by market — not five separate per-market requests. `cot_in
 the classic Williams "COT Index" (0-100, where the current net position sits within its own
 trailing window's high/low range) as this provider's operationalization of "against
 historical norms" — chosen over a bespoke percentile-rank scheme since it's the standard,
-well-known form for exactly this data. No local caching/persistence layer (unlike
-`CachedDataProvider`'s OHLCV/extended-data caches, §7): `GET /api/cftc/cot` fetches fresh on
-every request, since the underlying data changes at most weekly and this is explicitly scoped
-as a minimal, informational surface — see this task's `decisions` entry.
+well-known form for exactly this data.
+
+**DB-backed cache + scheduled weekly refresh** (`docs/tasks/backend-cftc-cot-caching-scheduler.json`,
+a pre-approved follow-up named in `backend-cftc-cot-data`'s own `decisions` entry).
+`GET /api/cftc/cot` no longer fetches live on every request: `app.data.cftc_cot_cache
+.CFTCCOTCache` is a read-through cache backed by `CFTCCOTCacheORM` (§7), keyed by
+`(market_key, report_date)` — this app's own stable `COT_MARKETS` key, not the CFTC's raw
+`cftc_contract_market_code`, so a future display-name-only rename upstream (already happened
+once, see `backend-cftc-cot-data`'s `decisions` entry) never requires a cache-key migration.
+The endpoint reads the cache first and only falls back to a live `CFTCCOTProvider
+.get_all_recent()` call — populating the cache with that result — on a genuine cache miss
+(at least one of the 5 fixed markets has no cached row at all, e.g. before the scheduled
+refresh has ever run since this app started); once every market has at least one row, the
+endpoint never re-checks staleness or re-fetches on its own.
+
+Unlike every other cache in this codebase (`CachedDataProvider`'s OHLCV/extended-data caches,
+`IndicatorHistoryResponseCache`, all TTL-checked at read time), staleness here is judged and
+acted on by a **scheduled background push**, not a per-request pull-based TTL check — the
+CFTC only republishes this data once a week (Fridays, at no documented time, able to slip
+around a CFTC-observed holiday), so a periodic "is my cached snapshot too old" check is the
+structurally correct model, not a request-time optimization. `app.main._cftc_cot_refresh_loop`
+follows `_ibkr_tickle_loop`'s (§8) existing `asyncio.create_task`-in-`lifespan()` shape (act,
+log-and-continue on any failure, sleep, repeat for the app's lifetime), with one deliberate
+difference: it checks-and-refreshes-if-due once *immediately* on startup, before its first
+sleep — unlike the IBKR loop, where sleeping first is harmless (a freshly-connected session is
+inherently fresh at that moment), the CFTC cache's staleness is a fact about calendar time
+since the last refresh, not this process's own uptime, so without an immediate check a cache
+already stale when the app restarts (a redeploy, a crash-restart, any downtime longer than the
+staleness threshold) would otherwise keep being served as a cache hit for a further full check
+interval after startup. After that initial check, it wakes every 6 hours and refreshes only if
+`CFTCCOTCache.is_stale()` finds the cache empty or its newest fetch at least 6 days old, rather
+than anchoring to CFTC's exact release schedule (which would need its own holiday-calendar
+logic this app has no other use for). Unlike the IBKR tickle loop, this one has no
+`Settings`-level "enabled" switch of its own — CFTC's public data needs no gateway/credential
+to be disconnected from, so in `live` mode it always starts. But it IS gated on
+`Settings.data_provider_mode` (the same switch `get_data_provider` uses): in `fixture` mode
+(the frontend e2e suite and this app's own dev-container test runs) the loop is never created
+at all — no task, no `CFTCCOTProvider` construction, no live HTTPS call — since its
+immediate-on-startup check would otherwise make a real network call to CFTC's public Socrata
+endpoint on every app process start, defeating the e2e suite's zero-live-network-call
+guarantee. `GET /api/cftc/cot`'s own cache-miss live fetch is deliberately left ungated by this
+same switch (it already only fires if a caller actually hits that endpoint, which no e2e run
+does). `CFTCCOTCache.refresh` also prunes any cached row that falls outside
+a fresh fetch's own window, since this table's only reader never looks past that window — left
+unbounded, it would otherwise grow forever with no corresponding benefit (unlike OHLCV/
+extended-data, where long history is independently useful). See that task's `decisions`
+entries for the full staleness-threshold/check-interval rationale and the cache-key/pruning
+trade-offs.
 
 ## 10. Day-Trader Timeframe Mode (foundational model + settings, in progress)
 

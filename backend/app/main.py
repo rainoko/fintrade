@@ -4,6 +4,7 @@ import logging
 import math
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -11,11 +12,14 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.api.dependencies import get_ibkr_provider
+from app.api.dependencies import get_cftc_cot_provider, get_ibkr_provider
 from app.api.routers import cftc, homework, ibkr, portfolio, settings, stocks, watchlist
+from app.config import get_settings
+from app.data.cftc_cot_cache import CFTCCOTCache
+from app.data.cftc_cot_provider import CFTCCOTProvider
 from app.data.ibkr_provider import IBKRProvider
 from app.db.models import Base
-from app.db.session import engine
+from app.db.session import SessionLocal, engine
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +67,99 @@ async def _ibkr_tickle_loop(provider: IBKRProvider) -> None:
             logger.warning("IBKR /tickle keep-alive call failed: %s", exc)
 
 
+# docs/tasks/backend-cftc-cot-caching-scheduler.json: how often `_cftc_cot_refresh_loop`
+# wakes up to check whether the CFTC COT cache (`app.data.cftc_cot_cache.CFTCCOTCache`)
+# is due for a refresh -- NOT how often a refresh actually happens (that's gated by
+# `_CFTC_COT_CACHE_MAX_AGE` below). 6 hours was chosen over a scheme that anchors to
+# CFTC's actual weekly release schedule (reports are published Fridays, but at no
+# precisely-documented time, and can slip around a CFTC-observed holiday) -- a periodic
+# "is my cached snapshot older than N days" check is simpler, self-correcting (a missed
+# check just means the *next* one still catches it, rather than needing its own
+# holiday-calendar logic), and needs no new dependency, while still being far more often
+# than the weekly data actually changes. See this task's `decisions` entry.
+_CFTC_COT_REFRESH_CHECK_INTERVAL_SECONDS = 6.0 * 3600.0
+
+# A cached snapshot is refreshed once it's at least this old. 6 days (not a full 7) gives
+# the loop's own `_CFTC_COT_REFRESH_CHECK_INTERVAL_SECONDS` cadence a full day of slack to
+# actually notice and act on a new Friday release before a 7-day-exact threshold would
+# otherwise flap between "fresh" and "stale" depending on exactly which 6-hour tick a
+# request happened to land on. See this task's `decisions` entry.
+_CFTC_COT_CACHE_MAX_AGE = timedelta(days=6)
+
+
+def _refresh_cftc_cot_cache_if_stale(provider: CFTCCOTProvider) -> None:
+    """One check-and-maybe-refresh pass for the CFTC COT cache, run inside
+    `asyncio.to_thread` by `_cftc_cot_refresh_loop` below (both `CFTCCOTProvider.
+    get_all_recent`'s HTTP call and this function's own DB session work are blocking).
+
+    Opens and closes its own `SessionLocal()` (like `app.api.dependencies.
+    get_data_provider_factory`'s per-call sessions, not the request-scoped session `GET
+    /api/cftc/cot` uses) since this runs entirely outside any HTTP request.
+    """
+    db = SessionLocal()
+    try:
+        cache = CFTCCOTCache(db)
+        if not cache.is_stale(_CFTC_COT_CACHE_MAX_AGE):
+            return
+        reports_by_market = provider.get_all_recent()
+        cache.refresh(reports_by_market)
+        logger.info("CFTC COT cache refreshed (%d markets).", len(reports_by_market))
+    finally:
+        db.close()
+
+
+async def _check_and_refresh_cftc_cot_cache_once(provider: CFTCCOTProvider) -> None:
+    """One check-and-maybe-refresh pass, run both immediately on startup and on every
+    subsequent wake-up of `_cftc_cot_refresh_loop` below. A failed refresh (CFTC request
+    failure, or any other unexpected error) is logged and the caller keeps running rather
+    than stopping -- `GET /api/cftc/cot` already has its own genuine-cache-miss live-fetch
+    fallback for the case this cache was never successfully populated at all, so this
+    loop's only job is to keep trying, not to raise an alert of its own.
+    """
+    try:
+        await asyncio.to_thread(_refresh_cftc_cot_cache_if_stale, provider)
+    except Exception as exc:  # noqa: BLE001 - deliberately broad, see rationale below
+        # Deliberately broad for the same reason `_ibkr_tickle_loop` catches `Exception`
+        # rather than narrowing to `DataProviderUnavailableError` (the only exception
+        # `CFTCCOTProvider.get_all_recent` is documented to raise today): narrowing this
+        # catch would be a latent trap if the DB-side `CFTCCOTCache.refresh`/`is_stale`
+        # calls this wraps ever raised something else (e.g. a genuine, non-benign
+        # `OperationalError` that `refresh`'s own narrower catch doesn't swallow) --
+        # an uncaught exception here would end this loop permanently with no caller
+        # ever finding out, since nothing else polls it. `Exception` (not
+        # `BaseException`) still lets a real `asyncio.CancelledError` propagate through
+        # untouched, so cancellation at shutdown still works, exactly like
+        # `_ibkr_tickle_loop`.
+        logger.warning("CFTC COT cache refresh failed: %s", exc)
+
+
+async def _cftc_cot_refresh_loop(provider: CFTCCOTProvider) -> None:
+    """Background weekly-cadence refresh loop for the CFTC COT cache, following
+    `_ibkr_tickle_loop`'s own shape (act, log-and-continue on failure, sleep, repeat for
+    the app's lifetime) -- docs/tasks/backend-cftc-cot-caching-scheduler.json. Unlike
+    that loop, this one doesn't act on every wake-up: `_refresh_cftc_cot_cache_if_stale`
+    is itself a no-op unless the cache is actually due (`_CFTC_COT_CACHE_MAX_AGE`), so
+    waking up more often than the data changes costs nothing beyond a cheap local DB
+    query most of the time.
+
+    Unlike `_ibkr_tickle_loop` (which sleeps *before* its first tickle -- harmless there,
+    since a freshly-connected IBKR session is inherently fresh at that moment), this loop
+    checks-and-refreshes-if-due once immediately, before the first `asyncio.sleep`
+    (`backend-cftc-cot-caching-scheduler`'s PR #380 review): the CFTC cache is backed by
+    persistent on-disk state whose staleness is a fact about calendar time since the last
+    refresh, not about this process's own uptime, and `GET /api/cftc/cot`'s read path
+    deliberately never re-checks staleness itself (see this task's `decisions` entry --
+    this loop is the sole freshness guarantee). Without an immediate startup check, a
+    cache already past `_CFTC_COT_CACHE_MAX_AGE` when the app restarts (e.g. after any
+    downtime longer than that, a redeploy, a crash-restart) would keep being served as a
+    cache hit for a further full `_CFTC_COT_REFRESH_CHECK_INTERVAL_SECONDS` after startup.
+    """
+    await _check_and_refresh_cftc_cot_cache_once(provider)
+    while True:
+        await asyncio.sleep(_CFTC_COT_REFRESH_CHECK_INTERVAL_SECONDS)
+        await _check_and_refresh_cftc_cot_cache_once(provider)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Alembic (app/db/migrations/, see README.md's "Database migrations" section) is now the
@@ -85,9 +182,41 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if provider is not None:
         tickle_task = asyncio.create_task(_ibkr_tickle_loop(provider))
 
+    # Unlike the IBKR tickle loop above, there's no `Settings`-level "enabled" switch for
+    # CFTC's COT data itself -- it's a public endpoint with no gateway/credential to be
+    # disconnected from, so in `live` mode this loop always starts. But it IS gated on
+    # `Settings.data_provider_mode`, the same switch `get_data_provider` uses (PR #380
+    # review, round 3 -- a genuine, blocking finding from a code-review pass that
+    # completed after an earlier round had already been accepted): in `fixture` mode
+    # (only ever set by the frontend e2e suite and this app's own dev-container test
+    # runs, see `app.data.fixture_provider`), starting this loop would make a real HTTPS
+    # call to CFTC's public Socrata endpoint via its immediate-on-startup check
+    # (`_check_and_refresh_cftc_cot_cache_once`, above) on every single app process
+    # start -- defeating `frontend/playwright.config.ts`'s own guarantee of zero live
+    # network calls in e2e mode, and CLAUDE.md's Testing standard more generally. There is
+    # no CFTC equivalent of `FixtureDataProvider` to refresh the cache *against* instead
+    # (unlike OHLCV data, which has one), so "don't start the loop at all" is the correct
+    # fixture-mode behavior here, not "start it against a fixture provider" -- see this
+    # task's `decisions` entry for why this is gated here (around the `create_task` call
+    # site) rather than inside `get_cftc_cot_provider()`/`_cftc_cot_refresh_loop` itself:
+    # `GET /api/cftc/cot`'s own cache-miss live fetch (which also calls
+    # `get_cftc_cot_provider()`, via FastAPI's `Depends`) is deliberately left unchanged --
+    # it already only ever fires if a caller actually hits that endpoint (no frontend
+    # consumer exists, so no e2e run does), unlike this unconditional startup loop, so
+    # gating it too would be scope creep against a case that was never actually broken.
+    cftc_cot_refresh_task: asyncio.Task[None] | None = None
+    if get_settings().data_provider_mode != "fixture":
+        cftc_cot_refresh_task = asyncio.create_task(
+            _cftc_cot_refresh_loop(get_cftc_cot_provider())
+        )
+
     try:
         yield
     finally:
+        if cftc_cot_refresh_task is not None:
+            cftc_cot_refresh_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await cftc_cot_refresh_task
         if tickle_task is not None:
             tickle_task.cancel()
             # `await tickle_task` here returns promptly even if `_ibkr_tickle_loop` was

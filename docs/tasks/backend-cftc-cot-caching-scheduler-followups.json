@@ -1,0 +1,54 @@
+{
+  "id": "backend-cftc-cot-caching-scheduler-followups",
+  "title": "Non-blocking follow-ups from backend-cftc-cot-caching-scheduler's PR #380 review",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-cftc-cot-caching-scheduler"],
+  "references": [
+    "docs/tasks/backend-cftc-cot-caching-scheduler.json",
+    "https://github.com/rainoko/fintrade/pull/380",
+    "docs/architecture/Backend.md",
+    "backend/tests/unit/test_main.py"
+  ],
+  "description": "Non-blocking findings from the PR #380 review of backend-cftc-cot-caching-scheduler (whose blocking finding -- docs/architecture/Backend.md §9 and docs/architecture/API.md's GET /api/cftc/cot section describing the endpoint as having no local caching, now false -- was recorded directly on that task's own review.comments and sent back for rework, since it's blocking). These two items are secondary/lower-severity gaps surfaced by the same review pass; file here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' convention so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "docs/architecture/Backend.md §2's module-layout tree (the `data/` directory listing) doesn't mention the new `cftc_cot_cache.py` file, and §7's cache-table enumeration prose doesn't mention the new `cftc_cot_cache` table either. Likely to get fixed incidentally when the PR's blocking §9/API.md doc-staleness finding is addressed, but worth confirming explicitly rather than assuming -- fold into that same doc pass if it hasn't already landed by the time this is picked up.",
+      "done": true
+    },
+    {
+      "step": "`app.main._cftc_cot_refresh_loop` has no dedicated test exercising the 'shutdown doesn't block on an in-flight refresh call' path, unlike `_ibkr_tickle_loop`'s own `TestLifespanIbkrTickleGate.test_shutdown_does_not_block_on_an_in_flight_tickle_call` (born from a real timing bug per that test's own docstring). The CFTC loop uses the identical `asyncio.to_thread` + `Future.cancel()` cancellation mechanism, so this is very likely already correct, but it's untested specifically for this loop -- add an equivalent test (slow/blocking `_refresh_cftc_cot_cache_if_stale` stand-in, cancel mid-flight, assert `lifespan()`'s shutdown returns promptly) for parity and to guard against a future divergence between the two loops' shutdown behavior.",
+      "done": true
+    },
+    {
+      "step": "[round 2 PR #380 review, non-blocking] `CFTCCOTCache.refresh()` (app/data/cftc_cot_cache.py) commits every market's upserts in a single transaction rather than per-entity (unlike `CachedDataProvider._upsert`/`_upsert_extended`, which commit once per ticker) -- a single PK-collision on any one row (the scheduled loop racing a concurrent on-demand cache-miss fetch) discards the whole ~260-row batch's writes, not just the colliding row (`test_integrity_error_on_commit_is_swallowed_not_raised` itself demonstrates this: the row count is 0, not 259, after the swallowed collision). Not a correctness bug -- the rollback+log-never-raise race-safety behavior is intact -- just wasteful, forcing an unnecessarily early full re-fetch. Consider committing per-market (or per-row) instead, matching the established convention elsewhere in this file.",
+      "done": true
+    },
+    {
+      "step": "[round 3 PR #380 re-review, non-blocking] `frontend/src/api/types.ts` (the generated client, `yarn generate:api-types`) was not regenerated after `backend/openapi.json`'s `GET /api/cftc/cot` description changed in this PR -- confirmed by re-running `yarn generate:api-types` from `frontend/` and diffing: only the JSDoc description comment for that one operation differs (still says \"Always fetches fresh from the CFTC's own public Socrata endpoint (no local caching...\"), no actual type/schema/shape changed, so `tsc`/`eslint` both stay clean either way and nothing is functionally broken. Not blocking since it's a comment-only drift in a generated artifact with no behavioral effect, but `docs/architecture/API.md`'s \"Frontend Type Generation\" section documents this file as meant to track `backend/openapi.json` to prevent contract drift -- worth regenerating and committing `frontend/src/api/types.ts` to close this gap next time this file (or any other route whose docstring changes) is touched.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-10-03T13:47:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Both checklist items were folded directly into `backend-cftc-cot-caching-scheduler`'s own PR #380 rework (its needs_work rework pass) rather than done here separately: the Backend.md §2/§7 doc mentions were added in the same doc-editing pass as that PR's blocking §9/API.md fix, and `TestLifespanCftcCotRefreshLoop.test_shutdown_does_not_block_on_an_in_flight_refresh_call` was added to `backend/tests/unit/test_main.py` in that same PR, mirroring `TestLifespanIbkrTickleGate`'s identical IBKR-loop test and mutation-tested against a reverted `cftc_cot_refresh_task.cancel()` call to confirm it actually catches a regression.",
+      "rationale": "Per CLAUDE.md's 'every non-blocking finding becomes a tracked task' convention, this task exists to make sure these two findings aren't lost -- now that they're actually fixed (landed on `main` via PR #380), marking them done here (rather than leaving them open for a second, now-redundant pass) keeps this board entry accurate rather than stale. No code/decision here was reversed or reinterpreted; this is purely a status update reflecting work already completed on the dependency task's own PR."
+    },
+    {
+      "timestamp": "2026-10-03T14:15:15Z",
+      "recorded_by": "task-worker",
+      "decision": "The third checklist item (CFTCCOTCache.refresh()'s single-commit-per-batch granularity, filed by the round-2 review's reversal comment) was also fixed directly on `backend-cftc-cot-caching-scheduler`'s own PR #380, in the same push as that PR's round-3 blocking fixture-mode-gate fix, rather than left deferred here: `refresh()` now commits once per market inside its existing per-market loop, matching `CachedDataProvider._upsert`/`_upsert_extended`'s per-entity granularity. A PK-collision on one market's row now only discards that market's writes, confirmed by a new test (`test_does_not_discard_other_markets_writes_when_one_markets_commit_collides`, backend/tests/unit/data/test_cftc_cot_cache.py) asserting the other 4 markets' rows survive a collision on the first.",
+      "rationale": "Judged small and well-contained (moving an existing try/commit/except block inside an already-existing loop, no new design needed) while already touching this exact file/function for the blocking fixture-mode fix in the same PR -- the dispatch instructions for that round explicitly allowed fixing it now if small, deferring otherwise; this was small enough to fix rather than defer a second time."
+    },
+    {
+      "timestamp": "2026-10-03T14:38:57Z",
+      "recorded_by": "task-worker",
+      "decision": "The fourth checklist item (stale `frontend/src/api/types.ts` JSDoc comment) was also fixed directly, during this round-4 rework pass on `backend-cftc-cot-caching-scheduler`'s own PR #380: re-ran `yarn generate:api-types` from `frontend/` and committed the regenerated `src/api/types.ts`. Confirmed the resulting diff is exactly what the review predicted -- only the `GET /api/cftc/cot` operation's JSDoc description comment changed (now describing the DB-backed cache + scheduled refresh instead of the stale \"always fetches fresh, no local caching\" wording), no type/schema/shape changed -- and that `tsc --noEmit` stays clean.",
+      "rationale": "Judged low-risk per the dispatch instructions' own framing (comment-only drift, no shape change, already confirmed clean by the round-3 review's own dry-run diff) -- regenerating and committing a generated artifact from its already-committed source (`backend/openapi.json`) carries essentially no risk of introducing a real bug, so there was no reason to leave it deferred a second time now that it's this cheap to close."
+    }
+  ],
+  "questions": []
+}

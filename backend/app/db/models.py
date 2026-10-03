@@ -341,3 +341,39 @@ class IBKRBreadthSnapshotORM(Base):
     snapshot_date: Mapped[date] = mapped_column(Date, primary_key=True)
     count: Mapped[int] = mapped_column(Integer)
     recorded_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class CFTCCOTCacheORM(Base):
+    """DB-backed cache of CFTC Commitments of Traders weekly reports (docs/tasks/
+    backend-cftc-cot-caching-scheduler.json), keyed by (`market_key`, `report_date`) --
+    composite PK style mirrors `IBKRBreadthSnapshotORM` above, but keyed by this app's own
+    stable `app.data.cftc_cot_provider.COT_MARKETS` key (`"eur"`/`"jpy"`/`"oil"`/`"gold"`/
+    `"bonds"`) rather than the CFTC's raw `cftc_contract_market_code` -- see this task's
+    `decisions` entry for why.
+
+    One row per weekly report per market, up to `app.data.cftc_cot_provider.
+    WEEKS_OF_HISTORY` rows per market -- a background refresh (`app.main`'s
+    `_cftc_cot_refresh_loop`) prunes any row that falls outside the most recently fetched
+    window on every refresh, so this table stays bounded rather than growing forever the
+    way `OHLCVCacheORM` does (this app's own `cot_index` computation never looks past its
+    own trailing `WEEKS_OF_HISTORY` window, so older rows serve no purpose once they age
+    out of it -- see this task's `decisions` entry).
+
+    Columns mirror `COTWeeklyReport` exactly (`app.data.cftc_cot_provider`) plus
+    `fetched_at` (same "last written" bookkeeping convention as every other cache table in
+    this file).
+    """
+
+    __tablename__ = "cftc_cot_cache"
+
+    market_key: Mapped[str] = mapped_column(String, primary_key=True)
+    report_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    display_name: Mapped[str] = mapped_column(String)
+    open_interest: Mapped[int] = mapped_column(Integer)
+    commercial_long: Mapped[int] = mapped_column(Integer)
+    commercial_short: Mapped[int] = mapped_column(Integer)
+    large_speculator_long: Mapped[int] = mapped_column(Integer)
+    large_speculator_short: Mapped[int] = mapped_column(Integer)
+    small_speculator_long: Mapped[int] = mapped_column(Integer)
+    small_speculator_short: Mapped[int] = mapped_column(Integer)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime)

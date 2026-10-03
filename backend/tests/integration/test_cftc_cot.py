@@ -1,19 +1,28 @@
-"""Integration tests for GET /api/cftc/cot (docs/tasks/backend-cftc-cot-data.json).
+"""Integration tests for GET /api/cftc/cot (docs/tasks/backend-cftc-cot-data.json,
+docs/tasks/backend-cftc-cot-caching-scheduler.json).
 
 Overrides `app.api.dependencies.get_cftc_cot_provider` directly (the same dependency-
 injection seam `tests/integration/test_ibkr_status.py` exercises for IBKR) rather than
 touching `CFTCCOTProvider`'s HTTP boundary -- per docs/architecture/Testing.md, no test
-makes a live network call.
+makes a live network call. Uses this directory's own `db_session`/`client` fixtures
+(tests/integration/conftest.py, an in-memory SQLite database) rather than the plain
+top-level `client` fixture, since this endpoint now reads/writes `CFTCCOTCacheORM`
+(docs/tasks/backend-cftc-cot-caching-scheduler.json) -- without that override, a request
+here would touch the real on-disk `backend/fintrade.db`.
 """
 
 from collections.abc import Iterator
+from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_cftc_cot_provider
+from app.data.cftc_cot_cache import CFTCCOTCache
 from app.data.cftc_cot_provider import COT_MARKETS, CFTCCOTProvider, COTWeeklyReport
 from app.data.exceptions import DataProviderUnavailableError
+from app.db.models import CFTCCOTCacheORM
 from app.main import app
 
 
@@ -29,8 +38,6 @@ def _report(
     nonrept_long: int = 10_000,
     nonrept_short: int = 12_000,
 ) -> COTWeeklyReport:
-    from datetime import date
-
     return COTWeeklyReport(
         report_date=date.fromisoformat(report_date),
         market_and_exchange_name=name,
@@ -141,3 +148,83 @@ def test_real_provider_is_wired_by_default() -> None:
     from app.api.dependencies import get_cftc_cot_provider as dependency
 
     assert isinstance(dependency(), CFTCCOTProvider)
+
+
+class TestCaching:
+    """docs/tasks/backend-cftc-cot-caching-scheduler.json: `GET /api/cftc/cot` reads from
+    `CFTCCOTCacheORM` first, only falling back to a live CFTC fetch on a genuine cache
+    miss (not all 5 fixed markets populated)."""
+
+    def test_cache_hit_never_calls_the_provider(self, client: TestClient, db_session: Session) -> None:
+        cache = CFTCCOTCache(db_session)
+        cache.refresh(
+            {
+                key: [_report(report_date="2026-09-15", name=f"NAME-{key}")]
+                for key in COT_MARKETS
+            }
+        )
+        app.dependency_overrides[get_cftc_cot_provider] = lambda: _StubCFTCCOTProvider(
+            error=AssertionError("provider must not be called on a cache hit")
+        )
+
+        response = client.get("/api/cftc/cot")
+
+        assert response.status_code == 200
+        gold_entry = next(m for m in response.json()["markets"] if m["market_key"] == "gold")
+        assert gold_entry["display_name"] == "NAME-gold"
+        assert gold_entry["report_date"] == "2026-09-15"
+
+    def test_cold_cache_falls_back_to_live_fetch_and_populates_the_cache(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        reports_by_market = {
+            key: [_report(report_date="2026-09-15", name=f"NAME-{key}")] for key in COT_MARKETS
+        }
+        app.dependency_overrides[get_cftc_cot_provider] = lambda: _StubCFTCCOTProvider(reports_by_market)
+
+        response = client.get("/api/cftc/cot")
+
+        assert response.status_code == 200
+        rows = db_session.query(CFTCCOTCacheORM).filter_by(report_date=date(2026, 9, 15)).all()
+        assert {row.market_key for row in rows} == set(COT_MARKETS.keys())
+        gold_row = next(row for row in rows if row.market_key == "gold")
+        assert gold_row.display_name == "NAME-gold"
+
+    def test_partially_populated_cache_is_still_treated_as_a_miss(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        """Only 4 of 5 fixed markets cached (e.g. an earlier refresh that didn't fully
+        complete) must still fall back to a live fetch -- `GET /api/cftc/cot` needs every
+        fixed market to build its response."""
+        partial_reports = {
+            key: [_report(report_date="2026-09-08", name=f"OLD-{key}")]
+            for key in COT_MARKETS
+            if key != "bonds"
+        }
+        CFTCCOTCache(db_session).refresh(partial_reports)
+
+        fresh_reports = {
+            key: [_report(report_date="2026-09-15", name=f"FRESH-{key}")] for key in COT_MARKETS
+        }
+        app.dependency_overrides[get_cftc_cot_provider] = lambda: _StubCFTCCOTProvider(fresh_reports)
+
+        response = client.get("/api/cftc/cot")
+
+        assert response.status_code == 200
+        body = response.json()
+        bonds_entry = next(m for m in body["markets"] if m["market_key"] == "bonds")
+        assert bonds_entry["display_name"] == "FRESH-bonds"
+
+    def test_cache_miss_live_fetch_failure_still_raises_503(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        """A genuine cache-miss (empty cache) that also fails its live CFTC fallback
+        fetch must still surface as a 503, exactly like the pre-caching behavior."""
+        app.dependency_overrides[get_cftc_cot_provider] = lambda: _StubCFTCCOTProvider(
+            error=DataProviderUnavailableError("CFTC COT request failed: boom")
+        )
+
+        response = client.get("/api/cftc/cot")
+
+        assert response.status_code == 503
+        assert db_session.query(CFTCCOTCacheORM).count() == 0
