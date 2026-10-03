@@ -2525,8 +2525,8 @@
       "id": "backend-cftc-cot-caching-scheduler-followups",
       "area": "backend/data",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-cftc-cot-caching-scheduler-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-cftc-cot-caching-scheduler-followups.json"
     },
     {
       "id": "backend-ibkr-conid-db-cache",
