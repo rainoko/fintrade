@@ -56,5 +56,11 @@
       "rationale": "This task's own board-bookkeeping gap (checklist all `done: true` but `state` left at `planned`, because the fixes landed through the parent task's PR #380 rather than this task's own PR) was flagged by `pr-decision` during PR #380's merge review. Per CLAUDE.md's task-board conventions, a task whose actual work is complete should reach `state: done` and move to `docs/tasks/done/` regardless of which PR branch the commits physically landed on -- the checklist items and their dependency on `backend-cftc-cot-caching-scheduler` already make that provenance explicit, and re-verifying against `main` directly (rather than re-trusting the earlier entries) is what makes this closure itself a genuine, independently-checkable verification pass rather than a second copy of the same unverified claim."
     }
   ],
+  "git": {
+    "branch": "task/backend-cftc-cot-caching-scheduler-followups-closure",
+    "pr_number": 381,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/381",
+    "pushed_at": "2026-10-03T15:05:21Z"
+  },
   "questions": []
 }
