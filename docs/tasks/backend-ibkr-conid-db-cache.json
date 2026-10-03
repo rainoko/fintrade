@@ -1,0 +1,34 @@
+{
+  "id": "backend-ibkr-conid-db-cache",
+  "title": "Persist IBKR conid resolutions in the DB so they survive a process restart",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "docs/tasks/done/backend-ibkr-primary-data-provider.json",
+    "backend/app/data/ibkr_provider.py",
+    "backend/app/db/models.py"
+  ],
+  "description": "Follow-up from a backend-wide caching audit this session. Confirmed via reading the current code before writing this task: `IBKRProvider._conid_cache` (`backend/app/data/ibkr_provider.py`) is a plain in-process `dict` with a 24h TTL, added by `backend-ibkr-primary-data-provider` specifically to avoid a `resolve_conid` round trip per ticker per request. That decision's own rationale never weighed restart-survival -- it only considered the per-request-round-trip cost, not the per-process-restart cost.\n\nAn IBKR conid-to-ticker mapping is, for all practical purposes, permanent: it only changes on a genuine re-listing/delisting event for that security (rare), not on any regular cadence. Today, every time the backend process restarts (a deploy, a crash, a dev-container rebuild), every single ticker's conid resolution is lost and must be re-fetched live from `/iserver/secdef/search` on its next use -- including the `_resolve_stk_conid` ambiguity-disambiguation logic (`backend-data-provider-timeouts`/`backend-ibkr-primary-data-provider-followups`'s already-hardened primary-US-exchange-preference fix) re-running from scratch for every ticker, every restart.\n\nThis is a genuinely new finding, not something previously evaluated or decided against by any closed task this session (checked `docs/tasks/done/backend-ibkr-primary-data-provider*` -- the in-memory-cache decision's rationale doesn't address restart-survival at all).",
+  "checklist": [
+    {
+      "step": "Design a new `IBKRConidCacheORM` table (ticker as primary key, nullable conid, a `resolved_at` timestamp, and whatever else `_resolve_stk_conid`'s result shape needs to persist -- e.g. the disambiguating exchange/description if useful for debugging a wrong resolution later). Add the Alembic migration. Decide and record (decisions entry) whether a resolved-to-None (genuinely ambiguous) result is also persisted (to avoid re-querying a ticker that's known to need manual disambiguation) or only successful resolutions are cached.",
+      "done": false
+    },
+    {
+      "step": "Wire `IBKRProvider.resolve_conid` to check the DB cache before falling back to its existing in-memory cache and then a live `/iserver/secdef/search` call -- in-memory cache stays as the fast path for repeated resolutions within a single process's lifetime, DB cache becomes the fallback that survives a restart. Decide and record (decisions entry) whether the DB cache entry should ever expire/be re-validated (e.g. a long TTL as a safety net against a real re-listing event going unnoticed) or be treated as permanent until manually invalidated.",
+      "done": false
+    },
+    {
+      "step": "Handle the concurrent-write case for this new cache table using the same `IntegrityError`/`OperationalError`-catch convention already established in `app/data/cache.py`'s `CachedDataProvider._upsert` (two concurrent requests resolving the same previously-unresolved ticker).",
+      "done": false
+    },
+    {
+      "step": "Tests (no live network calls per Testing.md, mocked IBKR HTTP boundary matching `tests/unit/data/test_ibkr_provider.py`'s existing convention): DB-cache hit/miss/fallback-to-live paths, the concurrent-write race, and a test confirming a fresh `IBKRProvider` instance (simulating a process restart) reads a previously-resolved conid from the DB without a live `/iserver/secdef/search` call.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
