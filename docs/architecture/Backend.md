@@ -327,9 +327,17 @@ staleness threshold) would otherwise keep being served as a cache hit for a furt
 interval after startup. After that initial check, it wakes every 6 hours and refreshes only if
 `CFTCCOTCache.is_stale()` finds the cache empty or its newest fetch at least 6 days old, rather
 than anchoring to CFTC's exact release schedule (which would need its own holiday-calendar
-logic this app has no other use for). Unlike the IBKR tickle loop, this one has no "enabled"
-gate and always starts — CFTC's public data needs no gateway/credential to be disconnected
-from. `CFTCCOTCache.refresh` also prunes any cached row that falls outside
+logic this app has no other use for). Unlike the IBKR tickle loop, this one has no
+`Settings`-level "enabled" switch of its own — CFTC's public data needs no gateway/credential
+to be disconnected from, so in `live` mode it always starts. But it IS gated on
+`Settings.data_provider_mode` (the same switch `get_data_provider` uses): in `fixture` mode
+(the frontend e2e suite and this app's own dev-container test runs) the loop is never created
+at all — no task, no `CFTCCOTProvider` construction, no live HTTPS call — since its
+immediate-on-startup check would otherwise make a real network call to CFTC's public Socrata
+endpoint on every app process start, defeating the e2e suite's zero-live-network-call
+guarantee. `GET /api/cftc/cot`'s own cache-miss live fetch is deliberately left ungated by this
+same switch (it already only fires if a caller actually hits that endpoint, which no e2e run
+does). `CFTCCOTCache.refresh` also prunes any cached row that falls outside
 a fresh fetch's own window, since this table's only reader never looks past that window — left
 unbounded, it would otherwise grow forever with no corresponding benefit (unlike OHLCV/
 extended-data, where long history is independently useful). See that task's `decisions`

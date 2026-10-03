@@ -27,7 +27,7 @@
     },
     {
       "step": "[round 3 PR #380 re-review, non-blocking] `frontend/src/api/types.ts` (the generated client, `yarn generate:api-types`) was not regenerated after `backend/openapi.json`'s `GET /api/cftc/cot` description changed in this PR -- confirmed by re-running `yarn generate:api-types` from `frontend/` and diffing: only the JSDoc description comment for that one operation differs (still says \"Always fetches fresh from the CFTC's own public Socrata endpoint (no local caching...\"), no actual type/schema/shape changed, so `tsc`/`eslint` both stay clean either way and nothing is functionally broken. Not blocking since it's a comment-only drift in a generated artifact with no behavioral effect, but `docs/architecture/API.md`'s \"Frontend Type Generation\" section documents this file as meant to track `backend/openapi.json` to prevent contract drift -- worth regenerating and committing `frontend/src/api/types.ts` to close this gap next time this file (or any other route whose docstring changes) is touched.",
-      "done": false
+      "done": true
     }
   ],
   "decisions": [
@@ -42,6 +42,12 @@
       "recorded_by": "task-worker",
       "decision": "The third checklist item (CFTCCOTCache.refresh()'s single-commit-per-batch granularity, filed by the round-2 review's reversal comment) was also fixed directly on `backend-cftc-cot-caching-scheduler`'s own PR #380, in the same push as that PR's round-3 blocking fixture-mode-gate fix, rather than left deferred here: `refresh()` now commits once per market inside its existing per-market loop, matching `CachedDataProvider._upsert`/`_upsert_extended`'s per-entity granularity. A PK-collision on one market's row now only discards that market's writes, confirmed by a new test (`test_does_not_discard_other_markets_writes_when_one_markets_commit_collides`, backend/tests/unit/data/test_cftc_cot_cache.py) asserting the other 4 markets' rows survive a collision on the first.",
       "rationale": "Judged small and well-contained (moving an existing try/commit/except block inside an already-existing loop, no new design needed) while already touching this exact file/function for the blocking fixture-mode fix in the same PR -- the dispatch instructions for that round explicitly allowed fixing it now if small, deferring otherwise; this was small enough to fix rather than defer a second time."
+    },
+    {
+      "timestamp": "2026-10-03T14:38:57Z",
+      "recorded_by": "task-worker",
+      "decision": "The fourth checklist item (stale `frontend/src/api/types.ts` JSDoc comment) was also fixed directly, during this round-4 rework pass on `backend-cftc-cot-caching-scheduler`'s own PR #380: re-ran `yarn generate:api-types` from `frontend/` and committed the regenerated `src/api/types.ts`. Confirmed the resulting diff is exactly what the review predicted -- only the `GET /api/cftc/cot` operation's JSDoc description comment changed (now describing the DB-backed cache + scheduled refresh instead of the stale \"always fetches fresh, no local caching\" wording), no type/schema/shape changed -- and that `tsc --noEmit` stays clean.",
+      "rationale": "Judged low-risk per the dispatch instructions' own framing (comment-only drift, no shape change, already confirmed clean by the round-3 review's own dry-run diff) -- regenerating and committing a generated artifact from its already-committed source (`backend/openapi.json`) carries essentially no risk of introducing a real bug, so there was no reason to leave it deferred a second time now that it's this cheap to close."
     }
   ],
   "questions": []
