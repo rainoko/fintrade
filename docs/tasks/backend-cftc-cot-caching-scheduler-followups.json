@@ -20,6 +20,10 @@
     {
       "step": "`app.main._cftc_cot_refresh_loop` has no dedicated test exercising the 'shutdown doesn't block on an in-flight refresh call' path, unlike `_ibkr_tickle_loop`'s own `TestLifespanIbkrTickleGate.test_shutdown_does_not_block_on_an_in_flight_tickle_call` (born from a real timing bug per that test's own docstring). The CFTC loop uses the identical `asyncio.to_thread` + `Future.cancel()` cancellation mechanism, so this is very likely already correct, but it's untested specifically for this loop -- add an equivalent test (slow/blocking `_refresh_cftc_cot_cache_if_stale` stand-in, cancel mid-flight, assert `lifespan()`'s shutdown returns promptly) for parity and to guard against a future divergence between the two loops' shutdown behavior.",
       "done": true
+    },
+    {
+      "step": "[round 2 PR #380 review, non-blocking] `CFTCCOTCache.refresh()` (app/data/cftc_cot_cache.py) commits every market's upserts in a single transaction rather than per-entity (unlike `CachedDataProvider._upsert`/`_upsert_extended`, which commit once per ticker) -- a single PK-collision on any one row (the scheduled loop racing a concurrent on-demand cache-miss fetch) discards the whole ~260-row batch's writes, not just the colliding row (`test_integrity_error_on_commit_is_swallowed_not_raised` itself demonstrates this: the row count is 0, not 259, after the swallowed collision). Not a correctness bug -- the rollback+log-never-raise race-safety behavior is intact -- just wasteful, forcing an unnecessarily early full re-fetch. Consider committing per-market (or per-row) instead, matching the established convention elsewhere in this file.",
+      "done": false
     }
   ],
   "decisions": [
