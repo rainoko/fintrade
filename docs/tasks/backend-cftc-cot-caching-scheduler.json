@@ -3,7 +3,7 @@
   "title": "Cache CFTC COT data in the DB and refresh it on a weekly schedule instead of fetching live on every request",
   "area": "backend/data",
   "skill": "add-indicator",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "docs/tasks/done/backend-cftc-cot-data.json",
@@ -17,25 +17,50 @@
   "checklist": [
     {
       "step": "Design the DB cache table: a new `CFTCCOTCacheORM` (or similar name) keyed by market+report_date (mirroring `IBKRBreadthSnapshotORM`'s shape/conventions), storing whatever fields `COTWeeklyReport` currently exposes. Add the Alembic migration. Decide and record (decisions entry) whether to key by `COT_MARKETS`' market_key or the raw CFTC contract code, and how many weeks of history to persist (matching `CFTCCOTProvider.WEEKS_OF_HISTORY` or independently decided).",
-      "done": false
+      "done": true
     },
     {
       "step": "Wire `GET /api/cftc/cot` to read from the new cache table first, falling back to a live CFTC fetch only on a genuine cache miss (e.g. first-ever startup before the scheduled job has run once) -- mirroring `CachedDataProvider`'s existing read-through pattern and its already-established `IntegrityError`/`OperationalError`-catch convention for concurrent-write races on the cache table.",
-      "done": false
+      "done": true
     },
     {
       "step": "Add a second `asyncio.create_task`-based background loop in `app/main.py`'s `lifespan()`, following `_ibkr_tickle_loop`'s existing shape/error-handling conventions, that refreshes the CFTC cache on a weekly cadence (research and decide the exact trigger -- e.g. a fixed day/time check each loop iteration vs. a simple \"refresh if the cached data is more than N days old\" check -- and record as a decisions entry). Must log-and-continue on failure, matching the existing loop's resilience behavior, never crash the app.",
-      "done": false
+      "done": true
     },
     {
       "step": "Update `GET /api/cftc/cot`'s docstring and the `backend-cftc-cot-data` task's own description are NOT to be edited retroactively (append-only decisions convention) -- instead record this task's own decisions entry referencing and fulfilling the original task's pre-approved follow-up, per CLAUDE.md's decision-memory convention.",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests (no live network calls per Testing.md): the cache read-through logic (hit/miss/stale paths), the scheduled refresh loop's trigger logic (mocked clock/time, not a real 1-week wait), and a concurrent-write race test for the new cache table mirroring the existing `CachedDataProvider` upsert-race tests' pattern. Regenerate `backend/openapi.json` if `GET /api/cftc/cot`'s documented behavior/response shape changes in any way.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-03T13:18:01Z",
+      "recorded_by": "task-worker",
+      "decision": "`CFTCCOTCacheORM` (app/db/models.py) is keyed by `(market_key, report_date)` -- this app's own stable `app.data.cftc_cot_provider.COT_MARKETS` label (`\"eur\"`/`\"jpy\"`/`\"oil\"`/`\"gold\"`/`\"bonds\"`) -- not the CFTC's raw `cftc_contract_market_code`. Persists up to `CFTCCOTProvider.WEEKS_OF_HISTORY` (52) rows per market, matching the provider's own fetch window rather than an independently chosen length; unlike `OHLCVCacheORM`/`ExtendedDataCacheORM` (left to grow forever, since full history is directly useful to those), `CFTCCOTCache.refresh` actively deletes any existing row for a market that falls outside a fresh `get_all_recent()` response's own window on every refresh, since this app's own `cot_index` computation never looks past its own trailing `weeks_of_history` window -- an older row serves no purpose once it ages out, so leaving it behind would just accumulate unboundedly over months/years with no corresponding benefit.",
+      "rationale": "`market_key` was chosen over the raw CFTC contract code because it's this app's own stable, user-facing identifier (the same one `CFTCMarketKey`'s API-schema Literal and every other part of this feature already key by) -- a cache keyed by the provider's own data-shape-specific code would couple this table's primary key to a CFTC-internal identifier this app otherwise treats as an implementation detail (see `backend-cftc-cot-data`'s own decisions entry: CFTC has already renamed two of the five underlying contracts' *display names* once without the app needing to change anything, precisely because `market_key` -- not the raw code or name -- is what's actually persisted/exposed). The trade-off accepted: if `COT_MARKETS`' key-to-contract-code mapping itself were ever remapped (not just renamed), a cache keyed by `market_key` wouldn't detect that as a logical change and would keep serving the old contract's now-stale-by-identity data until the next scheduled refresh overwrites it -- judged an acceptable risk since that mapping is a rare, deliberate code change (not a runtime event), not something this app needs to defend against automatically. 52 weeks/pruning was chosen over leaving the table to grow forever (OHLCVCacheORM's own precedent) because this table's read path (`CFTCCOTCache.get_cached_reports`) only ever needs enough history to match `get_all_recent()`'s own bounded response -- unlike OHLCV, where arbitrarily long history is a real, independent use case (indicator warm-up, long lookback windows) -- so unbounded retention here would be pure waste with no offsetting benefit."
+    },
+    {
+      "timestamp": "2026-10-03T13:18:01Z",
+      "recorded_by": "task-worker",
+      "decision": "The scheduled refresh (`app.main._cftc_cot_refresh_loop`) wakes every `_CFTC_COT_REFRESH_CHECK_INTERVAL_SECONDS` (6 hours) and refreshes only if `CFTCCOTCache.is_stale(_CFTC_COT_CACHE_MAX_AGE)` -- the cache is empty, or its newest fetch is >= 6 days old -- rather than anchoring to CFTC's actual Friday release schedule (e.g. \"refresh every Friday at HH:MM ET\").",
+      "rationale": "CFTC doesn't publish an exact time-of-day for its weekly release (only \"Friday\", per `backend-cftc-cot-data`'s own research), and that release can also slip around a CFTC-observed holiday -- a fixed day/time trigger would need its own holiday-calendar logic this app has no other use for, just to avoid either missing a delayed release or firing on a day nothing new was actually published. A periodic \"is my cached snapshot older than N days\" check is simpler (no calendar logic at all), self-correcting (a missed or delayed check doesn't permanently fall behind -- the very next 6-hourly check still catches it), and needs no new dependency (APScheduler/croniter), matching `_ibkr_tickle_loop`'s existing `asyncio.create_task` background-loop shape exactly. 6 hours for the check interval and 6 days (not a full 7) for the staleness threshold were chosen together deliberately: 6 days gives the 6-hour check cadence a full day of slack before a 7-day-exact threshold would otherwise flap in and out of \"stale\" depending on which exact 6-hour tick a request happened to land on relative to the prior week's refresh time, while still refreshing (at the latest) within one day of a new Friday release in every case. Alternatives considered: a fixed Friday-afternoon-ET trigger was rejected for the holiday-calendar/exact-time reasons above; a much shorter check interval (e.g. matching `_IBKR_TICKLE_INTERVAL_SECONDS`'s 45s) was rejected as pointless churn -- `is_stale`'s own DB query is cheap, but there's no reason to run it thousands of times between any two weekly releases when 6 hours is already far more granular than the data's own weekly cadence requires."
+    },
+    {
+      "timestamp": "2026-10-03T13:18:01Z",
+      "recorded_by": "task-worker",
+      "decision": "`GET /api/cftc/cot` reads from `CFTCCOTCache` first; on a genuine cache miss (at least one of the 5 fixed markets has no cached row at all -- e.g. before the scheduled loop's first run since this app started, or a partially-completed earlier refresh), it falls back to a live `CFTCCOTProvider.get_all_recent()` call and populates the cache with that result before responding. Once every market has at least one cached row, this endpoint never re-checks staleness or re-fetches live on its own -- that's solely the scheduled background loop's job.",
+      "rationale": "This fulfills checklist item 2 literally (\"falling back to a live CFTC fetch only on a genuine cache miss\") and keeps the endpoint always answerable (no window where it 500s/503s purely because the scheduled loop hasn't run yet) without reintroducing the per-request live-fetch cost this whole task exists to remove. Deliberately NOT layering a TTL-style staleness re-check on top of this read path (unlike every other cache in this codebase, `CachedDataProvider`/`IndicatorHistoryResponseCache`) -- see this task's description for why a scheduled push is structurally correct here (the CFTC only republishes weekly, a known fact, not a per-call guess), so adding a second staleness check at the read layer would just be redundant work against the same underlying fact the scheduled loop already handles, while also undermining the whole point of caching if a transient slow 6-hour window after the loop's own check fell right before an on-demand request (a TTL re-check at read time would currently always find it 'still valid' anyway, since 6 days wide margin from the loop's own cadence, so this is not a live divergence case, just an unnecessary extra check path to maintain)."
+    },
+    {
+      "timestamp": "2026-10-03T13:18:01Z",
+      "recorded_by": "task-worker",
+      "decision": "This task fulfills -- rather than reverses -- `backend-cftc-cot-data`'s own `decisions` entry (docs/tasks/done/backend-cftc-cot-data.json), which explicitly named this exact follow-up as reasonable once the endpoint turns out to be called often enough that repeated CFTC round-trips matter: \"adding a caching layer (e.g. a new ORM table keyed by market+report_date, mirroring `IBKRBreadthSnapshotORM`) is a reasonable follow-up... but was left out here as an unnecessary complication for a first, minimal version.\" `backend-cftc-cot-data.json` itself is left untouched (append-only decisions convention, per CLAUDE.md) -- this entry is the record of that follow-up being exercised.",
+      "rationale": "Per CLAUDE.md's decision-memory convention, a correction or follow-up to a prior decision is recorded as a new entry on the task doing the follow-up work, not by editing the original task's already-`done` file -- this entry (and this task generally) is exactly that."
+    }
+  ],
   "questions": []
 }
