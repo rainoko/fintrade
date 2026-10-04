@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-ibkr-request-retry's PR #383 review",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["backend-ibkr-request-retry"],
   "references": [
     "docs/tasks/done/backend-ibkr-request-retry.json",
@@ -13,17 +13,36 @@
   "checklist": [
     {
       "step": "`run_scanner`'s `_request` retry doesn't account for `/iserver/scanner/run`'s own externally-enforced 1-req/sec rate limit (docs/ideas.md, mirrored client-side by `_SCANNER_RUN_MIN_INTERVAL_SECONDS`). A retryable failure (connection error or 5xx) on that specific endpoint fires a second real HTTP call only `_REQUEST_RETRY_DELAY_SECONDS` (300ms) later -- well inside the 1-second window IBKR's own gateway enforces -- so the retry is plausibly rejected by that same limiter (and risks IBKR-side abuse flagging) rather than recovering. Worth deciding explicitly: either exclude `run_scanner`'s own `_request` call from the retry, or confirm (once a live gateway is available to test against) that this isn't actually a problem in practice.",
-      "done": false
+      "done": true
     },
     {
       "step": "`get_gateway_status`'s cold-cache path calls `_request(\"GET\", \"/iserver/auth/status\")` entirely inside `_gateway_status_lock`, so the retry (up to one extra round trip plus a 300ms sleep) roughly doubles the worst-case time that lock is held -- extending contention for every other thread racing the same cache-miss/expiry (e.g. `get_analysis`'s 3-leg `ThreadPoolExecutor` fan-out, which shares one `IBKRProvider` singleton and hence this one lock) during exactly the gateway-flapping window this retry targets. Worth reconsidering whether the lock needs to wrap the retrying `_request` call itself, or just the cache read/write around it.",
-      "done": false
+      "done": true
     },
     {
       "step": "The task's second `decisions` entry claims the retry's worst-case added cost is 'exactly one extra `_REQUEST_RETRY_DELAY_SECONDS` (0.3s) plus one extra fast ... round trip' per leg -- this is imprecise for a cold-conid-cache leg in `get_analysis`'s daily/weekly fetches: `IBKRDataProvider.get_daily_ohlcv`/`get_weekly_ohlcv` each issue two sequential `_request` calls (`resolve_conid` via `_resolve_conid_or_raise`, then `get_daily_bars`/`get_weekly_bars`), so an uncached ticker's leg could independently retry both calls, adding up to ~0.6s rather than ~0.3s on that leg. Still small and bounded (and only on a cold `_conid_cache`, which has a 24h TTL), but worth a corrective `decisions` entry on the parent task noting the more precise bound.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-04T09:43:32Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed checklist item 1 with a code change: `_request` gained a `retry: bool = True` keyword-only parameter, and `run_scanner`'s own `_request(\"POST\", \"/iserver/scanner/run\", ...)` call now passes `retry=False`, so that one call is a plain single attempt (no retry) while every other `_request` caller is unaffected.",
+      "rationale": "Chose the 'exclude run_scanner's own `_request` call from the retry' option the checklist item itself offered, over the alternative of confirming against a live gateway that the interaction isn't actually a problem in practice -- the live-gateway confirmation isn't available in this environment (this module's own no-live-network testing constraint, and `backend/.env`'s configured gateway has demonstrated-unstable auth per this session's standing constraints) and even if it were, a one-off observation wouldn't rule out the collision happening on some other occasion. The `retry=False` opt-out is narrowly scoped (only `run_scanner`'s one call site; `get_scanner_params`'s own `/iserver/scanner/params` call keeps the default retry, since that endpoint's separate 1-req/15-min limit is already handled by its own 15-minute cache rather than relying on this retry at all) and costs nothing in the common case: a retryable failure on `/iserver/scanner/run` now fails exactly as it did before `backend-ibkr-request-retry` ever added the retry (immediate `IBKRUnavailableError`), which is strictly better than plausibly wasting a round trip against IBKR's own limiter and risking abuse-flagging for a retry that was never likely to succeed. Rejected alternative: leave it as a wasted-retry-only risk (the status quo) -- rejected because the fix is simple, narrowly scoped, fully covered by the existing mocked-HTTP-boundary test convention (no live gateway needed to verify the opt-out itself works), and the checklist item explicitly offered this as the preferred resolution path. Verified via a new `TestRequestRetry.test_retry_false_disables_the_retry` test (`_request` called directly with `retry=False`) and a new `TestRunScanner.test_does_not_retry_on_transient_failure` test (through the real `run_scanner` call path, mocking the underlying `httpx.Client`) -- both pass, and both were confirmed to genuinely exercise the change by temporarily mutating `max_attempts = _REQUEST_MAX_ATTEMPTS if retry else 1` back to an unconditional `_REQUEST_MAX_ATTEMPTS` (both tests then correctly failed) before restoring the file."
+    },
+    {
+      "timestamp": "2026-10-04T09:43:32Z",
+      "recorded_by": "task-worker",
+      "decision": "Closed checklist item 2 as documented-acceptable with no code change: `get_gateway_status`'s cold-cache path keeps calling the full retrying `_request(\"GET\", \"/iserver/auth/status\")` entirely inside `_gateway_status_lock`.",
+      "rationale": "The lock's entire purpose (per its own `__init__` comment, `backend-ibkr-primary-data-provider-followups`) is double-checked locking so a concurrent cold-cache race can't make more than one thread issue the real `GET /iserver/auth/status` call -- moving the retrying `_request` call itself outside the lock (leaving only the cache read/write guarded) would let two threads that both observe a miss each independently start their own `_request` call (and each independently retry), reintroducing exactly the duplicate-live-call race this lock exists to prevent -- a correctness regression, not just a latency one, in exchange for shaving worst-case lock-hold time. The reviewer's own review comment on PR #383 (which filed this as a non-blocking finding rather than a blocker) already noted the key mitigating fact: because of the double-checked locking, the extra ~300ms+round-trip cost is paid once per cache-miss/expiry window (by whichever single thread wins the lock and does the real call), not once per blocked thread -- every other thread waiting on the lock simply waits slightly longer for that one shared result, it does not each pay its own extra 300ms. That shared-once cost, during a window this feature explicitly targets (the gateway actively flapping) and bounded by `_GATEWAY_STATUS_TTL_SECONDS`'s 5-second cache TTL (so the worst case recurs at most once per 5 seconds of sustained flapping, not continuously), is an acceptable, already-documented trade-off rather than a regression worth re-architecting the lock for. Rejected alternative considered: split the lock so only the cache read/write is guarded and the live call happens outside it with its own separate single-flight mechanism (e.g. an in-flight-request future the first thread publishes for others to await) -- rejected as disproportionate complexity (a second concurrency primitive, more surface for a subtle bug) for a non-blocking, already-small, already-bounded latency cost that was explicitly filed as non-blocking by the reviewer in the first place; no test or live behavior in this session suggests the current shared-once cost is actually causing contention problems in practice."
+    },
+    {
+      "timestamp": "2026-10-04T09:43:32Z",
+      "recorded_by": "task-worker",
+      "decision": "Closed checklist item 3 by appending a corrective `decisions` entry to the parent task (`docs/tasks/done/backend-ibkr-request-retry.json`), per the checklist item's own explicit request for 'a corrective decisions entry on the parent task' -- appended as a new array entry rather than amending the original entry's text in place, matching CLAUDE.md's append-only default for correcting a stale claim in an already-done task (the item asked for a new corrective entry, not for the existing entry's own text to be fixed, so the narrower in-place-amendment carve-out doesn't apply here).",
+      "rationale": "The corrective entry records the precise bound the reviewer traced: a cold-conid-cache leg in `get_analysis`'s daily/weekly fetches issues two sequential `_request` calls (`resolve_conid` then `get_daily_bars`/`get_weekly_bars`), each independently retryable, so that leg's worst-case added cost is up to ~0.6s, not the ~0.3s the original entry claimed for a single-`_request`-call leg. No code change accompanies this -- it is purely a documentation-precision fix to the latency-analysis record, and the underlying behavior (both calls already correctly retry independently, per `_request`'s existing policy) was never incorrect, only the written summary of its worst case for this one specific leg shape."
+    }
+  ],
   "questions": []
 }

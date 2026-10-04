@@ -813,6 +813,29 @@ class TestRunScanner:
 
         assert request.call_count == 2
 
+    def test_does_not_retry_on_transient_failure(self, mocker) -> None:
+        """`run_scanner`'s own `POST /iserver/scanner/run` call opts out of `_request`'s
+        usual single-quick-retry (`retry=False`, `backend-ibkr-request-retry-followups`):
+        IBKR enforces its own 1-req/sec limit on this exact endpoint
+        (`_SCANNER_RUN_MIN_INTERVAL_SECONDS`), well outside `_REQUEST_RETRY_DELAY_SECONDS`
+        (300ms) -- a retry there would plausibly collide with that same limiter rather than
+        recover. Mocks the underlying `httpx.Client` (not `_request` itself) so the
+        no-retry behavior is observed at the real HTTP-call boundary."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        mock_client = mocker.Mock()
+        mock_client.request.return_value = mocker.Mock(status_code=503)
+        sleep = mocker.Mock()
+        provider = IBKRProvider(client=mock_client, sleep=sleep)
+
+        with pytest.raises(IBKRUnavailableError):
+            provider.run_scanner({})
+
+        mock_client.request.assert_called_once()
+        sleep.assert_not_called()
+
 
 class TestResolveConid:
     """docs/tasks/backend-ibkr-symbol-resolution.json -- `GET /iserver/secdef/search`
@@ -2223,6 +2246,24 @@ class TestRequestRetry:
 
         with pytest.raises(IBKRUnavailableError):
             IBKRProvider(client=mock_client, sleep=sleep)._request("GET", "/iserver/auth/status")
+
+        mock_client.request.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_retry_false_disables_the_retry(self, mocker) -> None:
+        """`retry=False` (`backend-ibkr-request-retry-followups`, used by `run_scanner`'s
+        own `_request` call) reduces to a single attempt -- same not-retried shape as a
+        4xx/timeout/unparseable-body failure, but for an otherwise-retryable failure type
+        (a 5xx here)."""
+        mock_response = mocker.Mock(status_code=503)
+        mock_client = mocker.Mock()
+        mock_client.request.return_value = mock_response
+        sleep = mocker.Mock()
+
+        with pytest.raises(IBKRUnavailableError):
+            IBKRProvider(client=mock_client, sleep=sleep)._request(
+                "GET", "/iserver/scanner/run", retry=False
+            )
 
         mock_client.request.assert_called_once()
         sleep.assert_not_called()

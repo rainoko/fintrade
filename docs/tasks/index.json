@@ -2567,7 +2567,7 @@
       "id": "backend-ibkr-request-retry-followups",
       "area": "backend/data",
       "skill": null,
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/backend-ibkr-request-retry-followups.json"
     },
     {
