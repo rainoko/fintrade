@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-position-watchlist-race-condition's PR #382 review",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "implementing",
   "depends_on": ["backend-position-watchlist-race-condition"],
   "references": [
     "docs/tasks/backend-position-watchlist-race-condition.json",
@@ -64,5 +64,33 @@
     "pr_number": 385,
     "pr_url": "https://github.com/rainoko/fintrade/pull/385",
     "pushed_at": "2026-10-04T06:54:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-04T07:11:03Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/385",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "BLOCKING: adding `PositionORM.version`/`version_id_col` makes SQLAlchemy apply the same optimistic-concurrency check to DELETE statements against `PositionORM`, not only UPDATE -- but `delete_position`'s own `db.delete(row); db.commit()` has no StaleDataError handling, unlike the two merge-commit call sites this PR hardened via `_merge_and_commit`. Reproduced end-to-end through the real `DELETE /api/portfolio/positions/{id}` endpoint (not just a bare-ORM example): seed a position, have a concurrent session merge/update that exact row (bumping `version`) during the window between `delete_position`'s `db.get(PositionORM, position_id)` and its own `db.commit()` -- a window that includes a live `latest_close()` market-data fetch whenever the caller doesn't supply `exit_price`/`exit_date` -- and the DELETE's version-checked `DELETE ... WHERE id=? AND version=?` matches 0 rows, so SQLAlchemy raises `sqlalchemy.orm.exc.StaleDataError`, which propagates unhandled as a raw 500 instead of the clean 503-and-safe-to-retry convention this very PR establishes everywhere else it touches `PositionORM`. This is a genuine regression this PR introduces (no version column existed before it, so DELETE could never fail this way), not a pre-existing gap, and exactly the kind of PositionORM-mutation-site interaction the review brief asked to check for. Independently corroborated by a `code-review` skill pass run in parallel, which found and reproduced the identical issue on its own. No test in this PR's diff exercises this path, and `tests/integration/test_portfolio_delete_position.py` has no concurrency/StaleDataError coverage either. Needs either the same rollback/re-query/retry-or-503 treatment `_merge_and_commit` already gives the merge paths, or a narrower explicit catch-and-503 at minimum, plus a regression test and a `decisions` entry explaining the chosen scope.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 1096
+      },
+      {
+        "summary": "Confirmed via direct reproduction: temporarily commenting out `PositionORM.__mapper_args__ = {\"version_id_col\": version}` and re-running the three new lost-update tests (`TestAddPositionMergeLostUpdateRace`'s two tests plus `TestConcurrentMergeRaceRealHTTPConcurrency`) makes all three fail with exactly the claimed symptom -- the real two-thread HTTP test lands at `quantity == 15.0` instead of `22.0`, with no `StaleDataError` ever raised -- then restoring the line makes the full suite (1606 tests) green again with no residual diff. The mutation test's claim is accurate.",
+        "file": "backend/app/db/models.py",
+        "line": 43
+      },
+      {
+        "summary": "The real two-OS-thread `TestConcurrentMergeRaceRealHTTPConcurrency` test is sound, not flakiness-prone: its `threading.Barrier` sits inside `_merge_position` (patched), which is only ever called after each thread's own `existing = db.query(...).one_or_none()` has already executed inside `add_position`/`_merge_and_commit` -- so both threads are guaranteed to have already loaded the same stale pre-commit row before either is released to proceed into the merge+commit. The `released_once`-per-thread-id tracking correctly lets each thread's later retry call(s) through without re-blocking on the barrier. Ran it 30 times in a loop with no failures, and ran the full 1606-test suite 3 times in a loop with no failures/flakiness.",
+        "file": "backend/tests/integration/test_portfolio_positions_lost_update_race.py",
+        "line": 110
+      },
+      {
+        "summary": "Migration 051c44cc730b verified round-trip-clean by hand: upgrade from the prior head (c8216d30fc10) with a pre-existing row present -> `version` backfills to 1 via `server_default='1'` -> downgrade drops the column and the pre-existing row survives -> re-upgrade backfills `version` to 1 again cleanly. `python scripts/export_openapi.py` reproduces the committed `backend/openapi.json` byte-for-byte (description-only diff, no schema/shape change, confirming no frontend regeneration was needed). `docs/architecture/API.md`'s new paragraphs accurately describe the fix. Full backend suite: 1606 passed, 100% line/branch coverage, ruff + mypy clean -- matches the PR's claims exactly. Area is backend/portfolio but this change is pure DB-concurrency plumbing with zero overlap with docs/Analyse.md's signal/confidence/risk methodology (no app/signals/ or app/portfolio/risk.py changes) -- verify-elder-signal's checklist doesn't apply here.",
+        "file": "backend/app/db/migrations/versions/051c44cc730b_add_version_to_positions.py",
+        "line": 21
+      }
+    ],
+    "notes": "No UI surface (backend-only change, zero frontend diff) -- browser walkthrough and the persisted e2e suite are both out of scope here, not silently skipped. The core fix (version_id_col + `_merge_and_commit`'s bounded retry loop) is well-designed, thoroughly verified (genuine mutation testing, a real multi-thread/multi-connection HTTP reproduction, migration round-trip), and the rejected-alternatives rationale in the decisions entries is sound. The single blocking finding is that the same `version` column this PR adds to close the merge-path lost-update race also silently extends SQLAlchemy's staleness check to `delete_position`'s DELETE statement, a call site this PR didn't touch or account for -- an unhandled 500 regression on a previously-safe endpoint. Everything else (coverage, static analysis, docs/openapi sync, task-board bookkeeping, the other checklist items) is solid; non-blocking findings are tracked on docs/tasks/backend-position-watchlist-race-condition-followups-followups.json rather than only here."
   }
 }

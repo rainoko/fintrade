@@ -2553,8 +2553,15 @@
       "id": "backend-position-watchlist-race-condition-followups",
       "area": "backend/portfolio",
       "skill": null,
-      "state": "testing",
+      "state": "implementing",
       "path": "docs/tasks/backend-position-watchlist-race-condition-followups.json"
+    },
+    {
+      "id": "backend-position-watchlist-race-condition-followups-followups",
+      "area": "backend/portfolio",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-position-watchlist-race-condition-followups-followups.json"
     },
     {
       "id": "backend-ibkr-request-retry-followups",
