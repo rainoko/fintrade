@@ -962,13 +962,156 @@ def add_position(
     )
 
 
+# Mirrors `_MAX_POSITION_MERGE_ATTEMPTS` above -- same reasoning (bounded enough to absorb a
+# realistic burst of contention for this app's single plausible writer, but still bounded so a
+# pathological, endlessly-contended delete surfaces as a clean 503 instead of retrying forever)
+# applied to `_delete_position_and_commit`'s own retry loop below -- see
+# backend-position-watchlist-race-condition-followups's `decisions` entry.
+_MAX_POSITION_DELETE_ATTEMPTS = 5
+
+
+def _delete_position_and_commit(
+    db: Session,
+    row: PositionORM,
+    exit_reason: ExitReason,
+    resolved_exit_price: float | None,
+    resolved_exit_date: date,
+) -> None:
+    """Deletes `row` (recording its `closed_trades` entry first, if `resolved_exit_price` is
+    known) and commits, retrying against a freshly re-queried row whenever the commit is lost
+    to a concurrent writer -- see this function's own call site, `delete_position`, for the
+    full scenario.
+
+    `PositionORM.version`'s `version_id_col` (added by this same task to close the same-ticker
+    merge lost-update race -- see `_merge_and_commit`'s docstring) makes SQLAlchemy apply its
+    optimistic-concurrency check to every DELETE against this table too, not only UPDATE: a
+    concurrent merge/update of this exact row (e.g. another `add_position` same-ticker merge,
+    or a trailing-stop write) between this request's own `db.get()` and its commit bumps
+    `version`, so this DELETE's `WHERE id=? AND version=?` matches 0 rows and SQLAlchemy raises
+    `StaleDataError` here -- a genuine regression `_merge_and_commit` alone didn't cover, since
+    it only wraps the two merge-commit call sites, not this delete. See
+    backend-position-watchlist-race-condition-followups's `decisions` entry for the full
+    end-to-end reproduction (pr-reviewer's finding on PR #385) and the rationale below.
+
+    Unlike a merge, a delete has no "combine both requests' data" concept -- once a conflict is
+    detected there are exactly two possibilities: the row still needs deleting (the conflict
+    was a concurrent UPDATE, not a DELETE), in which case this re-fetches the row and retries
+    the whole delete -- recomputing the `closed_trades` row from that freshest committed state,
+    so the realized P&L recorded reflects the position as it actually stood just before
+    deletion, not a stale pre-race snapshot; or the row is already gone (a concurrent DELETE
+    beat this one to it), in which case this request's own intended outcome -- the position no
+    longer existing -- has already happened, so it's treated exactly like the ordinary
+    not-found case at the top of `delete_position`: a 404, not a retry (unlike lock contention,
+    a deleted-elsewhere row isn't a transient condition another attempt could resolve
+    differently). Genuine lock contention (`IntegrityError`/`OperationalError`, the same
+    categories `_merge_and_commit` retries, including from the re-query itself) is retried up
+    to `_MAX_POSITION_DELETE_ATTEMPTS` times before falling back to the same 503
+    transient-conflict convention established elsewhere in this router."""
+    last_exc: Exception = RuntimeError(  # pragma: no cover — always replaced before any raise
+        "unreachable: the loop below always runs at least once"
+    )
+    position_id = row.id
+    for attempt in range(1, _MAX_POSITION_DELETE_ATTEMPTS + 1):
+        if resolved_exit_price is not None:
+            db.add(
+                ClosedTradeORM(
+                    id=f"trade_{uuid.uuid4().hex[:12]}",
+                    ticker=row.ticker,
+                    quantity=row.quantity,
+                    entry_price=row.avg_cost_basis,
+                    entry_date=row.entry_date,
+                    exit_price=resolved_exit_price,
+                    exit_date=resolved_exit_date,
+                    realized_pnl=row.quantity * (resolved_exit_price - row.avg_cost_basis),
+                    exit_reason=exit_reason.value,
+                    entry_notes=row.entry_notes,
+                    strategy=row.strategy,
+                )
+            )
+        db.delete(row)
+        try:
+            db.commit()
+            return
+        except (StaleDataError, IntegrityError, OperationalError) as exc:
+            last_exc = exc
+            db.rollback()
+            try:
+                refreshed = db.get(PositionORM, position_id)
+            except OperationalError as requery_exc:
+                last_exc = requery_exc
+                db.rollback()
+                logger.warning(
+                    "Re-query for position id=%r also hit a write conflict while recovering "
+                    "from one while deleting it (attempt %d/%d); retrying the whole delete "
+                    "attempt. (%s: %s)",
+                    position_id,
+                    attempt,
+                    _MAX_POSITION_DELETE_ATTEMPTS,
+                    type(requery_exc).__name__,
+                    requery_exc,
+                )
+                continue
+
+            if refreshed is None:
+                logger.warning(
+                    "Concurrent write conflict deleting position id=%r (attempt %d/%d), and "
+                    "re-query found it already gone -- a concurrent delete beat this one to "
+                    "it, so this request's own intended outcome already happened. (%s: %s)",
+                    position_id,
+                    attempt,
+                    _MAX_POSITION_DELETE_ATTEMPTS,
+                    type(last_exc).__name__,
+                    last_exc,
+                )
+                raise HTTPException(
+                    status_code=404, detail=f"Position '{position_id}' not found"
+                ) from last_exc
+
+            row = refreshed
+            logger.warning(
+                "Concurrent write conflict deleting position id=%r (attempt %d/%d); retrying "
+                "against the freshly-committed row. (%s: %s)",
+                position_id,
+                attempt,
+                _MAX_POSITION_DELETE_ATTEMPTS,
+                type(exc).__name__,
+                exc,
+            )
+
+    logger.error(
+        "Exhausted %d retries deleting position id=%r due to repeated concurrent write "
+        "conflicts.",
+        _MAX_POSITION_DELETE_ATTEMPTS,
+        position_id,
+    )
+    raise HTTPException(
+        status_code=503,
+        detail=f"Too many concurrent write conflicts deleting position id={position_id!r}; "
+        "retry.",
+    ) from last_exc
+
+
 @router.delete(
     "/positions/{position_id}",
     status_code=204,
     operation_id="delete_position",
     summary="Remove a position, recording it as a closed trade",
     responses={
-        404: {"model": ErrorDetail, "description": "Position not found"},
+        404: {
+            "model": ErrorDetail,
+            "description": "Position not found -- either it never existed, or (per "
+            "`_delete_position_and_commit`'s docstring) a concurrent delete removed it first.",
+        },
+        503: {
+            "model": ErrorDetail,
+            "description": "A concurrent write conflict while deleting this position -- "
+            "either genuine SQLite lock contention, or another request concurrently merged/"
+            "updated this exact position (bumping its optimistic-concurrency `version`) "
+            "between this request's read and its own delete commit, and retrying against the "
+            "freshly-committed row still kept losing after `_MAX_POSITION_DELETE_ATTEMPTS` "
+            "attempts. Safe to retry -- see `_delete_position_and_commit`'s docstring and "
+            "backend-position-watchlist-race-condition-followups's `decisions` entry.",
+        },
         422: {
             "description": "Either of two distinct shapes, both under HTTP 422: ordinary "
             "query-param validation failure (FastAPI's standard HTTPValidationError -- "
@@ -1048,7 +1191,13 @@ def delete_position(
     position is still deleted -- a data-provider outage must never block removing a position --
     but no `closed_trades` row is recorded, since there's no way to compute a realized P&L
     without an exit price; see the backend-trade-history-table task's `decisions` entry for the
-    full rationale."""
+    full rationale.
+
+    The actual delete (and, if priced, the `closed_trades` insert) happens in
+    `_delete_position_and_commit`, which retries against a freshly re-queried row if a
+    concurrent write to this exact position (e.g. another request's same-ticker merge) is lost
+    to this one's own commit -- see that function's docstring and
+    backend-position-watchlist-race-condition-followups's `decisions` entry."""
     row = db.get(PositionORM, position_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"Position '{position_id}' not found")
@@ -1075,25 +1224,7 @@ def delete_position(
         resolved_exit_price, _ = latest_close(provider, row.ticker)
         resolved_exit_date = today()
 
-    if resolved_exit_price is not None:
-        db.add(
-            ClosedTradeORM(
-                id=f"trade_{uuid.uuid4().hex[:12]}",
-                ticker=row.ticker,
-                quantity=row.quantity,
-                entry_price=row.avg_cost_basis,
-                entry_date=row.entry_date,
-                exit_price=resolved_exit_price,
-                exit_date=resolved_exit_date,
-                realized_pnl=row.quantity * (resolved_exit_price - row.avg_cost_basis),
-                exit_reason=exit_reason.value,
-                entry_notes=row.entry_notes,
-                strategy=row.strategy,
-            )
-        )
-
-    db.delete(row)
-    db.commit()
+    _delete_position_and_commit(db, row, exit_reason, resolved_exit_price, resolved_exit_date)
 
 
 def _profit_target_to_schema(target: ProfitTarget) -> ProfitTargetOut:

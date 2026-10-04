@@ -19,11 +19,12 @@ from typing import Any
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_data_provider
 from app.data.exceptions import DataProviderUnavailableError, TickerNotFoundError
-from app.db.models import AccountORM, ClosedTradeORM
+from app.db.models import AccountORM, ClosedTradeORM, PositionORM
 from app.db.session import get_db
 from app.main import app
 from app.portfolio.models import ExitReason
@@ -532,3 +533,140 @@ class TestDeletePositionManualExitOverride:
         risk_response = client.get("/api/portfolio/risk")
         assert risk_response.status_code == 200
         assert risk_response.json()["realized_losses_this_month_pct"] > 0.0
+
+
+class TestDeletePositionCommitRaceHandling:
+    """backend-position-watchlist-race-condition-followups (PR #385 pr-reviewer finding):
+    `PositionORM.version`'s `version_id_col` -- added to fix the same-ticker merge lost-update
+    race in `add_position` -- makes SQLAlchemy apply its optimistic-concurrency check to
+    DELETE statements against this table too, not only UPDATE. `_delete_position_and_commit`
+    now handles that (`StaleDataError`/`IntegrityError`/`OperationalError`) the same way
+    `_merge_and_commit` already handles the analogous merge-commit conflicts: roll back,
+    re-query the row, and either retry the delete (row still exists), 404 (a concurrent delete
+    already removed it), or -- once `_MAX_POSITION_DELETE_ATTEMPTS` is exhausted -- 503.
+    `test_portfolio_positions_lost_update_race.py`'s
+    `TestConcurrentUpdateRacingDeleteRealHTTPConcurrency` covers the real, genuinely-concurrent
+    end-to-end reproduction of the retry-and-succeed path (a real concurrent `StaleDataError`
+    from a real racing UPDATE); these tests instead target the narrower edge cases that would
+    be impractical to force via real concurrency (the re-query itself failing, the row having
+    vanished entirely, and the retry bound being exhausted) by directly controlling `db_session
+    .commit`/`.get`, mirroring `TestAddPositionMergeCommitRaceHandling`/
+    `TestAddPositionMergeRetryBoundsAndRequeryHardening` in test_portfolio_positions.py."""
+
+    def test_delete_commit_operational_error_retries_and_succeeds(
+        self, client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        created = _add_position(client, ticker="AAPL", quantity=100, avg_cost_basis=195.30)
+        original_commit = db_session.commit
+        call_count = {"n": 0}
+
+        def _commit_fails_once_then_succeeds() -> None:
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                db_session.rollback()
+                raise OperationalError("DELETE", {}, Exception("database is locked"))
+            original_commit()
+
+        monkeypatch.setattr(db_session, "commit", _commit_fails_once_then_succeeds)
+
+        response = client.delete(f"/api/portfolio/positions/{created['id']}")
+
+        assert response.status_code == 204
+        assert call_count["n"] == 2
+        assert db_session.query(PositionORM).filter_by(id=created["id"]).one_or_none() is None
+        [trade] = db_session.query(ClosedTradeORM).all()
+        assert trade.ticker == "AAPL"
+
+    def test_delete_requery_operational_error_is_retried_not_unhandled(
+        self, client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mirrors `TestAddPositionMergeRetryBoundsAndRequeryHardening
+        .test_requery_operational_error_is_retried_not_unhandled` for the delete path: a second
+        `OperationalError` hitting the re-query *itself* (inside the `except` block) is folded
+        into the same bounded retry loop rather than propagating unhandled."""
+        created = _add_position(client, ticker="AAPL", quantity=100, avg_cost_basis=195.30)
+        original_commit = db_session.commit
+        original_get = db_session.get
+        state = {"after_first_failure": False, "requery_failed_once": False}
+
+        def _commit_fails_once_then_succeeds() -> None:
+            if not state["requery_failed_once"] and not state["after_first_failure"]:
+                state["after_first_failure"] = True
+                db_session.rollback()
+                raise OperationalError("DELETE", {}, Exception("database is locked"))
+            original_commit()
+
+        def _get_fails_the_first_post_failure_requery_once(
+            entity: Any, ident: Any, *args: Any, **kwargs: Any
+        ) -> Any:
+            if (
+                entity is PositionORM
+                and state["after_first_failure"]
+                and not state["requery_failed_once"]
+            ):
+                state["requery_failed_once"] = True
+                state["after_first_failure"] = False
+                raise OperationalError("SELECT", {}, Exception("database is locked"))
+            return original_get(entity, ident, *args, **kwargs)
+
+        monkeypatch.setattr(db_session, "commit", _commit_fails_once_then_succeeds)
+        monkeypatch.setattr(db_session, "get", _get_fails_the_first_post_failure_requery_once)
+
+        response = client.delete(f"/api/portfolio/positions/{created['id']}")
+
+        assert response.status_code == 204
+        assert db_session.query(PositionORM).filter_by(id=created["id"]).one_or_none() is None
+
+    def test_delete_commit_conflict_with_row_gone_on_requery_returns_404(
+        self, client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mirrors `TestAddPositionMergeRetryBoundsAndRequeryHardening
+        .test_merge_commit_conflict_with_no_row_found_on_requery_returns_503` for the delete
+        path -- except a delete's own version of "the row's gone when we re-query" isn't a 503
+        the way a merge's is: if the position itself is what's gone (a concurrent delete beat
+        this one to it), this request's own intended outcome already happened, so it's a 404,
+        not a retryable transient-conflict 503 -- see `_delete_position_and_commit`'s
+        docstring."""
+        created = _add_position(client, ticker="AAPL", quantity=100, avg_cost_basis=195.30)
+        original_commit = db_session.commit
+
+        def _commit_fails_then_row_is_gone() -> None:
+            db_session.rollback()
+            db_session.query(PositionORM).filter_by(id=created["id"]).delete()
+            original_commit()
+            raise OperationalError("DELETE", {}, Exception("database is locked"))
+
+        monkeypatch.setattr(db_session, "commit", _commit_fails_then_row_is_gone)
+
+        response = client.delete(f"/api/portfolio/positions/{created['id']}")
+
+        assert response.status_code == 404
+        body = response.json()
+        assert created["id"] in body["detail"]
+        # No closed_trades row recorded for a request that lost the race entirely.
+        assert db_session.query(ClosedTradeORM).all() == []
+
+    def test_delete_retries_exhausted_returns_503_not_an_infinite_loop(
+        self, client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A pathologically, endlessly-contended delete (every single commit attempt loses to
+        ongoing lock contention, the position itself never actually vanishing) must eventually
+        give up with a clean 503 rather than retrying forever."""
+        created = _add_position(client, ticker="AAPL", quantity=100, avg_cost_basis=195.30)
+
+        def _commit_always_fails() -> None:
+            db_session.rollback()
+            raise OperationalError("DELETE", {}, Exception("database is locked"))
+
+        monkeypatch.setattr(db_session, "commit", _commit_always_fails)
+
+        response = client.delete(f"/api/portfolio/positions/{created['id']}")
+
+        assert response.status_code == 503
+        detail = response.json()["detail"]
+        assert "Too many concurrent write conflicts" in detail
+        assert created["id"] in detail
+        # The exhausted-retries path never partially deletes -- the row is untouched.
+        row = db_session.query(PositionORM).filter_by(id=created["id"]).one()
+        assert row.quantity == pytest.approx(100.0)
+        assert db_session.query(ClosedTradeORM).all() == []

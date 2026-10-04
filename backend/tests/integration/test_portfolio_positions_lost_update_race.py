@@ -22,12 +22,22 @@ followups's task description asked for: manually reverting `PositionORM.version`
 fails (final quantity reflects only one of the two concurrent requests, and/or one request's
 response is lost in a way the test's own assertions catch) -- see this task's `decisions`
 entry.
+
+`TestConcurrentUpdateRacingDeleteRealHTTPConcurrency` below reuses this same real-concurrency
+infrastructure for a second, distinct regression pr-reviewer found on PR #385: adding
+`PositionORM.version` to fix the merge race above makes SQLAlchemy apply its optimistic-
+concurrency check to DELETE statements against this table too, not only UPDATE -- so a
+concurrent same-ticker merge (an UPDATE bumping `version`) racing `DELETE
+/api/portfolio/positions/{id}`'s own read-then-commit window used to crash that delete with an
+unhandled `StaleDataError` instead of either succeeding or returning the established 503. See
+`app.api.routers.portfolio._delete_position_and_commit`'s docstring for the fix.
 """
 
 import threading
 from datetime import date
 from typing import Any
 
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -36,7 +46,7 @@ from sqlalchemy.orm import Session, sessionmaker
 import app.api.routers.portfolio as portfolio
 from app.api.dependencies import get_data_provider
 from app.data.exceptions import DataProviderUnavailableError
-from app.db.models import Base, PositionORM
+from app.db.models import Base, ClosedTradeORM, PositionORM
 from app.db.session import get_db
 from app.main import app
 
@@ -50,6 +60,31 @@ class _StubProvider:
 
     def get_daily_ohlcv(self, ticker: str) -> Any:
         raise DataProviderUnavailableError(f"{ticker} not stubbed in this test module")
+
+    def get_weekly_ohlcv(self, ticker: str) -> Any:
+        raise DataProviderUnavailableError("weekly history not stubbed in this test module")
+
+
+class _PricedStubProvider:
+    """Like `_StubProvider` above, but `get_daily_ohlcv` returns a real (non-raising) frame
+    instead of degrading -- needed for `TestConcurrentUpdateRacingDeleteRealHTTPConcurrency`
+    below, whose `DELETE` request takes the default (no `exit_price`/`exit_date` override)
+    live-price-lookup path through `app.portfolio.pricing.latest_close`, and which asserts on
+    the `closed_trades` row that path produces. Still never makes a live network call, matching
+    docs/architecture/Testing.md's rule -- just a fixed, hand-built frame."""
+
+    def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
+        idx = pd.DatetimeIndex(["2026-01-01", "2026-01-02"], name="date")
+        return pd.DataFrame(
+            {
+                "open": [99.0, 109.0],
+                "high": [101.0, 111.0],
+                "low": [98.0, 108.0],
+                "close": [100.0, 110.0],
+                "volume": [1_000.0, 1_000.0],
+            },
+            index=idx,
+        )
 
     def get_weekly_ohlcv(self, ticker: str) -> Any:
         raise DataProviderUnavailableError("weekly history not stubbed in this test module")
@@ -179,3 +214,125 @@ class TestConcurrentMergeRaceRealHTTPConcurrency:
         # not once, which would mean one request's commit silently clobbered the other's
         # without the version check ever tripping.
         assert row.version == 3  # 1 (insert) + 1 (thread_a's or thread_b's merge) + 1 (retry)
+
+
+class TestConcurrentUpdateRacingDeleteRealHTTPConcurrency:
+    """Reproduces pr-reviewer's PR #385 finding end to end, through the real `DELETE
+    /api/portfolio/positions/{id}` endpoint (not a bare-ORM example): a concurrent same-ticker
+    `POST /api/portfolio/positions` merge (a real `UPDATE` that bumps `PositionORM.version`) is
+    forced to complete during the exact window between `DELETE`'s own initial `db.get()` and
+    its commit -- specifically during the live `latest_close()` fetch that window includes
+    whenever the caller doesn't supply `exit_price`/`exit_date`, exactly as pr-reviewer's
+    finding described. Before `_delete_position_and_commit` existed, this made the DELETE's own
+    `db.delete(row); db.commit()` raise `StaleDataError` unhandled -> a raw 500.
+
+    Mutation-tested during development: temporarily reverting `_delete_position_and_commit` to
+    the old bare `db.delete(row); db.commit()` (no `StaleDataError`/retry handling) made this
+    test fail with exactly that unhandled `StaleDataError` surfacing as a 500 response, instead
+    of the clean 204 asserted below -- restoring the fix made it pass again. See this task's
+    `decisions` entry."""
+
+    def test_delete_survives_a_concurrent_merge_update_of_the_same_position(
+        self, file_db_sessionmaker: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seed_db: Session = file_db_sessionmaker()
+        seed_db.add(
+            PositionORM(
+                id="pos_1",
+                ticker="AAPL",
+                quantity=10.0,
+                avg_cost_basis=100.0,
+                entry_date=date(2026, 1, 1),
+            )
+        )
+        seed_db.commit()
+        seed_db.close()
+
+        def override_get_db() -> Any:
+            db = file_db_sessionmaker()
+            try:
+                yield db
+            finally:
+                db.close()
+
+        app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[get_data_provider] = lambda: _PricedStubProvider()
+
+        # Two plain `threading.Event`s (rather than a `Barrier`, which needs both parties
+        # released together) express the strict ordering this reproduction needs: the delete
+        # must have already read its (soon-to-be-stale) row and reached its own `latest_close`
+        # call *before* the concurrent merge is allowed to start, and the delete must not
+        # proceed past that same call until the merge has fully committed.
+        delete_ready = threading.Event()
+        merge_done = threading.Event()
+        original_latest_close = portfolio.latest_close
+
+        def _latest_close_after_concurrent_merge(provider: Any, ticker: str) -> Any:
+            delete_ready.set()
+            assert merge_done.wait(timeout=10), "concurrent merge did not complete in time"
+            return original_latest_close(provider, ticker)
+
+        monkeypatch.setattr(portfolio, "latest_close", _latest_close_after_concurrent_merge)
+
+        results: dict[str, Any] = {}
+        errors: dict[str, BaseException] = {}
+
+        def _delete() -> None:
+            try:
+                client = TestClient(app)
+                results["delete"] = client.delete("/api/portfolio/positions/pos_1")
+            except BaseException as exc:  # pragma: no cover -- surfaced via `errors` below
+                errors["delete"] = exc
+
+        def _merge() -> None:
+            try:
+                assert delete_ready.wait(timeout=10), "delete did not reach latest_close in time"
+                client = TestClient(app)
+                results["merge"] = client.post(
+                    "/api/portfolio/positions",
+                    json={
+                        "ticker": "AAPL",
+                        "quantity": 5.0,
+                        "avg_cost_basis": 150.0,
+                        "entry_date": "2026-02-01",
+                    },
+                )
+            except BaseException as exc:  # pragma: no cover -- surfaced via `errors` below
+                errors["merge"] = exc
+            finally:
+                merge_done.set()
+
+        thread_delete = threading.Thread(target=_delete)
+        thread_merge = threading.Thread(target=_merge)
+        try:
+            thread_delete.start()
+            thread_merge.start()
+            thread_delete.join(timeout=15)
+            thread_merge.join(timeout=15)
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert not errors, f"Unexpected exception(s) in request thread(s): {errors}"
+        assert not thread_delete.is_alive(), "delete thread did not finish within the timeout"
+        assert not thread_merge.is_alive(), "merge thread did not finish within the timeout"
+
+        assert "merge" in results and results["merge"].status_code == 201, results["merge"].text
+        # The crux of this reproduction: the delete must succeed cleanly (204), never the raw,
+        # unhandled-StaleDataError 500 this was regressing to.
+        assert "delete" in results
+        assert results["delete"].status_code == 204, results["delete"].text
+
+        verify_db: Session = file_db_sessionmaker()
+        try:
+            assert verify_db.query(PositionORM).filter_by(id="pos_1").one_or_none() is None
+            [trade] = verify_db.query(ClosedTradeORM).all()
+        finally:
+            verify_db.close()
+
+        # The recorded closed trade reflects the MERGED quantity (10 original + 5 from the
+        # concurrent update = 15), not the stale pre-race 10 -- confirming the retry recomputed
+        # the closed_trades row from the freshest committed state (the row the concurrent merge
+        # actually left behind) rather than deleting using stale in-memory data.
+        assert trade.quantity == pytest.approx(15.0)
+        assert trade.ticker == "AAPL"

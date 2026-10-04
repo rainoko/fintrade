@@ -555,6 +555,16 @@ export interface paths {
          *     (unknown/delisted, provider unavailable) degrades to leaving any existing floor untouched
          *     rather than blocking the merge -- adding a position must never depend on live market data
          *     being reachable.
+         *
+         *     A same-ticker merge (this branch, or the race-recovery merge below after a losing insert)
+         *     is protected against the lost-update race where two concurrent requests for the SAME
+         *     already-existing ticker would otherwise both read the same pre-commit row and the second
+         *     commit would silently overwrite the first's already-committed merge with no exception at
+         *     all -- `PositionORM`'s `version` column (SQLAlchemy's `version_id_col` optimistic-
+         *     concurrency mechanism) makes that overwrite raise instead, and `_merge_and_commit` retries
+         *     the merge against the freshly-committed row rather than ever discarding either request's
+         *     data -- see `_merge_and_commit`'s docstring and
+         *     backend-position-watchlist-race-condition-followups's `decisions` entry.
          */
         post: operations["add_position"];
         delete?: never;
@@ -602,6 +612,12 @@ export interface paths {
          *     but no `closed_trades` row is recorded, since there's no way to compute a realized P&L
          *     without an exit price; see the backend-trade-history-table task's `decisions` entry for the
          *     full rationale.
+         *
+         *     The actual delete (and, if priced, the `closed_trades` insert) happens in
+         *     `_delete_position_and_commit`, which retries against a freshly re-queried row if a
+         *     concurrent write to this exact position (e.g. another request's same-ticker merge) is lost
+         *     to this one's own commit -- see that function's docstring and
+         *     backend-position-watchlist-race-condition-followups's `decisions` entry.
          */
         delete: operations["delete_position"];
         options?: never;
@@ -3336,7 +3352,7 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"] | components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description A concurrent-insert conflict was raised while adding this brand-new ticker, but no same-ticker row was actually found afterwards (see this task's `decisions` entry) -- a transient SQLite lock contention unrelated to this ticker specifically, safe to retry. */
+            /** @description Either of two distinct transient-write-conflict shapes, both safe to retry: (1) a concurrent-insert conflict was raised while adding this brand-new ticker, but no same-ticker row was actually found afterwards (see add_position's `decisions` entry); or (2) a same-ticker merge (whether a genuine already-exists request, or the race-recovery merge from case 1) kept losing to other concurrent writers for the same ticker even after `_MAX_POSITION_MERGE_ATTEMPTS` retries, or the ticker's row disappeared entirely between retries (e.g. a concurrent delete) -- see `_merge_and_commit`'s docstring and backend-position-watchlist-race-condition-followups's `decisions` entry. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -3372,7 +3388,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Position not found */
+            /** @description Position not found -- either it never existed, or (per `_delete_position_and_commit`'s docstring) a concurrent delete removed it first. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -3388,6 +3404,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"] | components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description A concurrent write conflict while deleting this position -- either genuine SQLite lock contention, or another request concurrently merged/updated this exact position (bumping its optimistic-concurrency `version`) between this request's read and its own delete commit, and retrying against the freshly-committed row still kept losing after `_MAX_POSITION_DELETE_ATTEMPTS` attempts. Safe to retry -- see `_delete_position_and_commit`'s docstring and backend-position-watchlist-race-condition-followups's `decisions` entry. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
         };
