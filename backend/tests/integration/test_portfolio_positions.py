@@ -29,6 +29,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.api.dependencies import get_data_provider
 from app.data.exceptions import DataProviderUnavailableError
@@ -1202,4 +1203,525 @@ class TestAddPositionConcurrentInsertRace:
         assert detail == "Transient write conflict adding position for ticker='AAPL'; retry."
         assert "OperationalError" not in detail
         assert "database is locked" not in detail
+        assert db_session.query(PositionORM).filter_by(ticker="AAPL").count() == 0
+
+
+class TestAddPositionMergeLostUpdateRace:
+    """backend-position-watchlist-race-condition-followups: two concurrent requests for the
+    SAME already-existing ticker previously both loaded the same pre-commit
+    `quantity`/`avg_cost_basis`, each independently merged from that identical stale baseline,
+    and the second plain `UPDATE` silently overwrote the first's already-committed merge with
+    no exception raised at all (unlike the brand-new-ticker insert race above, an `UPDATE` to
+    an existing row never trips a unique-constraint violation). `PositionORM.version`
+    (SQLAlchemy's `version_id_col` optimistic-concurrency mechanism) now makes that exact
+    overwrite raise `StaleDataError` instead, and `_merge_and_commit` retries the merge against
+    the freshly-committed row rather than ever discarding either request's data -- see this
+    task's `decisions` entry.
+
+    This class reproduces the race with a genuinely separate, independently-committing
+    SQLAlchemy session (not a mocked exception) racing `db_session`'s own merge, so the
+    `StaleDataError` here is the real one SQLAlchemy raises from a real 0-row-affected UPDATE,
+    not a stand-in. `TestConcurrentMergeRaceRealHTTPConcurrency` (test_portfolio_positions_lost
+    _update_race.py) goes one step further: real OS threads, real separate DB connections, and
+    an actual concurrent HTTP-level reproduction."""
+
+    def test_second_committers_merge_detects_the_race_and_retries_against_fresh_data(
+        self, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        db_session.add(
+            PositionORM(
+                id="pos_1",
+                ticker="AAPL",
+                quantity=10.0,
+                avg_cost_basis=100.0,
+                entry_date=date(2026, 1, 1),
+            )
+        )
+        db_session.commit()
+
+        original_commit = db_session.commit
+
+        def _commit_races_a_concurrent_committer_then_retries() -> None:
+            monkeypatch.setattr(db_session, "commit", original_commit)
+            # A genuinely separate session (not db_session itself) reads the SAME pre-commit
+            # row, merges its own +7 quantity, and commits FIRST -- bumping `version` from 1
+            # to 2. This models a second real concurrent request winning the race against
+            # db_session's own in-flight merge below.
+            from sqlalchemy.orm import sessionmaker
+
+            ConcurrentSession = sessionmaker(bind=db_session.get_bind())
+            concurrent_session = ConcurrentSession()
+            try:
+                concurrent_row = (
+                    concurrent_session.query(PositionORM).filter_by(ticker="AAPL").one()
+                )
+                concurrent_row.quantity = 17.0  # 10 (original) + 7 (concurrent request)
+                concurrent_row.avg_cost_basis = 123.5294117647  # weighted avg, not asserted on
+                concurrent_session.commit()
+            finally:
+                concurrent_session.close()
+            # Now db_session's own commit proceeds against its stale in-memory `existing`
+            # (still version=1, quantity=10) -- SQLAlchemy's version_id_col must raise
+            # StaleDataError here for real, since the row is now version=2 in the DB.
+            original_commit()
+
+        monkeypatch.setattr(
+            db_session, "commit", _commit_races_a_concurrent_committer_then_retries
+        )
+        test_client = _make_client(db_session, _StubProvider())
+
+        try:
+            response = test_client.post(
+                "/api/portfolio/positions",
+                json={
+                    "ticker": "AAPL",
+                    "quantity": 5,
+                    "avg_cost_basis": 150.0,
+                    "entry_date": "2026-02-01",
+                },
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert response.status_code == 201
+        body = response.json()
+        # The whole point: this request's own +5 quantity must land on top of the concurrent
+        # committer's already-committed +7, not silently overwrite it -- 10 + 7 + 5 = 22, not
+        # 10 + 5 = 15 (which is what the pre-fix code would have silently produced).
+        assert body["quantity"] == pytest.approx(22.0)
+        # This request's merge runs against the REFRESHED row (quantity=17.0,
+        # avg_cost_basis=123.5294117647 -- the concurrent committer's already-committed
+        # values), not the original pre-race baseline -- quantity-weighted average of those
+        # two, not of the original 10@100 and the two requests' own inputs independently.
+        expected_avg_cost_basis = (17.0 * 123.5294117647 + 5.0 * 150.0) / 22.0
+        assert body["avg_cost_basis"] == pytest.approx(expected_avg_cost_basis, abs=1e-4)
+        assert db_session.query(PositionORM).filter_by(ticker="AAPL").count() == 1
+
+    def test_stale_data_error_alone_without_the_fix_would_have_been_a_silent_overwrite(
+        self, db_session: Session
+    ) -> None:
+        """A direct, minimal proof of the bug this version column closes, independent of the
+        HTTP layer or `_merge_and_commit`'s retry: two sessions read the same row, the first
+        commits its merge, and the second's commit -- using the exact same ORM mutation
+        `_merge_position` performs, just inlined here -- now raises `StaleDataError` instead
+        of silently succeeding. Before `PositionORM.version` existed, this exact sequence
+        would have left `quantity` at 15.0 (the second committer's own merge, computed from
+        the stale quantity=10.0 baseline), permanently losing the first committer's +7."""
+        from sqlalchemy.orm import sessionmaker
+
+        db_session.add(
+            PositionORM(
+                id="pos_1",
+                ticker="AAPL",
+                quantity=10.0,
+                avg_cost_basis=100.0,
+                entry_date=date(2026, 1, 1),
+            )
+        )
+        db_session.commit()
+
+        SessionA = sessionmaker(bind=db_session.get_bind())
+        session_a = SessionA()
+        SessionB = sessionmaker(bind=db_session.get_bind())
+        session_b = SessionB()
+        try:
+            row_a = session_a.query(PositionORM).filter_by(ticker="AAPL").one()
+            row_b = session_b.query(PositionORM).filter_by(ticker="AAPL").one()
+            assert row_a.version == row_b.version == 1
+
+            row_a.quantity = 17.0  # merges in +7
+            session_a.commit()
+
+            row_b.quantity = 15.0  # merges in +5, from the now-stale quantity=10.0 baseline
+            with pytest.raises(StaleDataError):
+                session_b.commit()
+        finally:
+            session_a.close()
+            session_b.close()
+
+        # The committed row reflects ONLY session_a's merge -- session_b's own +5 never landed
+        # (that's exactly what `_merge_and_commit`'s retry loop exists to recover from, by
+        # re-querying this row and re-merging against it rather than giving up here).
+        final = db_session.query(PositionORM).filter_by(ticker="AAPL").one()
+        assert final.quantity == pytest.approx(17.0)
+        assert final.version == 2
+
+
+class TestAddPositionMergeCommitRaceHandling:
+    """backend-position-watchlist-race-condition-followups: neither the already-exists-at-
+    first-query merge's `db.commit()` nor the race-recovery merge's own second `db.commit()`
+    was previously wrapped in the insert path's own try/except -- both now go through the
+    shared `_merge_and_commit` retry helper, which treats a plain `IntegrityError`/
+    `OperationalError` (unrelated SQLite lock contention, not a same-ticker version conflict)
+    exactly like the insert path already does: roll back, re-query, retry."""
+
+    def test_already_exists_merge_commit_operational_error_retries_and_succeeds(
+        self, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        db_session.add(
+            PositionORM(
+                id="pos_1",
+                ticker="AAPL",
+                quantity=10.0,
+                avg_cost_basis=100.0,
+                entry_date=date(2026, 1, 1),
+            )
+        )
+        db_session.commit()
+
+        original_commit = db_session.commit
+        call_count = {"n": 0}
+
+        def _commit_fails_once_then_succeeds() -> None:
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                db_session.rollback()
+                raise OperationalError("UPDATE", {}, Exception("database is locked"))
+            original_commit()
+
+        monkeypatch.setattr(db_session, "commit", _commit_fails_once_then_succeeds)
+        test_client = _make_client(db_session, _StubProvider())
+
+        try:
+            response = test_client.post(
+                "/api/portfolio/positions",
+                json={
+                    "ticker": "AAPL",
+                    "quantity": 5,
+                    "avg_cost_basis": 150.0,
+                    "entry_date": "2026-02-01",
+                },
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert response.status_code == 201
+        body = response.json()
+        assert body["quantity"] == pytest.approx(15.0)
+        assert body["avg_cost_basis"] == pytest.approx(116.666667, abs=1e-4)
+        assert call_count["n"] == 2
+
+    def test_race_recovery_merge_commit_operational_error_also_retries_and_succeeds(
+        self, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The race-recovery merge (the loser of the initial brand-new-ticker insert race,
+        merging its data into the winner's row) is new code this PR #382 introduced -- so this
+        specific asymmetry (its own commit being just as unprotected as the already-exists
+        branch above) only became visible once that code existed, even though the underlying
+        unprotected-merge-commit gap predates it."""
+        original_commit = db_session.commit
+        call_count = {"n": 0}
+
+        def _commit_sequence() -> None:
+            call_count["n"] += 1
+            n = call_count["n"]
+            if n == 1:
+                # The initial insert loses the brand-new-ticker race (same shape as
+                # TestAddPositionConcurrentInsertRace above).
+                db_session.rollback()
+                db_session.add(
+                    PositionORM(
+                        id="pos_winner",
+                        ticker="AAPL",
+                        quantity=10.0,
+                        avg_cost_basis=100.0,
+                        entry_date=date(2026, 1, 1),
+                    )
+                )
+                original_commit()
+                raise IntegrityError("INSERT", {}, Exception("UNIQUE constraint failed"))
+            if n == 2:
+                # The race-recovery merge's own first commit attempt also hits an unrelated
+                # lock-contention OperationalError.
+                db_session.rollback()
+                raise OperationalError("UPDATE", {}, Exception("database is locked"))
+            original_commit()
+
+        monkeypatch.setattr(db_session, "commit", _commit_sequence)
+        test_client = _make_client(db_session, _StubProvider())
+
+        try:
+            response = test_client.post(
+                "/api/portfolio/positions",
+                json={
+                    "ticker": "AAPL",
+                    "quantity": 5,
+                    "avg_cost_basis": 150.0,
+                    "entry_date": "2026-02-01",
+                },
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert response.status_code == 201
+        body = response.json()
+        assert body["quantity"] == pytest.approx(15.0)
+        assert db_session.query(PositionORM).filter_by(ticker="AAPL").count() == 1
+        assert call_count["n"] == 3
+
+
+class TestAddPositionMergeRetryBoundsAndRequeryHardening:
+    """backend-position-watchlist-race-condition-followups: the merge-commit retry loop
+    (`_merge_and_commit`) is bounded (`_MAX_POSITION_MERGE_ATTEMPTS`), and a second
+    `OperationalError` hitting the re-query *itself* (inside the `except` block) is folded
+    into that same bounded retry rather than propagating unhandled -- closing the gap this
+    task's checklist flagged in the original insert-race re-query, which had no exception
+    handling of its own."""
+
+    def test_requery_operational_error_is_retried_not_unhandled(
+        self, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        db_session.add(
+            PositionORM(
+                id="pos_1",
+                ticker="AAPL",
+                quantity=10.0,
+                avg_cost_basis=100.0,
+                entry_date=date(2026, 1, 1),
+            )
+        )
+        db_session.commit()
+
+        original_commit = db_session.commit
+        original_query = db_session.query
+        state = {"commit_calls": 0, "after_first_failure": False, "requery_failed_once": False}
+
+        def _commit_fails_once_then_succeeds() -> None:
+            state["commit_calls"] += 1
+            if state["commit_calls"] == 1:
+                state["after_first_failure"] = True
+                db_session.rollback()
+                raise OperationalError("UPDATE", {}, Exception("database is locked"))
+            original_commit()
+
+        class _FailingFilter:
+            def one_or_none(self) -> None:
+                raise OperationalError("SELECT", {}, Exception("database is locked"))
+
+        class _FailingQuery:
+            def filter(self, *args: Any, **kwargs: Any) -> _FailingFilter:
+                return _FailingFilter()
+
+        def _query_fails_the_first_post_failure_requery_once(*args: Any, **kwargs: Any):
+            # Only the very first `query(PositionORM)` call made AFTER the first commit
+            # failure is the re-query this test targets (`_merge_and_commit`'s own re-query,
+            # immediately following its `db.rollback()`) -- intercepting by this ordering
+            # relationship, rather than a raw call count, is robust to any incidental extra
+            # lookups SQLAlchemy's own rollback-triggered attribute expiry might trigger.
+            if (
+                args == (PositionORM,)
+                and state["after_first_failure"]
+                and not state["requery_failed_once"]
+            ):
+                state["requery_failed_once"] = True
+                state["after_first_failure"] = False
+                return _FailingQuery()
+            return original_query(*args, **kwargs)
+
+        monkeypatch.setattr(db_session, "commit", _commit_fails_once_then_succeeds)
+        monkeypatch.setattr(db_session, "query", _query_fails_the_first_post_failure_requery_once)
+        test_client = _make_client(db_session, _StubProvider())
+
+        try:
+            response = test_client.post(
+                "/api/portfolio/positions",
+                json={
+                    "ticker": "AAPL",
+                    "quantity": 5,
+                    "avg_cost_basis": 150.0,
+                    "entry_date": "2026-02-01",
+                },
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert response.status_code == 201
+        body = response.json()
+        assert body["quantity"] == pytest.approx(15.0)
+
+    def test_requery_operational_error_then_row_genuinely_deleted_raises_handled_503(
+        self, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """pr-reviewer's round-2 PR #385 finding: when the re-query inside the `except` block
+        itself fails with `OperationalError`, `row` is deliberately left un-refreshed (and
+        `db.rollback()` has already expired it) so the loop can simply retry the merge. But if
+        the row has genuinely been deleted by a *different* concurrent transaction during that
+        exact window, the next attempt's `_merge_position(row, ...)` call touches `row`'s
+        now-gone attributes (`existing.quantity`), and SQLAlchemy raises `ObjectDeletedError` --
+        confirmed not a subclass of `StaleDataError`/`IntegrityError`/`OperationalError`, so
+        unhandled before this fix (a raw 500). Now caught alongside that triad and routed
+        through the same no-row-found-on-requery handling as an ordinary concurrent-delete
+        case: a clean 503, not a crash."""
+        db_session.add(
+            PositionORM(
+                id="pos_1",
+                ticker="AAPL",
+                quantity=10.0,
+                avg_cost_basis=100.0,
+                entry_date=date(2026, 1, 1),
+            )
+        )
+        db_session.commit()
+
+        original_commit = db_session.commit
+        original_query = db_session.query
+        state = {"commit_calls": 0, "requery_failed_once": False}
+
+        def _commit_fails_once_then_succeeds() -> None:
+            state["commit_calls"] += 1
+            if state["commit_calls"] == 1:
+                db_session.rollback()
+                raise OperationalError("UPDATE", {}, Exception("database is locked"))
+            original_commit()
+
+        class _FailingFilter:
+            def one_or_none(self) -> None:
+                raise OperationalError("SELECT", {}, Exception("database is locked"))
+
+        class _FailingQuery:
+            def filter(self, *args: Any, **kwargs: Any) -> _FailingFilter:
+                return _FailingFilter()
+
+        def _query_fails_the_requery_once_and_row_vanishes_underneath_it(
+            *args: Any, **kwargs: Any
+        ) -> Any:
+            if (
+                args == (PositionORM,)
+                and state["commit_calls"] == 1
+                and not state["requery_failed_once"]
+            ):
+                state["requery_failed_once"] = True
+                # A *different* concurrent transaction genuinely deletes this exact row
+                # during the same window the re-query itself is failing in -- by the time
+                # the next attempt touches `row`'s attributes, it's actually gone (not just
+                # stale), which is exactly what makes attribute access raise
+                # `ObjectDeletedError` rather than silently reading old data.
+                original_query(PositionORM).filter_by(ticker="AAPL").delete()
+                original_commit()
+                return _FailingQuery()
+            return original_query(*args, **kwargs)
+
+        monkeypatch.setattr(db_session, "commit", _commit_fails_once_then_succeeds)
+        monkeypatch.setattr(
+            db_session, "query", _query_fails_the_requery_once_and_row_vanishes_underneath_it
+        )
+        test_client = _make_client(db_session, _StubProvider())
+
+        try:
+            response = test_client.post(
+                "/api/portfolio/positions",
+                json={
+                    "ticker": "AAPL",
+                    "quantity": 5,
+                    "avg_cost_basis": 150.0,
+                    "entry_date": "2026-02-01",
+                },
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert response.status_code == 503
+        detail = response.json()["detail"]
+        assert detail == "Transient write conflict merging position for ticker='AAPL'; retry."
+        assert db_session.query(PositionORM).filter_by(ticker="AAPL").count() == 0
+
+    def test_retries_exhausted_returns_503_not_an_infinite_loop(
+        self, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A pathologically, endlessly-contended merge (every single commit attempt loses)
+        must eventually give up with a clean 503 rather than retrying forever."""
+        db_session.add(
+            PositionORM(
+                id="pos_1",
+                ticker="AAPL",
+                quantity=10.0,
+                avg_cost_basis=100.0,
+                entry_date=date(2026, 1, 1),
+            )
+        )
+        db_session.commit()
+
+        def _commit_always_fails() -> None:
+            db_session.rollback()
+            raise OperationalError("UPDATE", {}, Exception("database is locked"))
+
+        monkeypatch.setattr(db_session, "commit", _commit_always_fails)
+        test_client = _make_client(db_session, _StubProvider())
+
+        try:
+            response = test_client.post(
+                "/api/portfolio/positions",
+                json={
+                    "ticker": "AAPL",
+                    "quantity": 5,
+                    "avg_cost_basis": 150.0,
+                    "entry_date": "2026-02-01",
+                },
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert response.status_code == 503
+        detail = response.json()["detail"]
+        assert "Too many concurrent write conflicts" in detail
+        assert "AAPL" in detail
+        # The position row is untouched (still its original pre-merge values) -- the
+        # exhausted-retries path never partially applies a merge.
+        row = db_session.query(PositionORM).filter_by(ticker="AAPL").one()
+        assert row.quantity == pytest.approx(10.0)
+        assert row.avg_cost_basis == pytest.approx(100.0)
+
+    def test_merge_commit_conflict_with_no_row_found_on_requery_returns_503(
+        self, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mirrors `TestAddPositionConcurrentInsertRace.
+        test_operational_error_with_no_same_ticker_winner_returns_503` for the merge-commit
+        path: a plain `OperationalError` on the merge's own commit, where the re-query
+        afterward finds no same-ticker row at all (e.g. the position was deleted by a
+        concurrent `DELETE /api/portfolio/positions/{id}` in between) -- a clean `503`, not a
+        crash or a silently-applied partial merge."""
+        db_session.add(
+            PositionORM(
+                id="pos_1",
+                ticker="AAPL",
+                quantity=10.0,
+                avg_cost_basis=100.0,
+                entry_date=date(2026, 1, 1),
+            )
+        )
+        db_session.commit()
+        original_commit = db_session.commit
+
+        def _commit_fails_then_row_is_gone() -> None:
+            db_session.rollback()
+            db_session.query(PositionORM).filter_by(ticker="AAPL").delete()
+            original_commit()
+            raise OperationalError("UPDATE", {}, Exception("database is locked"))
+
+        monkeypatch.setattr(db_session, "commit", _commit_fails_then_row_is_gone)
+        test_client = _make_client(db_session, _StubProvider())
+
+        try:
+            response = test_client.post(
+                "/api/portfolio/positions",
+                json={
+                    "ticker": "AAPL",
+                    "quantity": 5,
+                    "avg_cost_basis": 150.0,
+                    "entry_date": "2026-02-01",
+                },
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert response.status_code == 503
+        detail = response.json()["detail"]
+        assert detail == "Transient write conflict merging position for ticker='AAPL'; retry."
         assert db_session.query(PositionORM).filter_by(ticker="AAPL").count() == 0
