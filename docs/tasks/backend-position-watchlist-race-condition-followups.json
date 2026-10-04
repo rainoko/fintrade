@@ -58,5 +58,11 @@
       "rationale": "This was a clean win rather than a forced refactor: fixing item 2 already required building one retry-capable merge-commit implementation, and both call sites needed exactly that same behavior (same failure modes, same recovery shape, same 503 convention) -- there was no reason for two independent copies once the correct behavior was defined once. The checklist's own suggested shape (a single `_commit_merge`-style helper) was followed directly; the two call sites' prior difference (`winner`/`existing` as the starting row, otherwise identical) collapses to a single parameter, so no behavioral compromise was needed to unify them."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-position-watchlist-race-condition-followups",
+    "pr_number": 385,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/385",
+    "pushed_at": "2026-10-04T06:54:00Z"
+  }
 }
