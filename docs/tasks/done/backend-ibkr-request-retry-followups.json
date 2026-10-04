@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-ibkr-request-retry's PR #383 review",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-ibkr-request-retry"],
   "references": [
     "docs/tasks/done/backend-ibkr-request-retry.json",
@@ -50,5 +50,12 @@
     "pr_number": 389,
     "pr_url": "https://github.com/rainoko/fintrade/pull/389",
     "pushed_at": "2026-10-04T09:46:08Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-04T09:50:08Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/389",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: pytest --cov=app --cov-report=term-missing -> 1616 passed, 100% line/branch coverage (matches PR claim); no live-network dependency despite backend/.env's FINTRADE_IBKR_ENABLED=true. ruff check . and mypy --no-incremental app both clean. scripts/validate_tasks.py -> no violations. Independently mutation-tested item 1's retry=False param: reverted `max_attempts = _REQUEST_MAX_ATTEMPTS if retry else 1` to an unconditional `_REQUEST_MAX_ATTEMPTS`, confirmed TestRequestRetry::test_retry_false_disables_the_retry and TestRunScanner::test_does_not_retry_on_transient_failure both failed (2 calls instead of 1), then restored the file exactly (empty diff after restore). Grepped every `self._request(` call site in ibkr_provider.py: only run_scanner (line 793) passes retry=False; all 9 other call sites are unaffected (default True), including get_scanner_params which intentionally keeps its retry since it's protected by its own 15-minute cache instead. Verified item 2's reasoning against the actual code: _gateway_status_lock genuinely wraps the full re-check+_request+store sequence, so moving the retrying _request call outside the lock (guarding only the cache read/write) would let two threads that both observe a miss each independently call _request and each independently retry -- a real race reintroduction, not overstated; the 'cost shared once across blocked threads, not multiplied per thread' claim is also accurate given the lock's placement. Verified item 3's append-only convention by diffing docs/tasks/done/backend-ibkr-request-retry.json: purely additive (+6/-0), original '~0.3s' entry's text byte-for-byte unchanged, new corrective entry appended after it with its own timestamp and rationale. All three checklist items have corresponding decisions entries (the 'decide X' cross-check). No API/schema change (no OpenAPI concerns), no frontend/UI surface (browser walkthrough and e2e-test skill both explicitly skipped as not applicable), area is backend/data so verify-elder-signal doesn't apply, and no new module/dependency/layer so architecture-review doesn't apply. No non-blocking findings from this pass -- nothing new to file as a follow-up task. Posted as a COMMENTED-type PR review (gh pr review 389 --comment), not an approval."
   }
 }
