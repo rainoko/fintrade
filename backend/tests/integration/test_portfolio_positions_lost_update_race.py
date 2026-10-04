@@ -148,7 +148,7 @@ class TestConcurrentMergeRaceRealHTTPConcurrency:
         original_merge_position = portfolio._merge_position
 
         def _merge_position_with_barrier(
-            existing: PositionORM, position: Any, provider: Any
+            existing: PositionORM, position: Any, daily_ohlcv: Any
         ) -> PositionORM:
             tid = threading.get_ident()
             with released_lock:
@@ -156,7 +156,7 @@ class TestConcurrentMergeRaceRealHTTPConcurrency:
                 released_once.add(tid)
             if first_call_for_this_thread:
                 barrier.wait()
-            return original_merge_position(existing, position, provider)
+            return original_merge_position(existing, position, daily_ohlcv)
 
         monkeypatch.setattr(portfolio, "_merge_position", _merge_position_with_barrier)
 

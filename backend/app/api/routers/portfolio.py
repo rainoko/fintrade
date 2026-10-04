@@ -1,10 +1,11 @@
 import logging
 import math
 import uuid
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import cast, get_args
+from typing import NoReturn, cast, get_args
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -534,7 +535,9 @@ def get_portfolio(
     )
 
 
-def _merge_position(existing: PositionORM, position: PositionIn, provider: DataProvider) -> PositionORM:
+def _merge_position(
+    existing: PositionORM, position: PositionIn, daily_ohlcv: pd.DataFrame | None
+) -> PositionORM:
     """Merges an incoming `PositionIn` into an already-persisted same-ticker `existing` row
     (mutated and returned, not yet committed) -- the one merge implementation shared by
     `add_position`'s two callers: a genuine already-exists-at-first-query request, and a
@@ -542,6 +545,14 @@ def _merge_position(existing: PositionORM, position: PositionIn, provider: DataP
     winner in between (see `add_position`'s own `except (IntegrityError, OperationalError)`
     block, and this task's `decisions` entry for why a race loser merges here rather than
     discarding its own data).
+
+    `daily_ohlcv` is this ticker's latest available daily history (already run through
+    `drop_malformed_daily_bars`, `require_full_ohlc_on_latest_bar=False`), or `None` if that
+    fetch failed/degraded -- fetched exactly once by the caller (`_merge_and_commit`), not
+    here, since it depends only on the ticker (`existing.ticker`/`ticker`, fixed for the whole
+    call), never on which particular row revision a given retry attempt is merging against --
+    see backend-position-watchlist-race-condition-followups-followups's `decisions` entry for
+    why this moved out of a per-attempt fetch.
 
     Quantities are summed and avg_cost_basis becomes the quantity-weighted average of the
     existing and incoming cost bases (mirrors how a brokerage averages up/down a position
@@ -587,13 +598,12 @@ def _merge_position(existing: PositionORM, position: PositionIn, provider: DataP
     # entry_date, BEFORE they're overwritten just below -- the one write path for this
     # column now that GET /api/portfolio/risk is a pure read again. A `daily_ohlcv` fetch
     # failure (unknown/delisted ticker, provider unavailable) degrades to `daily_ohlcv=None`
-    # -- trailing_stop_floor_before_merge itself then leaves the floor untouched -- rather
-    # than blocking this merge on live market data being reachable. `daily_ohlcv` is run
-    # through `drop_malformed_daily_bars` here, exactly like `get_portfolio`/`get_risk`'s own
-    # OHLCV consumption in this same file (`require_full_ohlc_on_latest_bar=False`, since the
-    # latest bar can legitimately be today's still-settling one) -- `trailing_stop_high_water
-    # _mark` is a permanent MAX-floor, so an unfiltered malformed bar here would lock in a
-    # value no later correct computation could ever bring back down (PR #240 round-3 finding).
+    # (resolved by the caller, see this function's own docstring) -- trailing_stop_floor
+    # _before_merge itself then leaves the floor untouched -- rather than blocking this merge
+    # on live market data being reachable. `trailing_stop_high_water_mark` is a permanent
+    # MAX-floor, so an unfiltered malformed bar here would lock in a value no later correct
+    # computation could ever bring back down (PR #240 round-3 finding) -- see the caller for
+    # where `daily_ohlcv` is filtered.
     old_position = Position(
         id=existing.id,
         ticker=existing.ticker,
@@ -601,12 +611,6 @@ def _merge_position(existing: PositionORM, position: PositionIn, provider: DataP
         avg_cost_basis=existing.avg_cost_basis,
         entry_date=existing.entry_date,
     )
-    try:
-        daily_ohlcv = provider.get_daily_ohlcv(existing.ticker)
-    except DataProviderError:
-        daily_ohlcv = None
-    if daily_ohlcv is not None:
-        daily_ohlcv = drop_malformed_daily_bars(daily_ohlcv, require_full_ohlc_on_latest_bar=False)
     floor = trailing_stop_floor_before_merge(
         old_position, daily_ohlcv, existing.trailing_stop_high_water_mark
     )
@@ -644,6 +648,98 @@ def _merge_position(existing: PositionORM, position: PositionIn, provider: DataP
     return existing
 
 
+def _commit_with_version_retry[T](
+    db: Session,
+    row: PositionORM,
+    attempt_fn: Callable[[PositionORM], T],
+    requery_fn: Callable[[], PositionORM | None],
+    *,
+    max_attempts: int,
+    describe_subject: str,
+    on_row_gone: Callable[[int, Exception], NoReturn],
+    on_exhausted: Callable[[Exception], NoReturn],
+) -> T:
+    """The shared bounded-attempts retry skeleton behind both `_merge_and_commit`'s and
+    `_delete_position_and_commit`'s version-conflict recovery -- extracted because the two
+    functions previously duplicated roughly 100 lines of near-identical retry/rollback/
+    re-query/logging scaffolding (same bounded-attempts loop, same `(StaleDataError,
+    IntegrityError, OperationalError, ObjectDeletedError)` catch, same rollback -> re-query ->
+    row-found-vs-not branching), differing only in what the per-attempt operation does
+    (merge-and-return-the-row vs delete-and-return-`None`) and what happens when the row is
+    gone on re-query (503 for merge, since there's nothing left to merge against; 404 for
+    delete, since the request's own intended outcome already happened) -- see
+    backend-position-watchlist-race-condition-followups-followups's `decisions` entry.
+
+    `attempt_fn(row)` performs the actual per-attempt mutation (merge arithmetic, or the
+    closed-trade insert + delete) against the current `row` and returns whatever the caller
+    wants back on success; this function calls `db.commit()` immediately afterwards and, if
+    that succeeds too, returns `attempt_fn`'s result straight through. A `StaleDataError`/
+    `IntegrityError`/`OperationalError`/`ObjectDeletedError` raised by either `attempt_fn` or
+    the commit triggers a rollback and a `requery_fn()` re-query. `requery_fn` itself raising
+    `OperationalError` is folded into this very same retry loop -- `row` stays at its last-
+    known value and the next iteration just re-runs `attempt_fn` against it, which will hit
+    its own fresh re-query if it fails again -- rather than propagating unhandled (the gap
+    backend-position-watchlist-race-condition-followups's own checklist originally flagged).
+    `requery_fn()` returning `None` (the row is genuinely gone) calls `on_row_gone(attempt,
+    last_exc)`, which must raise: there's nothing generic this helper could do there, since a
+    merge and a delete want genuinely different outcomes for "the row's gone" (see each call
+    site's own docstring). Exhausting `max_attempts` calls `on_exhausted(last_exc)`, which must
+    also raise.
+
+    `describe_subject` is a pre-formatted phrase (e.g. `f"merging position for
+    ticker={ticker!r}"` / `f"deleting position id={position_id!r}"`) used only in this
+    helper's own two *generic* log messages (the re-query-itself-failed warning, and the
+    retrying-against-a-fresh-row warning) -- the row-gone and exhausted-retries cases are
+    logged by `on_row_gone`/`on_exhausted` themselves, not here, since their wording and
+    reasoning meaningfully differ per call site."""
+    last_exc: Exception = RuntimeError(  # pragma: no cover — always replaced before any raise
+        "unreachable: the loop below always runs at least once"
+    )
+    for attempt in range(1, max_attempts + 1):
+        try:
+            result = attempt_fn(row)
+            db.commit()
+            return result
+        except (StaleDataError, IntegrityError, OperationalError, ObjectDeletedError) as exc:
+            last_exc = exc
+            db.rollback()
+            try:
+                refreshed = requery_fn()
+            except OperationalError as requery_exc:
+                last_exc = requery_exc
+                db.rollback()
+                logger.warning(
+                    "Re-query while %s also hit a write conflict while recovering from one "
+                    "(attempt %d/%d); retrying the whole attempt. (%s: %s)",
+                    describe_subject,
+                    attempt,
+                    max_attempts,
+                    type(requery_exc).__name__,
+                    requery_exc,
+                )
+                continue
+
+            if refreshed is None:
+                on_row_gone(attempt, last_exc)
+                raise AssertionError(  # pragma: no cover
+                    "on_row_gone must raise, never return"
+                ) from None
+
+            row = refreshed
+            logger.warning(
+                "Concurrent write conflict while %s (attempt %d/%d); retrying against the "
+                "freshly-committed row. (%s: %s)",
+                describe_subject,
+                attempt,
+                max_attempts,
+                type(exc).__name__,
+                exc,
+            )
+
+    on_exhausted(last_exc)
+    raise AssertionError("on_exhausted must raise, never return")  # pragma: no cover
+
+
 # Bounds the retry loop in `_merge_and_commit` below -- generous enough to absorb a realistic
 # burst of concurrent same-ticker merges for a single-user MVP (this app has exactly one
 # plausible writer: the user themselves, possibly submitting a quick double-click or a retried
@@ -666,7 +762,18 @@ def _merge_and_commit(
     `add_position`'s two same-ticker-merge call sites (a genuine already-exists-at-first-query
     request, and a race-recovery merge after a losing insert) share this logic, rather than
     each duplicating it with its own, inconsistent error handling -- see
-    backend-position-watchlist-race-condition-followups's `decisions` entry.
+    backend-position-watchlist-race-condition-followups's `decisions` entry. Built on the
+    shared `_commit_with_version_retry` skeleton (see its own docstring and
+    backend-position-watchlist-race-condition-followups-followups's `decisions` entry) rather
+    than its own standalone loop.
+
+    This ticker's daily OHLCV (needed by `_merge_position` for
+    `trailing_stop_floor_before_merge`) is fetched and filtered exactly once here, up front --
+    not once per retry attempt -- since it depends only on `ticker` (fixed for this whole
+    call), never on which particular row revision a given attempt ends up merging against; a
+    merge that needs several retries to win under same-ticker contention previously re-issued
+    this same provider call once per attempt instead of once total. See
+    backend-position-watchlist-race-condition-followups-followups's `decisions` entry.
 
     Two distinct failure modes are retried identically here:
 
@@ -699,99 +806,64 @@ def _merge_and_commit(
     is exhausted, this raises the same 503 `add_position`'s own no-winner case does.
 
     `ObjectDeletedError` is caught alongside the above triad for the same reason: when the
-    re-query *itself* fails with `OperationalError` (see the inner `except OperationalError`
-    below), `row` is deliberately left at its last-known, now-possibly-stale value so the loop
-    can simply retry -- but if the row has genuinely been deleted by a *different* concurrent
-    transaction during that exact window, `row` is an expired SQLAlchemy instance pointing at a
-    row that no longer exists, and the next attempt's `_merge_position(row, ...)` call (which
-    reads `row.quantity`/`row.avg_cost_basis`) triggers a lazy-reload that SQLAlchemy raises as
-    `ObjectDeletedError`, not any of the three already-caught types (confirmed not a subclass of
-    any of them). Catching it here routes that attempt through the exact same rollback ->
-    re-query -> no-row-found handling as an ordinary "row deleted concurrently" case -- which is
-    exactly what this *is*, just discovered one attempt later than usual -- rather than letting
-    it escape as an unhandled 500 (pr-reviewer's round-2 finding on PR #385; see this task's
+    re-query *itself* fails with `OperationalError`, `row` is deliberately left at its
+    last-known, now-possibly-stale value so the loop can simply retry -- but if the row has
+    genuinely been deleted by a *different* concurrent transaction during that exact window,
+    `row` is an expired SQLAlchemy instance pointing at a row that no longer exists, and the
+    next attempt's `_merge_position(row, ...)` call (which reads `row.quantity`/
+    `row.avg_cost_basis`) triggers a lazy-reload that SQLAlchemy raises as `ObjectDeletedError`,
+    not any of the three already-caught types (confirmed not a subclass of any of them).
+    Catching it here routes that attempt through the exact same rollback -> re-query ->
+    no-row-found handling as an ordinary "row deleted concurrently" case -- which is exactly
+    what this *is*, just discovered one attempt later than usual -- rather than letting it
+    escape as an unhandled 500 (pr-reviewer's round-2 finding on PR #385; see this task's
     `decisions` entry)."""
-    row = existing
-    last_exc: Exception = RuntimeError(  # pragma: no cover — always replaced before any raise
-        "unreachable: the loop below always runs at least once"
-    )
-    no_row_found_on_requery = False
-    for attempt in range(1, _MAX_POSITION_MERGE_ATTEMPTS + 1):
-        try:
-            row = _merge_position(row, position, provider)
-            db.commit()
-            return row
-        except (StaleDataError, IntegrityError, OperationalError, ObjectDeletedError) as exc:
-            last_exc = exc
-            db.rollback()
-            try:
-                refreshed = (
-                    db.query(PositionORM).filter(PositionORM.ticker == ticker).one_or_none()
-                )
-            except OperationalError as requery_exc:
-                # The re-query itself can race the same SQLite whole-file lock contention
-                # that caused `exc` above -- rather than let *this* one propagate unhandled
-                # (the gap backend-position-watchlist-race-condition-followups's checklist
-                # flagged), it's folded into the very same bounded retry loop: `row` stays at
-                # its last-known value and the next iteration just tries the merge again,
-                # which will hit its own fresh re-query attempt if it fails again. See this
-                # task's `decisions` entry for why this (rather than leaving it as an
-                # accepted single-level-retry limit) was chosen.
-                last_exc = requery_exc
-                db.rollback()
-                logger.warning(
-                    "Re-query for ticker=%r also hit a write conflict while recovering from "
-                    "one (attempt %d/%d); retrying the whole merge attempt. (%s: %s)",
-                    ticker,
-                    attempt,
-                    _MAX_POSITION_MERGE_ATTEMPTS,
-                    type(requery_exc).__name__,
-                    requery_exc,
-                )
-                continue
+    try:
+        daily_ohlcv = provider.get_daily_ohlcv(existing.ticker)
+    except DataProviderError:
+        daily_ohlcv = None
+    if daily_ohlcv is not None:
+        daily_ohlcv = drop_malformed_daily_bars(daily_ohlcv, require_full_ohlc_on_latest_bar=False)
 
-            if refreshed is None:
-                logger.warning(
-                    "Concurrent write conflict merging position for ticker=%r (attempt "
-                    "%d/%d), but no same-ticker row was found on re-query -- likely a "
-                    "concurrent delete or unrelated SQLite lock contention. (%s: %s)",
-                    ticker,
-                    attempt,
-                    _MAX_POSITION_MERGE_ATTEMPTS,
-                    type(last_exc).__name__,
-                    last_exc,
-                )
-                no_row_found_on_requery = True
-                break
-
-            row = refreshed
-            logger.warning(
-                "Concurrent write conflict merging position for ticker=%r (attempt %d/%d); "
-                "retrying this merge against the freshly-committed row. (%s: %s)",
-                ticker,
-                attempt,
-                _MAX_POSITION_MERGE_ATTEMPTS,
-                type(exc).__name__,
-                exc,
-            )
-
-    if no_row_found_on_requery:
+    def _on_row_gone(attempt: int, last_exc: Exception) -> NoReturn:
+        logger.warning(
+            "Concurrent write conflict merging position for ticker=%r (attempt %d/%d), but "
+            "no same-ticker row was found on re-query -- likely a concurrent delete or "
+            "unrelated SQLite lock contention. (%s: %s)",
+            ticker,
+            attempt,
+            _MAX_POSITION_MERGE_ATTEMPTS,
+            type(last_exc).__name__,
+            last_exc,
+        )
         raise HTTPException(
             status_code=503,
             detail=f"Transient write conflict merging position for ticker={ticker!r}; retry.",
         ) from last_exc
 
-    logger.error(
-        "Exhausted %d retries merging position for ticker=%r due to repeated concurrent "
-        "write conflicts.",
-        _MAX_POSITION_MERGE_ATTEMPTS,
-        ticker,
+    def _on_exhausted(last_exc: Exception) -> NoReturn:
+        logger.error(
+            "Exhausted %d retries merging position for ticker=%r due to repeated concurrent "
+            "write conflicts.",
+            _MAX_POSITION_MERGE_ATTEMPTS,
+            ticker,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=f"Too many concurrent write conflicts merging position for ticker={ticker!r}; "
+            "retry.",
+        ) from last_exc
+
+    return _commit_with_version_retry(
+        db,
+        existing,
+        lambda row: _merge_position(row, position, daily_ohlcv),
+        lambda: db.query(PositionORM).filter(PositionORM.ticker == ticker).one_or_none(),
+        max_attempts=_MAX_POSITION_MERGE_ATTEMPTS,
+        describe_subject=f"merging position for ticker={ticker!r}",
+        on_row_gone=_on_row_gone,
+        on_exhausted=_on_exhausted,
     )
-    raise HTTPException(
-        status_code=503,
-        detail=f"Too many concurrent write conflicts merging position for ticker={ticker!r}; "
-        "retry.",
-    ) from last_exc
 
 
 @router.post(
@@ -1035,89 +1107,75 @@ def _delete_position_and_commit(
     by this same handling, which then routes the attempt through the ordinary rollback ->
     re-query -> row-gone-means-404 path -- exactly what this situation *is*, just discovered one
     attempt later than usual -- rather than letting it escape as an unhandled 500 (pr-reviewer's
-    round-2 finding on PR #385; see this task's `decisions` entry)."""
-    last_exc: Exception = RuntimeError(  # pragma: no cover — always replaced before any raise
-        "unreachable: the loop below always runs at least once"
-    )
+    round-2 finding on PR #385; see this task's `decisions` entry).
+
+    Built on the shared `_commit_with_version_retry` skeleton (see its own docstring and
+    backend-position-watchlist-race-condition-followups-followups's `decisions` entry) rather
+    than its own standalone loop -- the per-attempt body below (the `ClosedTradeORM`
+    construction plus `db.delete`) is exactly the `attempt_fn` that skeleton calls, so the
+    "wrap attribute access in the same `try` as the delete/commit" property described above is
+    preserved unchanged."""
     position_id = row.id
-    for attempt in range(1, _MAX_POSITION_DELETE_ATTEMPTS + 1):
-        try:
-            if resolved_exit_price is not None:
-                db.add(
-                    ClosedTradeORM(
-                        id=f"trade_{uuid.uuid4().hex[:12]}",
-                        ticker=row.ticker,
-                        quantity=row.quantity,
-                        entry_price=row.avg_cost_basis,
-                        entry_date=row.entry_date,
-                        exit_price=resolved_exit_price,
-                        exit_date=resolved_exit_date,
-                        realized_pnl=row.quantity * (resolved_exit_price - row.avg_cost_basis),
-                        exit_reason=exit_reason.value,
-                        entry_notes=row.entry_notes,
-                        strategy=row.strategy,
-                    )
-                )
-            db.delete(row)
-            db.commit()
-            return
-        except (StaleDataError, IntegrityError, OperationalError, ObjectDeletedError) as exc:
-            last_exc = exc
-            db.rollback()
-            try:
-                refreshed = db.get(PositionORM, position_id)
-            except OperationalError as requery_exc:
-                last_exc = requery_exc
-                db.rollback()
-                logger.warning(
-                    "Re-query for position id=%r also hit a write conflict while recovering "
-                    "from one while deleting it (attempt %d/%d); retrying the whole delete "
-                    "attempt. (%s: %s)",
-                    position_id,
-                    attempt,
-                    _MAX_POSITION_DELETE_ATTEMPTS,
-                    type(requery_exc).__name__,
-                    requery_exc,
-                )
-                continue
 
-            if refreshed is None:
-                logger.warning(
-                    "Concurrent write conflict deleting position id=%r (attempt %d/%d), and "
-                    "re-query found it already gone -- a concurrent delete beat this one to "
-                    "it, so this request's own intended outcome already happened. (%s: %s)",
-                    position_id,
-                    attempt,
-                    _MAX_POSITION_DELETE_ATTEMPTS,
-                    type(last_exc).__name__,
-                    last_exc,
+    def _attempt(current_row: PositionORM) -> None:
+        if resolved_exit_price is not None:
+            db.add(
+                ClosedTradeORM(
+                    id=f"trade_{uuid.uuid4().hex[:12]}",
+                    ticker=current_row.ticker,
+                    quantity=current_row.quantity,
+                    entry_price=current_row.avg_cost_basis,
+                    entry_date=current_row.entry_date,
+                    exit_price=resolved_exit_price,
+                    exit_date=resolved_exit_date,
+                    realized_pnl=current_row.quantity
+                    * (resolved_exit_price - current_row.avg_cost_basis),
+                    exit_reason=exit_reason.value,
+                    entry_notes=current_row.entry_notes,
+                    strategy=current_row.strategy,
                 )
-                raise HTTPException(
-                    status_code=404, detail=f"Position '{position_id}' not found"
-                ) from last_exc
-
-            row = refreshed
-            logger.warning(
-                "Concurrent write conflict deleting position id=%r (attempt %d/%d); retrying "
-                "against the freshly-committed row. (%s: %s)",
-                position_id,
-                attempt,
-                _MAX_POSITION_DELETE_ATTEMPTS,
-                type(exc).__name__,
-                exc,
             )
+        db.delete(current_row)
+        return None
 
-    logger.error(
-        "Exhausted %d retries deleting position id=%r due to repeated concurrent write "
-        "conflicts.",
-        _MAX_POSITION_DELETE_ATTEMPTS,
-        position_id,
+    def _on_row_gone(attempt: int, last_exc: Exception) -> NoReturn:
+        logger.warning(
+            "Concurrent write conflict deleting position id=%r (attempt %d/%d), and "
+            "re-query found it already gone -- a concurrent delete beat this one to "
+            "it, so this request's own intended outcome already happened. (%s: %s)",
+            position_id,
+            attempt,
+            _MAX_POSITION_DELETE_ATTEMPTS,
+            type(last_exc).__name__,
+            last_exc,
+        )
+        raise HTTPException(
+            status_code=404, detail=f"Position '{position_id}' not found"
+        ) from last_exc
+
+    def _on_exhausted(last_exc: Exception) -> NoReturn:
+        logger.error(
+            "Exhausted %d retries deleting position id=%r due to repeated concurrent write "
+            "conflicts.",
+            _MAX_POSITION_DELETE_ATTEMPTS,
+            position_id,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=f"Too many concurrent write conflicts deleting position id={position_id!r}; "
+            "retry.",
+        ) from last_exc
+
+    _commit_with_version_retry(
+        db,
+        row,
+        _attempt,
+        lambda: db.get(PositionORM, position_id),
+        max_attempts=_MAX_POSITION_DELETE_ATTEMPTS,
+        describe_subject=f"deleting position id={position_id!r}",
+        on_row_gone=_on_row_gone,
+        on_exhausted=_on_exhausted,
     )
-    raise HTTPException(
-        status_code=503,
-        detail=f"Too many concurrent write conflicts deleting position id={position_id!r}; "
-        "retry.",
-    ) from last_exc
 
 
 @router.delete(

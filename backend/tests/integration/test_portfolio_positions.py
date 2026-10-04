@@ -31,6 +31,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
+import app.api.routers.portfolio as portfolio
 from app.api.dependencies import get_data_provider
 from app.data.exceptions import DataProviderUnavailableError
 from app.db.models import PositionORM
@@ -1634,7 +1635,11 @@ class TestAddPositionMergeRetryBoundsAndRequeryHardening:
         self, db_session: Session, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A pathologically, endlessly-contended merge (every single commit attempt loses)
-        must eventually give up with a clean 503 rather than retrying forever."""
+        must eventually give up with a clean 503 rather than retrying forever -- and must make
+        EXACTLY `_MAX_POSITION_MERGE_ATTEMPTS` commit attempts before doing so, not merely
+        "some" bound (backend-position-watchlist-race-condition-followups-followups's
+        checklist: an assertion that only checks the response is a 503 would pass identically
+        whether the configured bound were 1, 5, or 50)."""
         db_session.add(
             PositionORM(
                 id="pos_1",
@@ -1646,7 +1651,10 @@ class TestAddPositionMergeRetryBoundsAndRequeryHardening:
         )
         db_session.commit()
 
+        call_count = {"n": 0}
+
         def _commit_always_fails() -> None:
+            call_count["n"] += 1
             db_session.rollback()
             raise OperationalError("UPDATE", {}, Exception("database is locked"))
 
@@ -1671,6 +1679,9 @@ class TestAddPositionMergeRetryBoundsAndRequeryHardening:
         detail = response.json()["detail"]
         assert "Too many concurrent write conflicts" in detail
         assert "AAPL" in detail
+        # Exactly `_MAX_POSITION_MERGE_ATTEMPTS` commit attempts, not more (would mean the
+        # bound isn't enforced) or fewer (would mean giving up early).
+        assert call_count["n"] == portfolio._MAX_POSITION_MERGE_ATTEMPTS
         # The position row is untouched (still its original pre-merge values) -- the
         # exhausted-retries path never partially applies a merge.
         row = db_session.query(PositionORM).filter_by(ticker="AAPL").one()
