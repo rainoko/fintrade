@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-ibkr-request-retry's PR #383 review",
   "area": "backend/data",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-ibkr-request-retry"],
   "references": [
     "docs/tasks/done/backend-ibkr-request-retry.json",
@@ -44,5 +44,11 @@
       "rationale": "The corrective entry records the precise bound the reviewer traced: a cold-conid-cache leg in `get_analysis`'s daily/weekly fetches issues two sequential `_request` calls (`resolve_conid` then `get_daily_bars`/`get_weekly_bars`), each independently retryable, so that leg's worst-case added cost is up to ~0.6s, not the ~0.3s the original entry claimed for a single-`_request`-call leg. No code change accompanies this -- it is purely a documentation-precision fix to the latency-analysis record, and the underlying behavior (both calls already correctly retry independently, per `_request`'s existing policy) was never incorrect, only the written summary of its worst case for this one specific leg shape."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-ibkr-request-retry-followups",
+    "pr_number": 389,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/389",
+    "pushed_at": "2026-10-04T09:46:08Z"
+  }
 }
