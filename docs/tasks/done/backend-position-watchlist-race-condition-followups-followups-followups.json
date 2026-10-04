@@ -1,0 +1,72 @@
+{
+  "id": "backend-position-watchlist-race-condition-followups-followups-followups",
+  "title": "Non-blocking follow-ups from backend-position-watchlist-race-condition-followups-followups's PR #387 review",
+  "area": "backend/portfolio",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-position-watchlist-race-condition-followups-followups"],
+  "references": [
+    "docs/tasks/backend-position-watchlist-race-condition-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/387"
+  ],
+  "description": "Tracked, non-blocking finding from pr-reviewer's especially-thorough review of PR #387 (backend-position-watchlist-race-condition-followups-followups), which extracted the shared `_commit_with_version_retry[T]` generic helper in `backend/app/api/routers/portfolio.py`. This is independent of that review's overall accept verdict -- the current code is correct as merged; this finding is about the accuracy of the recorded rationale and a genuine test-coverage gap, not a bug in the shipped code.",
+  "checklist": [
+    {
+      "step": "PR #387's `decisions` entry for the item-4 (`_commit_with_version_retry` extraction) characterizes the `row = refreshed` reassignment (after a successful re-query inside the shared retry helper) as 'incidentally redundant under this codebase's single-session usage' because dropping it in a mutation test didn't fail any existing test, and keeps the line only 'for correctness-intent clarity'. pr-reviewer's independent investigation (constructing a scenario not covered by the existing suite: a *different* concurrent transaction deletes the same-ticker row AND a *third* transaction re-inserts a brand-new row for that same ticker under a DIFFERENT primary key, both within one request's same-ticker-merge retry window) found this characterization understates the real risk: with `row = refreshed` removed, that specific scenario causes the merge to spuriously exhaust all retries and return a 503 even though a valid, mergeable row exists the entire time (the stale/deleted `row` reference keeps raising `ObjectDeletedError` on every subsequent attempt, and the fresh re-query result is silently discarded each time since the local `row` variable is never updated). With the line present (the actual shipped code), the same scenario correctly completes the merge (verified directly: 201, quantity correctly combined). So the line is not merely a clarity-only safeguard -- it is load-bearing for this specific (rare but reachable) race, and the task's own `decisions` entry should be corrected to reflect that, and a regression test added for exactly this delete-and-reinsert-with-a-new-primary-key-for-the-same-ticker scenario (mirroring the existing `test_requery_operational_error_then_row_genuinely_deleted_raises_handled_503`/`..._404` tests' shape, but swapping in a fresh-PK re-insert instead of a bare delete during the simulated concurrent window) so a future refactor that drops `row = refreshed` again would be caught by the suite rather than relying on hand-reasoning about SQLAlchemy's identity map. Per CLAUDE.md's decision-memory 'Correcting a stale claim' convention, the correction belongs as a NEW appended `decisions` entry on the parent task (backend-position-watchlist-race-condition-followups-followups), not an in-place edit of the existing one.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-10-04T09:24:31Z",
+      "recorded_by": "task-worker",
+      "decision": "Appended a new `decisions` entry to the parent task (docs/tasks/done/backend-position-watchlist-race-condition-followups-followups.json) correcting the stale 'row = refreshed is incidentally redundant' claim in its existing item-4 entry, per CLAUDE.md's append-only decisions convention -- the original entry's text was left completely unedited. Added a dedicated regression test, `test_concurrent_delete_and_reinsert_under_new_pk_still_merges_via_row_reassignment` (backend/tests/integration/test_portfolio_positions.py, `TestAddPositionMergeRetryBoundsAndRequeryHardening`), reconstructing the scenario pr-reviewer's PR #387 review used in its standalone scratch repro: a concurrent delete of the original same-ticker row plus a re-insert of a brand new row for that same ticker under a different primary key, within one merge request's retry window.",
+      "rationale": "Mutation-tested the new test myself as the checklist required: temporarily replaced `row = refreshed` in `_commit_with_version_retry` (backend/app/api/routers/portfolio.py) with a no-op comment, re-ran the new test, and confirmed it failed -- `assert response.status_code == 201` got `503`, with the captured log showing the exact bug mechanism (`ObjectDeletedError` repeating against the same stale `PositionORM` instance on attempts 2 through 5, 'Exhausted 5 retries... due to repeated concurrent write conflicts' on the final attempt) even though the re-query had already found the fresh, valid, mergeable row under its new PK on the very first retry. Restored the line afterward (confirmed `git diff` on the source file was empty) and reconfirmed the full backend suite green: 1614 passed (1613 + this new test), 100% line/branch coverage (gate 90%), ruff and mypy both clean, `scripts/check_profit_target_wording.py` clean, and `python scripts/export_openapi.py` reproduces `backend/openapi.json` byte-for-byte (expected -- this is a test-only + task-board change, no route/schema touched). No alternative placement was considered for the test beyond the task's own suggested files: `test_portfolio_positions.py`'s existing `TestAddPositionMergeRetryBoundsAndRequeryHardening` class was the better fit over `test_portfolio_positions_lost_update_race.py`, since this scenario is a deterministic single-threaded monkeypatch repro (mirroring that class's own `test_requery_operational_error_then_row_genuinely_deleted_raises_handled_503` sibling test's shape exactly, just swapping a bare delete for a delete-and-reinsert-under-a-new-PK), not a real-OS-thread concurrency test like the ones in the `_lost_update_race` module."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/backend-position-watchlist-race-condition-followups-followups-followups",
+    "pr_number": 388,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/388",
+    "pushed_at": "2026-10-04T09:25:50Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-04T09:31:32Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/388",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Full backend suite: 1614 passed, 100% line/branch coverage (gate 90%) -- matches the PR's claim. ruff and mypy both clean. scripts/check_profit_target_wording.py clean. scripts/validate_tasks.py clean (368 task files). No route/schema changed, so backend/openapi.json is correctly left untouched.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Verified the append-only decisions convention was genuinely followed, not just trusted the PR description's claim: diffed docs/tasks/done/backend-position-watchlist-race-condition-followups-followups.json between the commit before this PR (9541cb32) and this PR's head. The original item-4 decisions entry's `decision`/`rationale` text is byte-for-byte unchanged; only one brand-new entry (timestamp 2026-10-04T09:20:48Z) was appended after it, correctly correcting the stale 'incidentally redundant' claim with its own self-contained rationale. No in-place edit occurred.",
+        "file": "docs/tasks/done/backend-position-watchlist-race-condition-followups-followups.json",
+        "line": null
+      },
+      {
+        "summary": "Mutation-tested the new regression test myself (not just trusted the worker's self-report): temporarily replaced `row = refreshed` with a no-op comment in _commit_with_version_retry (backend/app/api/routers/portfolio.py:728), re-ran test_concurrent_delete_and_reinsert_under_new_pk_still_merges_via_row_reassignment, and confirmed it failed exactly as described -- response.status_code 503 instead of 201, with captured WARNING logs showing ObjectDeletedError repeating against the same stale PositionORM instance on attempts 2 through 5 and an ERROR log 'Exhausted 5 retries... due to repeated concurrent write conflicts' on the final attempt. Restored the line afterward and confirmed `git diff` on the source file was empty, then reconfirmed the full suite green (1614 passed, 100% coverage).",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 728
+      },
+      {
+        "summary": "Read the new test's body directly to confirm it genuinely exercises a NEW primary key for the reinserted row, not a same-PK scenario (which would be a different, already-covered case): the original row is inserted with id='pos_1'; the simulated concurrent transaction bulk-deletes it by ticker and inserts a replacement with id='pos_2_new_pk' (a distinct id); the test's own final assertions confirm exactly one surviving row with id=='pos_2_new_pk' and the correctly-merged quantity/avg_cost_basis. This is consistent with the described bug mechanism (requery_fn looks up by ticker, not by the original row's PK, so it finds a genuinely different ORM object -- not a case SQLAlchemy's identity-map/rollback-expiry handling alone would cover).",
+        "file": "backend/tests/integration/test_portfolio_positions.py",
+        "line": 1739
+      },
+      {
+        "summary": "No app/signals/ or app/portfolio/ production code touched (diff is test-only plus task-board bookkeeping), so no Elder Triple Screen/Impulse/confidence/risk-rule methodology logic is implicated despite this task's area being backend/portfolio. No new module/dependency/layer added, so architecture-review wasn't separately warranted. No frontend file touched and no API route/schema changed, so there is no UI surface for this PR -- the browser walkthrough (step 9) and the persisted e2e suite (step 9a) are both not applicable here, noted explicitly rather than silently skipped.",
+        "file": null,
+        "line": null
+      }
+    ],
+    "notes": "Full review of a narrowly-scoped follow-up PR (test-only + task-board bookkeeping, correcting a prior review's decisions-entry claim and adding the regression test it called for). All verification was independently reproduced rather than trusted from the PR description: full suite + coverage re-run, ruff/mypy/wording-check/task-validator re-run, a byte-level diff confirming the append-only decisions convention, and the mutation test (remove row = refreshed, confirm the new test fails with the exact described 503 + repeated ObjectDeletedError symptom, then restore to a clean diff) reproduced directly rather than taking the worker's self-report at face value. Also read the new test's body line-by-line to confirm it uses a genuinely different primary key for the reinserted row, not an accidental same-PK repeat of an already-covered scenario. No blocking findings. No non-blocking findings either -- this PR is narrow, well-scoped, and fully verified; no follow-up task was created."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-10-04T09:35:27Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the full backend suite + coverage (1614 passed, 100% line/branch coverage, matching pr-reviewer's reported numbers) plus ruff and mypy (both clean). Diffed the parent task's decisions array (origin/main...HEAD) myself and confirmed the original item-4 entry's text is byte-identical, with only one new timestamped entry appended after it. Mutation-tested the regression test myself: commented out `row = refreshed` in _commit_with_version_retry (backend/app/api/routers/portfolio.py:728), reran test_concurrent_delete_and_reinsert_under_new_pk_still_merges_via_row_reassignment and confirmed it failed with 503 plus repeated ObjectDeletedError warnings across retries then an 'Exhausted 5 retries' error log, then restored the line and confirmed `git diff` on the source file was empty. Diff is test-only plus task-board bookkeeping (no production code changed besides the mutation-test round-trip), consistent with pr-reviewer's accept."
+  }
+}

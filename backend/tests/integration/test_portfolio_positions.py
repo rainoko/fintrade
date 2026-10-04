@@ -1736,3 +1736,93 @@ class TestAddPositionMergeRetryBoundsAndRequeryHardening:
         detail = response.json()["detail"]
         assert detail == "Transient write conflict merging position for ticker='AAPL'; retry."
         assert db_session.query(PositionORM).filter_by(ticker="AAPL").count() == 0
+
+    def test_concurrent_delete_and_reinsert_under_new_pk_still_merges_via_row_reassignment(
+        self, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """backend-position-watchlist-race-condition-followups-followups-followups: pr-reviewer's
+        PR #387 review found that `_commit_with_version_retry`'s `row = refreshed` reassignment
+        (after a successful re-query) is NOT merely "incidentally redundant under this
+        codebase's single-session usage" the way the prior task's `decisions` entry originally
+        claimed -- it's genuinely load-bearing for this exact scenario: a *different* concurrent
+        transaction deletes the same-ticker row, and a *third* transaction re-inserts a brand
+        new row for that same ticker under a DIFFERENT primary key, both within this request's
+        merge-retry window. Because the merge path's `requery_fn` looks the row up by `ticker`
+        (not by the original row's primary key), the re-query genuinely finds that fresh row --
+        a distinct Python object, not the same already-identity-mapped instance a bare
+        `db.rollback()` would transparently refresh. Without the reassignment, `row` keeps
+        pointing at the original, now-deleted instance: every subsequent attempt re-triggers
+        `ObjectDeletedError` against that same stale reference, the fresh, genuinely mergeable
+        row the re-query already found is silently discarded each time, and the merge
+        spuriously exhausts every retry and 503s even though a valid row existed the whole
+        time. With the reassignment (the shipped code), the loop correctly switches to the
+        fresh row and the merge completes normally."""
+        db_session.add(
+            PositionORM(
+                id="pos_1",
+                ticker="AAPL",
+                quantity=10.0,
+                avg_cost_basis=100.0,
+                entry_date=date(2026, 1, 1),
+            )
+        )
+        db_session.commit()
+
+        original_commit = db_session.commit
+        call_count = {"n": 0}
+
+        def _commit_fails_once_after_concurrent_delete_and_reinsert_under_new_pk() -> None:
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                db_session.rollback()
+                # Simulates two DIFFERENT concurrent transactions acting within this
+                # request's own merge-retry window: one deletes the original same-ticker
+                # row, and another re-inserts a brand new row for that same ticker under a
+                # different primary key -- not just an in-place update/delete of the
+                # original row, which the pre-existing tests in this class already cover.
+                db_session.query(PositionORM).filter_by(ticker="AAPL").delete()
+                db_session.add(
+                    PositionORM(
+                        id="pos_2_new_pk",
+                        ticker="AAPL",
+                        quantity=10.0,
+                        avg_cost_basis=100.0,
+                        entry_date=date(2026, 1, 1),
+                    )
+                )
+                original_commit()
+                raise OperationalError("UPDATE", {}, Exception("database is locked"))
+            original_commit()
+
+        monkeypatch.setattr(
+            db_session,
+            "commit",
+            _commit_fails_once_after_concurrent_delete_and_reinsert_under_new_pk,
+        )
+        test_client = _make_client(db_session, _StubProvider())
+
+        try:
+            response = test_client.post(
+                "/api/portfolio/positions",
+                json={
+                    "ticker": "AAPL",
+                    "quantity": 5,
+                    "avg_cost_basis": 150.0,
+                    "entry_date": "2026-02-01",
+                },
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert response.status_code == 201
+        body = response.json()
+        assert body["quantity"] == pytest.approx(15.0)
+        assert body["avg_cost_basis"] == pytest.approx(116.666667, abs=1e-4)
+        # Exactly one retry -- the fresh row (under its new PK) merges successfully on the
+        # second attempt, rather than exhausting all `_MAX_POSITION_MERGE_ATTEMPTS`.
+        assert call_count["n"] == 2
+        remaining = db_session.query(PositionORM).filter_by(ticker="AAPL").all()
+        assert len(remaining) == 1
+        assert remaining[0].id == "pos_2_new_pk"
+        assert remaining[0].quantity == pytest.approx(15.0)
