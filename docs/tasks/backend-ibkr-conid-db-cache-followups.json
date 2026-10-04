@@ -44,5 +44,11 @@
       "rationale": "The two blocks were genuinely identical in the part that matters (same query, same exception tuple, same miss-on-failure semantics) and only cosmetically different (log wording, and whether the caller also needed `db.rollback()` afterward). Folding `db.rollback()` into the helper unconditionally is a safe no-op on `_read_conid_db_cache`'s read-only, about-to-be-closed session, and is exactly what `_write_conid_db_cache` already needed before reusing the same session for its insert/update and commit -- so unifying on 'always rollback' loses nothing and removes the one behavioral difference that would have otherwise blocked a clean merge. Considered keeping the two blocks separate (per the checklist item's own 'if ... genuinely different enough' carve-out) but rejected it: unlike some other near-duplicate pairs looked at this session, there was no meaningful semantic difference being papered over here, just two copies of the same five lines that would silently drift if this error-handling convention is ever revisited (e.g. adding a third caught exception type) in only one of the two places. Verified via the full `backend/tests/unit/data/test_ibkr_provider.py` suite (124 passed, including the two PR #384 regression tests for the OperationalError-on-read and OperationalError-on-pre-write-read scenarios, both of which still pass against the shared helper since they patch `Session.query` generically) and 100% line/branch coverage on `app/data/ibkr_provider.py` via `pytest --cov`."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-ibkr-conid-db-cache-followups",
+    "pr_number": 386,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/386",
+    "pushed_at": "2026-10-04T08:24:45Z"
+  }
 }
