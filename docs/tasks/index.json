@@ -2532,8 +2532,8 @@
       "id": "backend-ibkr-conid-db-cache",
       "area": "backend/data",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-ibkr-conid-db-cache.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-conid-db-cache.json"
     },
     {
       "id": "backend-ibkr-request-retry",

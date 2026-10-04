@@ -24,6 +24,10 @@
     {
       "step": "The task's own checklist item 1 suggested the new cache table could additionally persist 'the disambiguating exchange/description if useful for debugging a wrong resolution later', but the final schema (`ticker`, `conid`, `resolved_at`) omits it, and none of the three recorded `decisions` entries explain why that optional field was left out. Either add a `decisions` entry recording that this was considered and deliberately scoped out (and why), or add the column if it's judged worth having for debugging a future wrong-resolution report.",
       "done": true
+    },
+    {
+      "step": "Non-blocking, from PR #384's round-2 review (the fix for the blocking read-path finding): `_read_conid_db_cache`'s SELECT-wrapped-in-try/except and `_write_conid_db_cache`'s pre-commit SELECT-wrapped-in-try/except (`backend/app/data/ibkr_provider.py`) are near-identical blocks (query the row by `cache_key`, catch `(IntegrityError, OperationalError)`, log a warning, fall back to a miss/no-existing-row) duplicated across the two methods with only the log message and return-vs-rollback behavior differing. Consider extracting a small shared helper (e.g. `_try_query_conid_row(db, cache_key) -> IBKRConidCacheORM | None`, raising nothing) that both call, to avoid the two copies drifting if this error-handling convention is ever revisited. Minor -- the current duplication is well-documented and easy to follow, this is a pure reuse/simplification opportunity, not a bug.",
+      "done": false
     }
   ],
   "decisions": [
