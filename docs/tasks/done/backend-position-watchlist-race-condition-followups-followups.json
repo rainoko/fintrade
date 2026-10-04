@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-position-watchlist-race-condition-followups's PR #385 review",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-position-watchlist-race-condition-followups"],
   "references": [
     "docs/tasks/backend-position-watchlist-race-condition-followups.json",
@@ -60,5 +60,53 @@
     "pr_number": 387,
     "pr_url": "https://github.com/rainoko/fintrade/pull/387",
     "pushed_at": "2026-10-04T08:52:14Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-04T09:09:32Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/387",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Full backend suite: 1613 passed, 100% line/branch coverage (gate 90%) -- matches the PR's claim. ruff, mypy, and scripts/check_profit_target_wording.py all clean. backend/openapi.json re-exported and byte-identical -- correctly unchanged for a pure internal refactor with no route/schema change.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Re-ran every named PR #382/#385 regression test by exact nodeid against the refactored code (not just the aggregate suite count): the real two-OS-thread concurrency tests (test_two_real_concurrent_requests_for_the_same_existing_ticker_lose_no_update, test_delete_survives_a_concurrent_merge_update_of_the_same_position), the StaleDataError lost-update tests, both ObjectDeletedError-on-re-query-failure tests (merge path's test_requery_operational_error_then_row_genuinely_deleted_raises_handled_503 and delete path's ..._404), the concurrent-insert-race tests, and both new exact-call-count retries-exhausted tests -- all genuinely pass against the extracted _commit_with_version_retry helper.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Independently reproduced (not just trusted the worker's self-report) two of the claimed mutations by editing the checked-out file directly and reverting after each: (1) removing ObjectDeletedError from the shared except tuple in _commit_with_version_retry -- both affected regression tests failed with the exact raw unhandled traceback described by PR #385's round-2 finding; (2) desyncing the merge call site's max_attempts from _MAX_POSITION_MERGE_ATTEMPTS -- caught by the new exact-call-count assertion. Also independently reproduced a third mutation beyond what was asked (swapping on_row_gone for on_exhausted in the row-gone branch) -- 4 tests failed on the wrong status code (503 vs 404), confirming the two outcome callbacks are supplied per-call-site as explicit closures (not selected via any shared/global dispatch), so they structurally cannot cross between the merge and delete callers.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 651
+      },
+      {
+        "summary": "Grepped every caller of _merge_position after its signature change (provider -> daily_ohlcv): exactly one production call site (the lambda inside _merge_and_commit) and one test monkeypatch wrapper (test_portfolio_positions_lost_update_race.py's _merge_position_with_barrier), both already updated to the new 3-arg shape. No stale caller found.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 538
+      },
+      {
+        "summary": "Traced the OHLCV-fetch-once-vs-retry-staleness question through trailing_stop_floor_before_merge's own docstring and implementation: daily_ohlcv's only consumer in the merge path is this one-way MAX-ratchet floor computation, which is explicitly documented as tolerant of staleness (can only ever under-advance the floor, never let it regress, and catches up on a later successful merge). Fetching once up front rather than per-retry-attempt doesn't introduce a new correctness risk: the retry window is bounded by local SQLite lock-contention resolution (milliseconds), far too short for a materially newer daily bar to appear, and the function's own degrade-gracefully contract already absorbs the case where it did. Not a bug.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 770
+      },
+      {
+        "summary": "Non-blocking: independently investigated the 'row = refreshed is incidentally redundant' claim beyond reproducing the no-test-fails mutation. Constructed a scenario the existing suite doesn't cover -- a concurrent delete-and-reinsert of the SAME ticker under a DIFFERENT primary key during one merge's retry window (not just an in-place update/delete of the same row) -- and found that with the line removed, this specific scenario causes the merge to spuriously exhaust all retries and 503 even though a valid, mergeable row exists throughout (the stale/deleted row reference keeps raising ObjectDeletedError, and the fresh re-query result is discarded every time since the local `row` variable is never reassigned). With the line present (the shipped code), the same scenario correctly completes the merge. The decision to keep the line is correct, but its recorded rationale ('incidentally redundant... kept for correctness-intent clarity') understates the real risk -- it's load-bearing for this reachable (if rare) race, not just a stylistic safeguard. Tracked as a follow-up task (backend-position-watchlist-race-condition-followups-followups-followups) to correct the decisions-entry text and add a regression test for this exact scenario.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 728
+      },
+      {
+        "summary": "Backend-only diff (area backend/portfolio); no app/signals/ or app/portfolio/risk.py changes, confirmed via diff stat -- no Elder Triple Screen/Impulse/confidence/2%-6%-rule methodology logic touched. The one methodology-adjacent call (trailing_stop_floor_before_merge) is invoked with identical arguments/semantics, just relocated for the fetch-once optimization; TestAddPositionCapturesTrailingStopFloorAtMerge's 5 tests confirm unchanged behavior. No divergence from docs/Analyse.md. No new module/dependency/layer added (one new private helper function in the existing router file), so architecture-review wasn't separately warranted.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Browser/UI-facing check: no live Playwright MCP browser tool was available in this review session, so the exploratory walkthrough (step 9) was done via direct HTTP calls against the running dev backend instead, exercising the exact changed code paths a UI click would hit -- golden-path add, duplicate-ticker merge (hits _merge_and_commit), delete (hits _delete_position_and_commit), and delete-of-missing-id (404 edge case) -- all behaved correctly with no server errors. The persisted e2e suite (step 9a, make e2e) WAS run with a real headless browser and passed all 27 specs, including portfolio.spec.ts's add/view/close-position flows end to end.",
+        "file": null,
+        "line": null
+      }
+    ],
+    "notes": "Especially thorough re-review per the dispatch instructions, given this touches the same concurrency-critical retry/commit code that took 3 review rounds on PR #385 to get right. All four summarized changes (fetch-OHLCV-once, exact-call-count retry-bound tests, the migration-round-trip documented-non-issue, and the _commit_with_version_retry[T] extraction) verified independently rather than taking the PR description's self-reported verification at face value: full suite + coverage re-run, static analysis re-run, every named PR #382/#385 regression test re-run by exact nodeid, 3 mutations independently reproduced (2 requested + 1 extra), the signature-change caller grep done directly, the staleness question traced through the actual consumer function, and a brand-new scenario constructed and run against both the shipped code and a local mutation to pressure-test the 'row = refreshed is redundant' claim specifically. One non-blocking finding from that last investigation, tracked as a follow-up task. No blocking findings: tests/coverage/lint/types/OpenAPI snapshot/decision-memory/methodology conformance all pass."
   }
 }
