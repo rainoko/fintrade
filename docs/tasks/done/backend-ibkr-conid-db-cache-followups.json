@@ -3,7 +3,7 @@
   "title": "Follow-ups from the backend-ibkr-conid-db-cache PR review (#384)",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-ibkr-conid-db-cache"],
   "references": [
     "docs/tasks/done/backend-ibkr-conid-db-cache.json",
@@ -50,5 +50,12 @@
     "pr_number": 386,
     "pr_url": "https://github.com/rainoko/fintrade/pull/386",
     "pushed_at": "2026-10-04T08:24:45Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-04T08:29:49Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/386",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full backend suite + coverage: 1613 passed, 100% line/branch coverage (matches PR claim exactly, including 376/376 lines and 128/128 branches on the touched file app/data/ibkr_provider.py). ruff/mypy clean; repo-wide profit-target wording guard clean; frontend untouched (backend-only diff). Line-by-line diffed the extracted _query_conid_cache_row helper against both original inline blocks in _read_conid_db_cache/_write_conid_db_cache -- query, caught exception tuple, and miss-on-failure semantics are identical; no other code references the two private methods. Independently verified (not just accepted) the 'always rollback, harmless no-op on the read-only session' claim: traced that `db` in both callers is a brand-new Session created fresh per call via self._session_factory(), used for exactly one query, and closed in a finally immediately after -- never shared with other code or holding other loaded objects, so rollback() can't expire or affect anything elsewhere. Reproduced the scenario standalone against a SQLite sessionmaker matching app/db/session.py's config (raise OperationalError on query, catch, rollback()): confirmed no secondary exception, in_transaction() is False afterward, close() is a clean no-op, and a separate fresh session is unaffected. Also exercised empirically by the two existing PR #384 regression tests, both passing unmodified. An independent code-review pass (correctness/reuse/simplification/efficiency) returned no findings. No API/schema change (openapi.json correctly untouched), no new module/dependency/layer, no frontend/UI surface -- browser walkthrough and e2e suite don't apply to this PR. scripts/validate_tasks.py clean. No non-blocking findings to track as a follow-up task."
   }
 }
