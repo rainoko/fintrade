@@ -84,6 +84,7 @@ class TestUpgradeHeadAgainstAFreshDatabase:
             "entry_notes",
             "strategy",
             "trailing_stop_high_water_mark",
+            "version",
         }
         assert _table_columns(db_path, "account") == {"id", "cash"}
         assert _table_columns(db_path, "ohlcv_cache") == {

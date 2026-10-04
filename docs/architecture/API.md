@@ -295,6 +295,8 @@ Adding a ticker that's already held **merges** into the existing position rather
 
 A same-ticker merge also locks in `PositionORM.trailing_stop_high_water_mark` (the persisted floor behind `GET /api/portfolio/risk`'s `trailing_stop` hard ratchet — see that route's own section below): `app.portfolio.risk.trailing_stop_floor_before_merge` computes whatever the ratchet would report for this position's OLD, pre-merge `avg_cost_basis`/`entry_date` right now, before they're overwritten, and persists it — this is the *only* write path for that column (`GET /api/portfolio/risk` never writes). A market-data fetch failure for this ticker at merge time degrades to leaving any existing floor untouched, never blocking the merge itself — see the `backend-trailing-profit-stop` task's `decisions` for the full round-2 history.
 
+Two concurrent requests racing this endpoint are handled without ever silently dropping either caller's data (`backend-position-watchlist-race-condition`/`-followups` tasks' `decisions`): two requests for the same brand-new ticker race an `INSERT`, and two requests for the same already-held ticker race an `UPDATE` (a same-ticker merge) — `PositionORM`'s `version` column (SQLAlchemy optimistic-concurrency `version_id_col`) detects the latter case, which would otherwise be a silent lost update (an `UPDATE` hits no unique constraint the way an `INSERT` does, so nothing would raise at all), and the loser in either case retries its merge against the freshly-committed row rather than discarding its own quantity/cost-basis data. `503` (`ErrorDetail`) is returned only once that recovery is exhausted: no same-ticker row is found after a losing insert's re-query, a same-ticker merge keeps losing to other concurrent writers past a bounded number of retries, or the ticker's row disappears entirely between retries (e.g. a concurrent delete) — always a transient condition safe to retry, never silent data loss.
+
 ### `DELETE /api/portfolio/positions/{id}`
 
 Removes a position. `204 No Content` on success.
@@ -480,6 +482,8 @@ Request:
 ```
 
 Response: `201 Created`, the created/existing entry (same shape as an item in `GET /api/watchlist`). `signal`/`confidence`/`confidence_band` are always `null` in this response — annotation happens on read, not on write, mirroring `POST /api/portfolio/positions`'s `current_price`/`unrealized_pnl_pct` convention.
+
+Two concurrent first-add requests for the same never-yet-watched ticker race an `INSERT` on `WatchlistItemORM`'s `ticker` primary key — unlike `POST /api/portfolio/positions` (whose incoming payload is user-submitted data that must be merged, not discarded), a watchlist row carries nothing but the ticker itself, so the loser of that race simply discards its own failed insert and returns the winner's already-committed row, exactly like a genuine already-watched request would (`backend-position-watchlist-race-condition` task's `decisions`). `503` (`ErrorDetail`) is returned only if no same-ticker row is found after that race recovery's re-query — a transient, unrelated SQLite lock contention, safe to retry.
 
 Adding a ticker that's already watched is a **no-op**: the existing entry (original `added_at` kept) is returned unchanged, still `201`, rather than creating a duplicate row or rejecting with `409`/`422` (see the `api-watchlist` task's `decisions` for the full rationale).
 
@@ -767,6 +771,8 @@ The global, app-wide active trading mode (docs/tasks/backend-day-trader-timefram
 - An unrecognized `range` value on `GET /api/stocks/{ticker}/history` or `GET /api/stocks/{ticker}/indicators` → `422` (FastAPI's standard per-field validation error shape, distinct from the insufficient-history `422` above).
 - Duplicate position add for the same ticker → merges into the existing position (see `POST /api/portfolio/positions` above), not a `409`/`422` reject.
 - Duplicate watchlist add for the same ticker → no-op, returns the existing entry unchanged (see `POST /api/watchlist` above), not a `409`/`422` reject.
+- A concurrent-write conflict on `POST /api/portfolio/positions` (a race on the initial insert for a brand-new ticker, or a same-ticker merge that keeps losing to other concurrent writers past a bounded number of retries) that can't be recovered by retrying the merge/re-querying the winner → `503` (see `POST /api/portfolio/positions` above).
+- A concurrent-write conflict on `POST /api/watchlist` (a race on the insert for a never-yet-watched ticker) where no same-ticker row is found after the race-recovery re-query → `503` (see `POST /api/watchlist` above).
 - `DELETE /api/watchlist/{ticker}` for a ticker not on the watchlist → `404`.
 - A tracked ticker (watchlist or portfolio) whose Tide can't be computed → counted in `GET /api/watchlist/breadth`'s `unavailable_count`, not a failed request (see `GET /api/watchlist/breadth` above).
 - A watchlist ticker whose signal can't be computed → its `GET /api/watchlist` entry has `signal`/`confidence`/`confidence_band` all `null`, not a failed request (see `GET /api/watchlist` above).

@@ -10,6 +10,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.api.day_trader_signal import (
     DayTraderLegsOutcome,
@@ -643,6 +644,142 @@ def _merge_position(existing: PositionORM, position: PositionIn, provider: DataP
     return existing
 
 
+# Bounds the retry loop in `_merge_and_commit` below -- generous enough to absorb a realistic
+# burst of concurrent same-ticker merges for a single-user MVP (this app has exactly one
+# plausible writer: the user themselves, possibly submitting a quick double-click or a retried
+# request from a flaky connection, never a swarm of independent clients), while still bounded
+# so a pathological, endlessly-contended merge eventually surfaces as a clean 503 instead of
+# retrying forever -- see backend-position-watchlist-race-condition-followups's `decisions`
+# entry.
+_MAX_POSITION_MERGE_ATTEMPTS = 5
+
+
+def _merge_and_commit(
+    db: Session,
+    existing: PositionORM,
+    position: PositionIn,
+    provider: DataProvider,
+    ticker: str,
+) -> PositionORM:
+    """Merges `position` into `existing` (`_merge_position`) and commits, retrying against a
+    freshly re-queried row whenever the commit is lost to a concurrent writer -- the one place
+    `add_position`'s two same-ticker-merge call sites (a genuine already-exists-at-first-query
+    request, and a race-recovery merge after a losing insert) share this logic, rather than
+    each duplicating it with its own, inconsistent error handling -- see
+    backend-position-watchlist-race-condition-followups's `decisions` entry.
+
+    Two distinct failure modes are retried identically here:
+
+    - `StaleDataError` (`PositionORM.__mapper_args__`'s `version_id_col`): a genuine
+      lost-update race -- another request merged (and committed) this *same* ticker between
+      this request's read of `existing` and its own commit. Before `PositionORM` had a
+      `version` column, this exact commit would have silently *succeeded*, overwriting the
+      other request's already-committed merge with no exception raised at all (an ordinary
+      SQLAlchemy UPDATE against a stale in-memory row has no way to know the row changed
+      underneath it -- `version_id_col` is what makes SQLAlchemy check the UPDATE's own
+      affected-row count and raise when it's 0). See `PositionORM.version`'s own docstring and
+      this task's `decisions` entry for the rejected alternatives (a hand-written conditional
+      UPDATE, and SQLite `BEGIN IMMEDIATE`-style write locking around the whole
+      read-modify-write).
+    - `IntegrityError`/`OperationalError`: the same transient-write-conflict categories already
+      handled for the initial insert path in `add_position` below -- SQLite's whole-file write
+      locking can raise `OperationalError` from *any* concurrent write, not only a race on this
+      exact ticker.
+
+    Either way the recovery is the same: roll back, re-query this ticker's row (now reflecting
+    whatever the other writer committed), and retry the merge from that fresh baseline --
+    `position`'s own user-submitted data is never discarded, the same principle `add_position`'s
+    own `decisions` entry already establishes for the insert-race case. The re-query itself is
+    covered by this same retry loop (an `OperationalError` from *it* is just one more loop
+    iteration, not an unhandled 500) -- closing the gap flagged in
+    backend-position-watchlist-race-condition-followups's checklist, where the original
+    insert-race re-query had no exception handling of its own. If the ticker's row is ever not
+    found on a retry's re-query (e.g. the position was deleted by a concurrent
+    `DELETE /api/portfolio/positions/{id}` between attempts), or `_MAX_POSITION_MERGE_ATTEMPTS`
+    is exhausted, this raises the same 503 `add_position`'s own no-winner case does."""
+    row = existing
+    last_exc: Exception = RuntimeError(  # pragma: no cover — always replaced before any raise
+        "unreachable: the loop below always runs at least once"
+    )
+    no_row_found_on_requery = False
+    for attempt in range(1, _MAX_POSITION_MERGE_ATTEMPTS + 1):
+        try:
+            row = _merge_position(row, position, provider)
+            db.commit()
+            return row
+        except (StaleDataError, IntegrityError, OperationalError) as exc:
+            last_exc = exc
+            db.rollback()
+            try:
+                refreshed = (
+                    db.query(PositionORM).filter(PositionORM.ticker == ticker).one_or_none()
+                )
+            except OperationalError as requery_exc:
+                # The re-query itself can race the same SQLite whole-file lock contention
+                # that caused `exc` above -- rather than let *this* one propagate unhandled
+                # (the gap backend-position-watchlist-race-condition-followups's checklist
+                # flagged), it's folded into the very same bounded retry loop: `row` stays at
+                # its last-known value and the next iteration just tries the merge again,
+                # which will hit its own fresh re-query attempt if it fails again. See this
+                # task's `decisions` entry for why this (rather than leaving it as an
+                # accepted single-level-retry limit) was chosen.
+                last_exc = requery_exc
+                db.rollback()
+                logger.warning(
+                    "Re-query for ticker=%r also hit a write conflict while recovering from "
+                    "one (attempt %d/%d); retrying the whole merge attempt. (%s: %s)",
+                    ticker,
+                    attempt,
+                    _MAX_POSITION_MERGE_ATTEMPTS,
+                    type(requery_exc).__name__,
+                    requery_exc,
+                )
+                continue
+
+            if refreshed is None:
+                logger.warning(
+                    "Concurrent write conflict merging position for ticker=%r (attempt "
+                    "%d/%d), but no same-ticker row was found on re-query -- likely a "
+                    "concurrent delete or unrelated SQLite lock contention. (%s: %s)",
+                    ticker,
+                    attempt,
+                    _MAX_POSITION_MERGE_ATTEMPTS,
+                    type(last_exc).__name__,
+                    last_exc,
+                )
+                no_row_found_on_requery = True
+                break
+
+            row = refreshed
+            logger.warning(
+                "Concurrent write conflict merging position for ticker=%r (attempt %d/%d); "
+                "retrying this merge against the freshly-committed row. (%s: %s)",
+                ticker,
+                attempt,
+                _MAX_POSITION_MERGE_ATTEMPTS,
+                type(exc).__name__,
+                exc,
+            )
+
+    if no_row_found_on_requery:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Transient write conflict merging position for ticker={ticker!r}; retry.",
+        ) from last_exc
+
+    logger.error(
+        "Exhausted %d retries merging position for ticker=%r due to repeated concurrent "
+        "write conflicts.",
+        _MAX_POSITION_MERGE_ATTEMPTS,
+        ticker,
+    )
+    raise HTTPException(
+        status_code=503,
+        detail=f"Too many concurrent write conflicts merging position for ticker={ticker!r}; "
+        "retry.",
+    ) from last_exc
+
+
 @router.post(
     "/positions",
     response_model=PositionOut,
@@ -669,10 +806,16 @@ def _merge_position(existing: PositionORM, position: PositionIn, provider: DataP
         },
         503: {
             "model": ErrorDetail,
-            "description": "A concurrent-insert conflict was raised while adding this "
+            "description": "Either of two distinct transient-write-conflict shapes, both "
+            "safe to retry: (1) a concurrent-insert conflict was raised while adding this "
             "brand-new ticker, but no same-ticker row was actually found afterwards (see "
-            "this task's `decisions` entry) -- a transient SQLite lock contention unrelated "
-            "to this ticker specifically, safe to retry.",
+            "add_position's `decisions` entry); or (2) a same-ticker merge (whether a "
+            "genuine already-exists request, or the race-recovery merge from case 1) kept "
+            "losing to other concurrent writers for the same ticker even after "
+            "`_MAX_POSITION_MERGE_ATTEMPTS` retries, or the ticker's row disappeared "
+            "entirely between retries (e.g. a concurrent delete) -- see "
+            "`_merge_and_commit`'s docstring and "
+            "backend-position-watchlist-race-condition-followups's `decisions` entry.",
         },
     },
 )
@@ -721,7 +864,17 @@ def add_position(
     than being advanced/persisted from every GET. A `provider` fetch failure for this ticker
     (unknown/delisted, provider unavailable) degrades to leaving any existing floor untouched
     rather than blocking the merge -- adding a position must never depend on live market data
-    being reachable."""
+    being reachable.
+
+    A same-ticker merge (this branch, or the race-recovery merge below after a losing insert)
+    is protected against the lost-update race where two concurrent requests for the SAME
+    already-existing ticker would otherwise both read the same pre-commit row and the second
+    commit would silently overwrite the first's already-committed merge with no exception at
+    all -- `PositionORM`'s `version` column (SQLAlchemy's `version_id_col` optimistic-
+    concurrency mechanism) makes that overwrite raise instead, and `_merge_and_commit` retries
+    the merge against the freshly-committed row rather than ever discarding either request's
+    data -- see `_merge_and_commit`'s docstring and
+    backend-position-watchlist-race-condition-followups's `decisions` entry."""
     ticker = position.ticker.upper()
     existing = db.query(PositionORM).filter(PositionORM.ticker == ticker).one_or_none()
 
@@ -787,11 +940,9 @@ def add_position(
                 type(exc).__name__,
                 exc,
             )
-            row = _merge_position(winner, position, provider)
-            db.commit()
+            row = _merge_and_commit(db, winner, position, provider, ticker)
     else:
-        row = _merge_position(existing, position, provider)
-        db.commit()
+        row = _merge_and_commit(db, existing, position, provider, ticker)
 
     db.refresh(row)
 

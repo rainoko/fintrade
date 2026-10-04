@@ -11,6 +11,37 @@ class Base(DeclarativeBase):
 class PositionORM(Base):
     __tablename__ = "positions"
 
+    # SQLAlchemy's built-in optimistic-concurrency mechanism (`version_id_col`): every UPDATE
+    # this ORM issues against a `PositionORM` row is automatically given a
+    # `WHERE ... AND version = <value just read>` clause and an incremented `version` in its
+    # SET list, and SQLAlchemy raises `sqlalchemy.orm.exc.StaleDataError` itself if that UPDATE
+    # affects 0 rows -- i.e. if some other transaction already committed a change to this exact
+    # row since this session last read it. This closes the same-ticker lost-update race
+    # `POST /api/portfolio/positions`' merge path had (backend-position-watchlist-race-condition
+    # -followups): two concurrent requests for the SAME already-existing ticker previously both
+    # loaded the same pre-commit `quantity`/`avg_cost_basis`, each independently computed its
+    # own merge from that identical stale baseline, and the second plain `UPDATE positions SET
+    # ...` (no version check) silently overwrote the first's already-committed merge -- no
+    # exception at all, since this is an UPDATE to an existing row, not an INSERT, so no
+    # unique-constraint ever fires the way it does for the brand-new-ticker insert race. See
+    # `app.api.routers.portfolio._merge_and_commit`'s docstring and this task's `decisions`
+    # entry for the rejected alternatives (a manual version column with a hand-written
+    # conditional UPDATE, and SQLite `BEGIN IMMEDIATE`-style write locking around the whole
+    # read-modify-write) and why this one was chosen.
+    #
+    # `default=1`: every freshly-inserted row (the brand-new-ticker insert path) starts at
+    # version 1 so SQLAlchemy has a concrete value to include in that INSERT.
+    # `server_default="1"`: lets the Alembic migration that added this column
+    # (051c44cc730b_add_version_to_positions.py) backfill every pre-existing row in one
+    # `ADD COLUMN ... DEFAULT 1` statement -- SQLite has no separate `ALTER COLUMN` to drop a
+    # server default afterwards without a full batch table-rebuild, and there's no actual
+    # harm in leaving it in place (every ORM-issued INSERT already supplies an explicit
+    # `version=1` via the Python-side `default` above, so the server-side default is only ever
+    # consulted for a raw, non-ORM INSERT, which this codebase doesn't do against this table).
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+
+    __mapper_args__ = {"version_id_col": version}
+
     id: Mapped[str] = mapped_column(String, primary_key=True)
     ticker: Mapped[str] = mapped_column(String, unique=True, index=True)
     quantity: Mapped[float] = mapped_column(Float)
