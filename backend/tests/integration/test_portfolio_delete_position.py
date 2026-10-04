@@ -617,6 +617,66 @@ class TestDeletePositionCommitRaceHandling:
         assert response.status_code == 204
         assert db_session.query(PositionORM).filter_by(id=created["id"]).one_or_none() is None
 
+    def test_delete_requery_operational_error_then_row_genuinely_deleted_raises_handled_404(
+        self, client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """pr-reviewer's round-2 PR #385 finding: when the re-query inside the `except` block
+        itself fails with `OperationalError`, `row` is deliberately left un-refreshed (and
+        already expired by `db.rollback()`) so the loop can simply retry the delete. But if the
+        row has genuinely been deleted by a *different* concurrent transaction during that
+        exact window, the next attempt's own access to `row`'s attributes (building the
+        `ClosedTradeORM` from `row.ticker`/`row.quantity`/etc., before `db.delete(row)`) raises
+        `ObjectDeletedError` -- confirmed not a subclass of `StaleDataError`/`IntegrityError`/
+        `OperationalError`, so unhandled before this fix (a raw 500). Now caught alongside that
+        triad and routed through the exact same row-gone-on-requery handling as an ordinary
+        concurrent-delete case: a clean 404 (this request's own intended outcome -- the position
+        no longer existing -- already happened), not a crash."""
+        created = _add_position(client, ticker="AAPL", quantity=100, avg_cost_basis=195.30)
+        original_commit = db_session.commit
+        original_get = db_session.get
+        state = {"after_first_failure": False, "requery_failed_once": False}
+
+        def _commit_fails_once_then_succeeds() -> None:
+            if not state["requery_failed_once"] and not state["after_first_failure"]:
+                state["after_first_failure"] = True
+                db_session.rollback()
+                raise OperationalError("DELETE", {}, Exception("database is locked"))
+            original_commit()
+
+        def _get_fails_the_requery_once_and_row_vanishes_underneath_it(
+            entity: Any, ident: Any, *args: Any, **kwargs: Any
+        ) -> Any:
+            if (
+                entity is PositionORM
+                and state["after_first_failure"]
+                and not state["requery_failed_once"]
+            ):
+                state["requery_failed_once"] = True
+                state["after_first_failure"] = False
+                # A *different* concurrent transaction genuinely deletes this exact row
+                # during the same window the re-query itself is failing in -- by the time
+                # the next attempt touches `row`'s attributes, it's actually gone (not just
+                # stale), which is exactly what makes attribute access raise
+                # `ObjectDeletedError` rather than silently reading old data.
+                db_session.query(PositionORM).filter_by(id=created["id"]).delete()
+                original_commit()
+                raise OperationalError("SELECT", {}, Exception("database is locked"))
+            return original_get(entity, ident, *args, **kwargs)
+
+        monkeypatch.setattr(db_session, "commit", _commit_fails_once_then_succeeds)
+        monkeypatch.setattr(
+            db_session, "get", _get_fails_the_requery_once_and_row_vanishes_underneath_it
+        )
+
+        response = client.delete(f"/api/portfolio/positions/{created['id']}")
+
+        assert response.status_code == 404
+        body = response.json()
+        assert created["id"] in body["detail"]
+        # No closed_trades row recorded -- the attribute access that would have built it
+        # raised ObjectDeletedError before `db.add` was ever reached.
+        assert db_session.query(ClosedTradeORM).all() == []
+
     def test_delete_commit_conflict_with_row_gone_on_requery_returns_404(
         self, client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
     ) -> None:

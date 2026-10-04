@@ -1543,6 +1543,93 @@ class TestAddPositionMergeRetryBoundsAndRequeryHardening:
         body = response.json()
         assert body["quantity"] == pytest.approx(15.0)
 
+    def test_requery_operational_error_then_row_genuinely_deleted_raises_handled_503(
+        self, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """pr-reviewer's round-2 PR #385 finding: when the re-query inside the `except` block
+        itself fails with `OperationalError`, `row` is deliberately left un-refreshed (and
+        `db.rollback()` has already expired it) so the loop can simply retry the merge. But if
+        the row has genuinely been deleted by a *different* concurrent transaction during that
+        exact window, the next attempt's `_merge_position(row, ...)` call touches `row`'s
+        now-gone attributes (`existing.quantity`), and SQLAlchemy raises `ObjectDeletedError` --
+        confirmed not a subclass of `StaleDataError`/`IntegrityError`/`OperationalError`, so
+        unhandled before this fix (a raw 500). Now caught alongside that triad and routed
+        through the same no-row-found-on-requery handling as an ordinary concurrent-delete
+        case: a clean 503, not a crash."""
+        db_session.add(
+            PositionORM(
+                id="pos_1",
+                ticker="AAPL",
+                quantity=10.0,
+                avg_cost_basis=100.0,
+                entry_date=date(2026, 1, 1),
+            )
+        )
+        db_session.commit()
+
+        original_commit = db_session.commit
+        original_query = db_session.query
+        state = {"commit_calls": 0, "requery_failed_once": False}
+
+        def _commit_fails_once_then_succeeds() -> None:
+            state["commit_calls"] += 1
+            if state["commit_calls"] == 1:
+                db_session.rollback()
+                raise OperationalError("UPDATE", {}, Exception("database is locked"))
+            original_commit()
+
+        class _FailingFilter:
+            def one_or_none(self) -> None:
+                raise OperationalError("SELECT", {}, Exception("database is locked"))
+
+        class _FailingQuery:
+            def filter(self, *args: Any, **kwargs: Any) -> _FailingFilter:
+                return _FailingFilter()
+
+        def _query_fails_the_requery_once_and_row_vanishes_underneath_it(
+            *args: Any, **kwargs: Any
+        ) -> Any:
+            if (
+                args == (PositionORM,)
+                and state["commit_calls"] == 1
+                and not state["requery_failed_once"]
+            ):
+                state["requery_failed_once"] = True
+                # A *different* concurrent transaction genuinely deletes this exact row
+                # during the same window the re-query itself is failing in -- by the time
+                # the next attempt touches `row`'s attributes, it's actually gone (not just
+                # stale), which is exactly what makes attribute access raise
+                # `ObjectDeletedError` rather than silently reading old data.
+                original_query(PositionORM).filter_by(ticker="AAPL").delete()
+                original_commit()
+                return _FailingQuery()
+            return original_query(*args, **kwargs)
+
+        monkeypatch.setattr(db_session, "commit", _commit_fails_once_then_succeeds)
+        monkeypatch.setattr(
+            db_session, "query", _query_fails_the_requery_once_and_row_vanishes_underneath_it
+        )
+        test_client = _make_client(db_session, _StubProvider())
+
+        try:
+            response = test_client.post(
+                "/api/portfolio/positions",
+                json={
+                    "ticker": "AAPL",
+                    "quantity": 5,
+                    "avg_cost_basis": 150.0,
+                    "entry_date": "2026-02-01",
+                },
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert response.status_code == 503
+        detail = response.json()["detail"]
+        assert detail == "Transient write conflict merging position for ticker='AAPL'; retry."
+        assert db_session.query(PositionORM).filter_by(ticker="AAPL").count() == 0
+
     def test_retries_exhausted_returns_503_not_an_infinite_loop(
         self, db_session: Session, monkeypatch: pytest.MonkeyPatch
     ) -> None:

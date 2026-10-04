@@ -10,7 +10,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
-from sqlalchemy.orm.exc import StaleDataError
+from sqlalchemy.orm.exc import ObjectDeletedError, StaleDataError
 
 from app.api.day_trader_signal import (
     DayTraderLegsOutcome,
@@ -696,7 +696,21 @@ def _merge_and_commit(
     insert-race re-query had no exception handling of its own. If the ticker's row is ever not
     found on a retry's re-query (e.g. the position was deleted by a concurrent
     `DELETE /api/portfolio/positions/{id}` between attempts), or `_MAX_POSITION_MERGE_ATTEMPTS`
-    is exhausted, this raises the same 503 `add_position`'s own no-winner case does."""
+    is exhausted, this raises the same 503 `add_position`'s own no-winner case does.
+
+    `ObjectDeletedError` is caught alongside the above triad for the same reason: when the
+    re-query *itself* fails with `OperationalError` (see the inner `except OperationalError`
+    below), `row` is deliberately left at its last-known, now-possibly-stale value so the loop
+    can simply retry -- but if the row has genuinely been deleted by a *different* concurrent
+    transaction during that exact window, `row` is an expired SQLAlchemy instance pointing at a
+    row that no longer exists, and the next attempt's `_merge_position(row, ...)` call (which
+    reads `row.quantity`/`row.avg_cost_basis`) triggers a lazy-reload that SQLAlchemy raises as
+    `ObjectDeletedError`, not any of the three already-caught types (confirmed not a subclass of
+    any of them). Catching it here routes that attempt through the exact same rollback ->
+    re-query -> no-row-found handling as an ordinary "row deleted concurrently" case -- which is
+    exactly what this *is*, just discovered one attempt later than usual -- rather than letting
+    it escape as an unhandled 500 (pr-reviewer's round-2 finding on PR #385; see this task's
+    `decisions` entry)."""
     row = existing
     last_exc: Exception = RuntimeError(  # pragma: no cover — always replaced before any raise
         "unreachable: the loop below always runs at least once"
@@ -707,7 +721,7 @@ def _merge_and_commit(
             row = _merge_position(row, position, provider)
             db.commit()
             return row
-        except (StaleDataError, IntegrityError, OperationalError) as exc:
+        except (StaleDataError, IntegrityError, OperationalError, ObjectDeletedError) as exc:
             last_exc = exc
             db.rollback()
             try:
@@ -1006,33 +1020,48 @@ def _delete_position_and_commit(
     differently). Genuine lock contention (`IntegrityError`/`OperationalError`, the same
     categories `_merge_and_commit` retries, including from the re-query itself) is retried up
     to `_MAX_POSITION_DELETE_ATTEMPTS` times before falling back to the same 503
-    transient-conflict convention established elsewhere in this router."""
+    transient-conflict convention established elsewhere in this router.
+
+    `ObjectDeletedError` is caught alongside that triad for the same reason
+    `_merge_and_commit` catches it (see its own docstring): when the re-query *itself* fails
+    with `OperationalError` (the inner `except OperationalError` below), `row` is deliberately
+    left at its last-known value so the loop can simply retry the whole delete -- but if the row
+    has genuinely been deleted by a *different* concurrent transaction during that exact window,
+    `row` is an expired SQLAlchemy instance, and the next attempt's own access to its attributes
+    (building the `ClosedTradeORM` from `row.ticker`/`row.quantity`/etc., or `db.delete(row)`
+    itself) triggers a lazy-reload that raises `ObjectDeletedError` -- not any of the three
+    already-caught types. The per-attempt body (the `ClosedTradeORM` construction, `db.delete`,
+    and `db.commit`) is wrapped in a single `try` precisely so that attribute access is covered
+    by this same handling, which then routes the attempt through the ordinary rollback ->
+    re-query -> row-gone-means-404 path -- exactly what this situation *is*, just discovered one
+    attempt later than usual -- rather than letting it escape as an unhandled 500 (pr-reviewer's
+    round-2 finding on PR #385; see this task's `decisions` entry)."""
     last_exc: Exception = RuntimeError(  # pragma: no cover — always replaced before any raise
         "unreachable: the loop below always runs at least once"
     )
     position_id = row.id
     for attempt in range(1, _MAX_POSITION_DELETE_ATTEMPTS + 1):
-        if resolved_exit_price is not None:
-            db.add(
-                ClosedTradeORM(
-                    id=f"trade_{uuid.uuid4().hex[:12]}",
-                    ticker=row.ticker,
-                    quantity=row.quantity,
-                    entry_price=row.avg_cost_basis,
-                    entry_date=row.entry_date,
-                    exit_price=resolved_exit_price,
-                    exit_date=resolved_exit_date,
-                    realized_pnl=row.quantity * (resolved_exit_price - row.avg_cost_basis),
-                    exit_reason=exit_reason.value,
-                    entry_notes=row.entry_notes,
-                    strategy=row.strategy,
-                )
-            )
-        db.delete(row)
         try:
+            if resolved_exit_price is not None:
+                db.add(
+                    ClosedTradeORM(
+                        id=f"trade_{uuid.uuid4().hex[:12]}",
+                        ticker=row.ticker,
+                        quantity=row.quantity,
+                        entry_price=row.avg_cost_basis,
+                        entry_date=row.entry_date,
+                        exit_price=resolved_exit_price,
+                        exit_date=resolved_exit_date,
+                        realized_pnl=row.quantity * (resolved_exit_price - row.avg_cost_basis),
+                        exit_reason=exit_reason.value,
+                        entry_notes=row.entry_notes,
+                        strategy=row.strategy,
+                    )
+                )
+            db.delete(row)
             db.commit()
             return
-        except (StaleDataError, IntegrityError, OperationalError) as exc:
+        except (StaleDataError, IntegrityError, OperationalError, ObjectDeletedError) as exc:
             last_exc = exc
             db.rollback()
             try:
