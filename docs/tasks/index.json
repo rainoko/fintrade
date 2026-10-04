@@ -2553,8 +2553,8 @@
       "id": "backend-position-watchlist-race-condition-followups",
       "area": "backend/portfolio",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-position-watchlist-race-condition-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-position-watchlist-race-condition-followups.json"
     },
     {
       "id": "backend-position-watchlist-race-condition-followups-followups",
