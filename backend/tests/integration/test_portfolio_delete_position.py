@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+import app.api.routers.portfolio as portfolio
 from app.api.dependencies import get_data_provider
 from app.data.exceptions import DataProviderUnavailableError, TickerNotFoundError
 from app.db.models import AccountORM, ClosedTradeORM, PositionORM
@@ -711,10 +712,15 @@ class TestDeletePositionCommitRaceHandling:
     ) -> None:
         """A pathologically, endlessly-contended delete (every single commit attempt loses to
         ongoing lock contention, the position itself never actually vanishing) must eventually
-        give up with a clean 503 rather than retrying forever."""
+        give up with a clean 503 rather than retrying forever -- and must make EXACTLY
+        `_MAX_POSITION_DELETE_ATTEMPTS` commit attempts before doing so, not merely "some"
+        bound (mirrors backend-position-watchlist-race-condition-followups-followups's
+        checklist item for the analogous merge-path test)."""
         created = _add_position(client, ticker="AAPL", quantity=100, avg_cost_basis=195.30)
+        call_count = {"n": 0}
 
         def _commit_always_fails() -> None:
+            call_count["n"] += 1
             db_session.rollback()
             raise OperationalError("DELETE", {}, Exception("database is locked"))
 
@@ -726,6 +732,7 @@ class TestDeletePositionCommitRaceHandling:
         detail = response.json()["detail"]
         assert "Too many concurrent write conflicts" in detail
         assert created["id"] in detail
+        assert call_count["n"] == portfolio._MAX_POSITION_DELETE_ATTEMPTS
         # The exhausted-retries path never partially deletes -- the row is untouched.
         row = db_session.query(PositionORM).filter_by(id=created["id"]).one()
         assert row.quantity == pytest.approx(100.0)

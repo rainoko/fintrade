@@ -1,0 +1,21 @@
+{
+  "id": "backend-position-watchlist-race-condition-followups-followups-followups",
+  "title": "Non-blocking follow-ups from backend-position-watchlist-race-condition-followups-followups's PR #387 review",
+  "area": "backend/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-position-watchlist-race-condition-followups-followups"],
+  "references": [
+    "docs/tasks/backend-position-watchlist-race-condition-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/387"
+  ],
+  "description": "Tracked, non-blocking finding from pr-reviewer's especially-thorough review of PR #387 (backend-position-watchlist-race-condition-followups-followups), which extracted the shared `_commit_with_version_retry[T]` generic helper in `backend/app/api/routers/portfolio.py`. This is independent of that review's overall accept verdict -- the current code is correct as merged; this finding is about the accuracy of the recorded rationale and a genuine test-coverage gap, not a bug in the shipped code.",
+  "checklist": [
+    {
+      "step": "PR #387's `decisions` entry for the item-4 (`_commit_with_version_retry` extraction) characterizes the `row = refreshed` reassignment (after a successful re-query inside the shared retry helper) as 'incidentally redundant under this codebase's single-session usage' because dropping it in a mutation test didn't fail any existing test, and keeps the line only 'for correctness-intent clarity'. pr-reviewer's independent investigation (constructing a scenario not covered by the existing suite: a *different* concurrent transaction deletes the same-ticker row AND a *third* transaction re-inserts a brand-new row for that same ticker under a DIFFERENT primary key, both within one request's same-ticker-merge retry window) found this characterization understates the real risk: with `row = refreshed` removed, that specific scenario causes the merge to spuriously exhaust all retries and return a 503 even though a valid, mergeable row exists the entire time (the stale/deleted `row` reference keeps raising `ObjectDeletedError` on every subsequent attempt, and the fresh re-query result is silently discarded each time since the local `row` variable is never updated). With the line present (the actual shipped code), the same scenario correctly completes the merge (verified directly: 201, quantity correctly combined). So the line is not merely a clarity-only safeguard -- it is load-bearing for this specific (rare but reachable) race, and the task's own `decisions` entry should be corrected to reflect that, and a regression test added for exactly this delete-and-reinsert-with-a-new-primary-key-for-the-same-ticker scenario (mirroring the existing `test_requery_operational_error_then_row_genuinely_deleted_raises_handled_503`/`..._404` tests' shape, but swapping in a fresh-PK re-insert instead of a bare delete during the simulated concurrent window) so a future refactor that drops `row = refreshed` again would be caught by the suite rather than relying on hand-reasoning about SQLAlchemy's identity map. Per CLAUDE.md's decision-memory 'Correcting a stale claim' convention, the correction belongs as a NEW appended `decisions` entry on the parent task (backend-position-watchlist-race-condition-followups-followups), not an in-place edit of the existing one.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

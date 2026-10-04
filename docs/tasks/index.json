@@ -2560,8 +2560,8 @@
       "id": "backend-position-watchlist-race-condition-followups-followups",
       "area": "backend/portfolio",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-position-watchlist-race-condition-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-position-watchlist-race-condition-followups-followups.json"
     },
     {
       "id": "backend-ibkr-request-retry-followups",
@@ -2576,6 +2576,13 @@
       "skill": null,
       "state": "done",
       "path": "docs/tasks/done/backend-ibkr-conid-db-cache-followups.json"
+    },
+    {
+      "id": "backend-position-watchlist-race-condition-followups-followups-followups",
+      "area": "backend/portfolio",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-position-watchlist-race-condition-followups-followups-followups.json"
     }
   ]
 }
