@@ -3,7 +3,7 @@
   "title": "Follow-ups from the backend-ibkr-conid-db-cache PR review (#384)",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-ibkr-conid-db-cache"],
   "references": [
     "docs/tasks/done/backend-ibkr-conid-db-cache.json",
@@ -27,7 +27,7 @@
     },
     {
       "step": "Non-blocking, from PR #384's round-2 review (the fix for the blocking read-path finding): `_read_conid_db_cache`'s SELECT-wrapped-in-try/except and `_write_conid_db_cache`'s pre-commit SELECT-wrapped-in-try/except (`backend/app/data/ibkr_provider.py`) are near-identical blocks (query the row by `cache_key`, catch `(IntegrityError, OperationalError)`, log a warning, fall back to a miss/no-existing-row) duplicated across the two methods with only the log message and return-vs-rollback behavior differing. Consider extracting a small shared helper (e.g. `_try_query_conid_row(db, cache_key) -> IBKRConidCacheORM | None`, raising nothing) that both call, to avoid the two copies drifting if this error-handling convention is ever revisited. Minor -- the current duplication is well-documented and easy to follow, this is a pure reuse/simplification opportunity, not a bug.",
-      "done": false
+      "done": true
     }
   ],
   "decisions": [
@@ -36,6 +36,12 @@
       "recorded_by": "task-worker",
       "decision": "All 3 non-blocking checklist items here were folded directly into PR #384 itself (the same PR this followups task tracks findings from), while that PR was being revised to address pr-reviewer's separate blocking finding, rather than being picked up later as an independent branch/PR against this followups task.",
       "rationale": "The dispatch instruction resuming `backend-ibkr-conid-db-cache` to fix the blocking review finding explicitly asked to fold these in now if low-risk, and all three were: a docs-only Backend.md update (new subsection + one paragraph edit), a small behavioral assertion added to an existing test class, and a decisions-entry-only resolution for the third (no code change). Doing all three in the one already-open PR avoids a second near-simultaneous PR touching overlapping code/docs for no real benefit. This task's own `state` is deliberately left as `planned` rather than `done`: the work only exists on PR #384's branch so far, not on `main`, and this task's `depends_on: [\"backend-ibkr-conid-db-cache\"]` isn't satisfied until that PR actually merges -- a future pass (mirroring PR #381's `backend-cftc-cot-caching-scheduler-followups` closure precedent, which verified checklist items complete on `main` before closing) should verify these changes landed on `main` and then formally close this task, rather than this entry prematurely declaring it done before that's true."
+    },
+    {
+      "timestamp": "2026-10-04T08:23:40Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted the suggested shared helper: a new `IBKRProvider._query_conid_cache_row(db, cache_key) -> IBKRConidCacheORM | None` now holds the single `db.query(IBKRConidCacheORM).filter(...).one_or_none()` call wrapped in the `(IntegrityError, OperationalError)` swallow-and-log-and-`db.rollback()` handling, and both `_read_conid_db_cache` and `_write_conid_db_cache`'s pre-commit existence check call it instead of each keeping their own copy.",
+      "rationale": "The two blocks were genuinely identical in the part that matters (same query, same exception tuple, same miss-on-failure semantics) and only cosmetically different (log wording, and whether the caller also needed `db.rollback()` afterward). Folding `db.rollback()` into the helper unconditionally is a safe no-op on `_read_conid_db_cache`'s read-only, about-to-be-closed session, and is exactly what `_write_conid_db_cache` already needed before reusing the same session for its insert/update and commit -- so unifying on 'always rollback' loses nothing and removes the one behavioral difference that would have otherwise blocked a clean merge. Considered keeping the two blocks separate (per the checklist item's own 'if ... genuinely different enough' carve-out) but rejected it: unlike some other near-duplicate pairs looked at this session, there was no meaningful semantic difference being papered over here, just two copies of the same five lines that would silently drift if this error-handling convention is ever revisited (e.g. adding a third caught exception type) in only one of the two places. Verified via the full `backend/tests/unit/data/test_ibkr_provider.py` suite (124 passed, including the two PR #384 regression tests for the OperationalError-on-read and OperationalError-on-pre-write-read scenarios, both of which still pass against the shared helper since they patch `Session.query` generically) and 100% line/branch coverage on `app/data/ibkr_provider.py` via `pytest --cov`."
     }
   ],
   "questions": []

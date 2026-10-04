@@ -901,6 +901,53 @@ class IBKRProvider:
                 self._conid_cache_locks[cache_key] = lock
             return lock
 
+    def _query_conid_cache_row(self, db: Session, cache_key: str) -> IBKRConidCacheORM | None:
+        """Best-effort `IBKRConidCacheORM` SELECT by ticker, shared between
+        `_read_conid_db_cache`'s own lookup and `_write_conid_db_cache`'s pre-commit
+        existence check -- extracted (PR #384 review follow-up,
+        `backend-ibkr-conid-db-cache-followups`) because both call sites needed the exact
+        same `(IntegrityError, OperationalError)` swallow-and-treat-as-miss handling (see
+        the paragraph below) and had drifted into two near-identical try/except blocks
+        differing only in log wording.
+
+        A transient `OperationalError` (e.g. SQLite's default whole-file write lock
+        rejecting a concurrent read with "database is locked" -- `app/db/session.py` sets
+        up no WAL mode/`busy_timeout`, so this is a real, not just theoretical, failure
+        mode; see PR #384's review) is treated exactly like "no matching row" (`None`)
+        rather than propagated, the same as `IntegrityError` (defensive here -- a plain
+        `SELECT` can't itself violate a constraint, but catching it alongside
+        `OperationalError` costs nothing and keeps this one code path's error handling
+        uniform). This is required, not just defensive-for-its-own-sake:
+        `resolve_conid`'s own docstring documents (and `app.api.day_trader_signal`'s batch
+        fan-out relies on) `resolve_conid` never raising anything but
+        `IBKRUnavailableError` -- a best-effort DB-cache read must never be able to turn
+        into an uncaught exception that crashes an entire batch request over what should
+        just fall through to a live resolution (or a fresh insert, from the write side)
+        instead.
+
+        Always calls `db.rollback()` after a caught exception, even from
+        `_read_conid_db_cache`'s read-only, about-to-be-closed session where that's a
+        harmless no-op -- `_write_conid_db_cache` reuses `db` immediately afterward for an
+        insert/update and `commit()`, and that session must not be left holding a failed
+        statement's transaction state.
+
+        Returns `None` indistinguishably for "no row found" and "the SELECT itself
+        raised" -- both callers already treat a genuine miss and a failed lookup the same
+        way, so nothing either caller needs is lost by folding them together here. Never
+        raises.
+        """
+        try:
+            return db.query(IBKRConidCacheORM).filter(IBKRConidCacheORM.ticker == cache_key).one_or_none()
+        except (IntegrityError, OperationalError) as exc:
+            logger.warning(
+                "IBKR conid DB-cache SELECT for %r failed (treating as a cache miss): %s: %s",
+                cache_key,
+                type(exc).__name__,
+                exc,
+            )
+            db.rollback()
+            return None
+
     def _read_conid_db_cache(self, cache_key: str) -> int | None:
         """`IBKRConidCacheORM` lookup for `resolve_conid`'s DB-cache fallback -- a no-op
         (`None`, same as a genuine miss) when `self._session_factory` wasn't supplied
@@ -909,37 +956,18 @@ class IBKRProvider:
 
         Opens and closes its own short-lived `Session` per call (`self._session_factory()`)
         rather than holding one open for this long-lived singleton's lifetime -- see
-        `__init__`'s own docstring on `session_factory` for why.
-
-        A transient `OperationalError` (e.g. SQLite's default whole-file write lock
-        rejecting a concurrent read with "database is locked" -- `app/db/session.py` sets
-        up no WAL mode/`busy_timeout`, so this is a real, not just theoretical, failure
-        mode; see PR #384's review) is treated exactly like a genuine cache miss (`None`)
-        rather than propagated, the same as `IntegrityError` (defensive here -- a plain
-        `SELECT` can't itself violate a constraint, but catching it alongside
-        `OperationalError` costs nothing and keeps this method's error handling
-        symmetric with `_write_conid_db_cache`'s). This is required, not just
-        defensive-for-its-own-sake: `resolve_conid`'s own docstring documents (and
-        `app.api.day_trader_signal`'s batch fan-out relies on) `resolve_conid` never
-        raising anything but `IBKRUnavailableError` -- a best-effort DB-cache read must
-        never be able to turn into an uncaught exception that crashes an entire batch
-        request over what should just fall through to a live resolution instead.
+        `__init__`'s own docstring on `session_factory` for why. The lookup itself,
+        including its failure handling, is `_query_conid_cache_row` (shared with
+        `_write_conid_db_cache`'s pre-commit existence check) -- see that method's
+        docstring for why a transient DB error here must degrade to a cache miss rather
+        than propagate.
         """
         if self._session_factory is None:
             return None
         db = self._session_factory()
         try:
-            row = db.query(IBKRConidCacheORM).filter(IBKRConidCacheORM.ticker == cache_key).one_or_none()
+            row = self._query_conid_cache_row(db, cache_key)
             return row.conid if row is not None else None
-        except (IntegrityError, OperationalError) as exc:
-            logger.warning(
-                "IBKR conid DB-cache read for %r failed (treating as a cache miss, "
-                "falling through to a live resolution): %s: %s",
-                cache_key,
-                type(exc).__name__,
-                exc,
-            )
-            return None
         finally:
             db.close()
 
@@ -952,11 +980,12 @@ class IBKRProvider:
         This is purely a best-effort write: `conid` (the caller's already-successful live
         resolution) is returned to `resolve_conid`'s caller regardless of whether anything
         in this method succeeds, so nothing here may ever raise. The pre-commit `SELECT`
-        below gets the exact same `IntegrityError`/`OperationalError` handling as the
-        `commit()` itself (treating a failed read the same as "no existing row, insert a
-        new one" -- at worst a redundant row-already-exists `IntegrityError` on `commit()`
-        just below, which that commit's own except block already discards the same way) --
-        see `_read_conid_db_cache`'s docstring for why an unwrapped `SELECT` on a
+        below (`_query_conid_cache_row`, shared with `_read_conid_db_cache`) gets the exact
+        same `IntegrityError`/`OperationalError` handling as the `commit()` itself
+        (treating a failed read the same as "no existing row, insert a new one" -- at worst
+        a redundant row-already-exists `IntegrityError` on `commit()` just below, which
+        that commit's own except block already discards the same way) -- see
+        `_query_conid_cache_row`'s docstring for why an unwrapped `SELECT` on a
         non-WAL-mode SQLite DB (`app/db/session.py`) is a real, not just theoretical,
         failure mode this method must not let escape.
         """
@@ -964,18 +993,7 @@ class IBKRProvider:
             return
         db = self._session_factory()
         try:
-            try:
-                row = db.query(IBKRConidCacheORM).filter(IBKRConidCacheORM.ticker == cache_key).one_or_none()
-            except (IntegrityError, OperationalError) as exc:
-                logger.warning(
-                    "IBKR conid DB-cache pre-write read for %r failed (treating as 'no "
-                    "existing row' and inserting fresh): %s: %s",
-                    cache_key,
-                    type(exc).__name__,
-                    exc,
-                )
-                db.rollback()
-                row = None
+            row = self._query_conid_cache_row(db, cache_key)
             if row is None:
                 row = IBKRConidCacheORM(ticker=cache_key)
                 db.add(row)
