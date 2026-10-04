@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-position-watchlist-race-condition-followups-followups's PR #387 review",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-position-watchlist-race-condition-followups-followups"],
   "references": [
     "docs/tasks/backend-position-watchlist-race-condition-followups-followups.json",
@@ -24,5 +24,11 @@
       "rationale": "Mutation-tested the new test myself as the checklist required: temporarily replaced `row = refreshed` in `_commit_with_version_retry` (backend/app/api/routers/portfolio.py) with a no-op comment, re-ran the new test, and confirmed it failed -- `assert response.status_code == 201` got `503`, with the captured log showing the exact bug mechanism (`ObjectDeletedError` repeating against the same stale `PositionORM` instance on attempts 2 through 5, 'Exhausted 5 retries... due to repeated concurrent write conflicts' on the final attempt) even though the re-query had already found the fresh, valid, mergeable row under its new PK on the very first retry. Restored the line afterward (confirmed `git diff` on the source file was empty) and reconfirmed the full backend suite green: 1614 passed (1613 + this new test), 100% line/branch coverage (gate 90%), ruff and mypy both clean, `scripts/check_profit_target_wording.py` clean, and `python scripts/export_openapi.py` reproduces `backend/openapi.json` byte-for-byte (expected -- this is a test-only + task-board change, no route/schema touched). No alternative placement was considered for the test beyond the task's own suggested files: `test_portfolio_positions.py`'s existing `TestAddPositionMergeRetryBoundsAndRequeryHardening` class was the better fit over `test_portfolio_positions_lost_update_race.py`, since this scenario is a deterministic single-threaded monkeypatch repro (mirroring that class's own `test_requery_operational_error_then_row_genuinely_deleted_raises_handled_503` sibling test's shape exactly, just swapping a bare delete for a delete-and-reinsert-under-a-new-PK), not a real-OS-thread concurrency test like the ones in the `_lost_update_race` module."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-position-watchlist-race-condition-followups-followups-followups",
+    "pr_number": 388,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/388",
+    "pushed_at": "2026-10-04T09:25:50Z"
+  }
 }
