@@ -786,7 +786,11 @@ class IBKRProvider:
                 raise IBKRRateLimitedError(retry_after=_SCANNER_RUN_MIN_INTERVAL_SECONDS - elapsed)
 
         self._require_available()
-        payload = self._request("POST", "/iserver/scanner/run", json=scan_config)
+        # `retry=False`: see `_request`'s own docstring -- this endpoint's externally
+        # enforced 1-req/sec limit (`_SCANNER_RUN_MIN_INTERVAL_SECONDS`) makes a 300ms-later
+        # same-call retry plausibly counterproductive rather than helpful
+        # (`backend-ibkr-request-retry-followups`).
+        payload = self._request("POST", "/iserver/scanner/run", retry=False, json=scan_config)
         self._last_scanner_run_at = self._clock()
         return _parse_scanner_results(payload)
 
@@ -1093,7 +1097,7 @@ class IBKRProvider:
         if status.state != "available":
             raise IBKRUnavailableError(f"IBKR gateway not available ({status.state}): {status.detail}")
 
-    def _request(self, method: str, path: str, **kwargs: object) -> dict | list:
+    def _request(self, method: str, path: str, *, retry: bool = True, **kwargs: object) -> dict | list:
         """The one method that performs a real HTTP call against the gateway -- every
         other method on this class goes through this, so tests mock this single boundary
         (per docs/architecture/Testing.md, matching `StooqProvider._fetch_csv`'s role in
@@ -1122,23 +1126,37 @@ class IBKRProvider:
           materially different risk profile than retrying a connection/5xx failure -- see
           this task's `decisions` entry.
 
+        `retry=False` (`backend-ibkr-request-retry-followups`) opts a specific call out of
+        the retry entirely -- a plain single-attempt request, otherwise identical, for a
+        caller whose own externally-enforced rate limit makes a same-call retry plausibly
+        counterproductive rather than helpful. `run_scanner`'s `POST /iserver/scanner/run`
+        is the one caller that passes this: IBKR enforces its own 1-request/second limit on
+        that specific endpoint (docs/ideas.md, mirrored client-side by
+        `_SCANNER_RUN_MIN_INTERVAL_SECONDS`), and `_REQUEST_RETRY_DELAY_SECONDS` (300ms) is
+        well inside that 1-second window -- a retryable failure there would fire its retry
+        while IBKR's own limiter is plausibly still counting the original call against the
+        same window, so the retry is more likely to be rejected by that same limiter (and
+        risks IBKR-side abuse flagging from the extra call) than to actually recover. See
+        this task's own `decisions` entry.
+
         See this task's own `decisions` entry for the full policy rationale (why a single
         retry, why this exact delay, why this exact retryable/non-retryable split).
         """
         url = f"{self._base_url}{path}"
+        max_attempts = _REQUEST_MAX_ATTEMPTS if retry else 1
         attempt = 1
         while True:
             try:
                 response = self._client.request(method, url, **kwargs)  # type: ignore[arg-type]
             except httpx.RequestError as exc:
-                if isinstance(exc, httpx.TimeoutException) or attempt >= _REQUEST_MAX_ATTEMPTS:
+                if isinstance(exc, httpx.TimeoutException) or attempt >= max_attempts:
                     raise IBKRUnavailableError(f"IBKR gateway request to {path} failed: {exc}") from exc
                 attempt += 1
                 self._sleep(_REQUEST_RETRY_DELAY_SECONDS)
                 continue
 
             if response.status_code != 200:
-                if response.status_code < 500 or attempt >= _REQUEST_MAX_ATTEMPTS:
+                if response.status_code < 500 or attempt >= max_attempts:
                     raise IBKRUnavailableError(f"IBKR gateway returned HTTP {response.status_code} from {path}")
                 attempt += 1
                 self._sleep(_REQUEST_RETRY_DELAY_SECONDS)
