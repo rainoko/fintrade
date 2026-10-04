@@ -910,6 +910,20 @@ class IBKRProvider:
         Opens and closes its own short-lived `Session` per call (`self._session_factory()`)
         rather than holding one open for this long-lived singleton's lifetime -- see
         `__init__`'s own docstring on `session_factory` for why.
+
+        A transient `OperationalError` (e.g. SQLite's default whole-file write lock
+        rejecting a concurrent read with "database is locked" -- `app/db/session.py` sets
+        up no WAL mode/`busy_timeout`, so this is a real, not just theoretical, failure
+        mode; see PR #384's review) is treated exactly like a genuine cache miss (`None`)
+        rather than propagated, the same as `IntegrityError` (defensive here -- a plain
+        `SELECT` can't itself violate a constraint, but catching it alongside
+        `OperationalError` costs nothing and keeps this method's error handling
+        symmetric with `_write_conid_db_cache`'s). This is required, not just
+        defensive-for-its-own-sake: `resolve_conid`'s own docstring documents (and
+        `app.api.day_trader_signal`'s batch fan-out relies on) `resolve_conid` never
+        raising anything but `IBKRUnavailableError` -- a best-effort DB-cache read must
+        never be able to turn into an uncaught exception that crashes an entire batch
+        request over what should just fall through to a live resolution instead.
         """
         if self._session_factory is None:
             return None
@@ -917,6 +931,15 @@ class IBKRProvider:
         try:
             row = db.query(IBKRConidCacheORM).filter(IBKRConidCacheORM.ticker == cache_key).one_or_none()
             return row.conid if row is not None else None
+        except (IntegrityError, OperationalError) as exc:
+            logger.warning(
+                "IBKR conid DB-cache read for %r failed (treating as a cache miss, "
+                "falling through to a live resolution): %s: %s",
+                cache_key,
+                type(exc).__name__,
+                exc,
+            )
+            return None
         finally:
             db.close()
 
@@ -925,12 +948,34 @@ class IBKRProvider:
         no-op when `self._session_factory` wasn't supplied, same as `_read_conid_db_cache`.
         Only ever called with a non-`None` `conid` (see `resolve_conid`) -- this table never
         stores an unresolved/ambiguous result (`IBKRConidCacheORM`'s own docstring).
+
+        This is purely a best-effort write: `conid` (the caller's already-successful live
+        resolution) is returned to `resolve_conid`'s caller regardless of whether anything
+        in this method succeeds, so nothing here may ever raise. The pre-commit `SELECT`
+        below gets the exact same `IntegrityError`/`OperationalError` handling as the
+        `commit()` itself (treating a failed read the same as "no existing row, insert a
+        new one" -- at worst a redundant row-already-exists `IntegrityError` on `commit()`
+        just below, which that commit's own except block already discards the same way) --
+        see `_read_conid_db_cache`'s docstring for why an unwrapped `SELECT` on a
+        non-WAL-mode SQLite DB (`app/db/session.py`) is a real, not just theoretical,
+        failure mode this method must not let escape.
         """
         if self._session_factory is None:
             return
         db = self._session_factory()
         try:
-            row = db.query(IBKRConidCacheORM).filter(IBKRConidCacheORM.ticker == cache_key).one_or_none()
+            try:
+                row = db.query(IBKRConidCacheORM).filter(IBKRConidCacheORM.ticker == cache_key).one_or_none()
+            except (IntegrityError, OperationalError) as exc:
+                logger.warning(
+                    "IBKR conid DB-cache pre-write read for %r failed (treating as 'no "
+                    "existing row' and inserting fresh): %s: %s",
+                    cache_key,
+                    type(exc).__name__,
+                    exc,
+                )
+                db.rollback()
+                row = None
             if row is None:
                 row = IBKRConidCacheORM(ticker=cache_key)
                 db.add(row)

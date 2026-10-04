@@ -2532,7 +2532,7 @@
       "id": "backend-ibkr-conid-db-cache",
       "area": "backend/data",
       "skill": null,
-      "state": "implementing",
+      "state": "testing",
       "path": "docs/tasks/backend-ibkr-conid-db-cache.json"
     },
     {

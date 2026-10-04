@@ -153,7 +153,11 @@ behavior. `IBKRProvider.resolve_conid` caches each ticker's resolved conid (incl
 unresolved result) for 24h on the `IBKRProvider` instance itself, shared via the existing
 process-wide singleton (`app.api.dependencies._get_ibkr_provider_singleton`), so
 switching to IBKR-primary doesn't add a `/iserver/secdef/search` round trip to every
-request for every ticker. "Exclusively" also holds across the SQLite OHLCV cache itself
+request for every ticker. On a miss in that in-memory cache (including every miss right
+after a process restart, which clears it entirely), `resolve_conid` falls back to a
+second, DB-backed cache (`docs/tasks/done/backend-ibkr-conid-db-cache.json`,
+`IBKRConidCacheORM` §7) before ever making a live call — see that paragraph below for the
+details. "Exclusively" also holds across the SQLite OHLCV cache itself
 (§7's `OHLCVCacheORM.source` column): without it, a mode switch could silently keep
 serving a still-fresh (<24h) row the OTHER chain had cached, rather than actually
 switching — `CachedDataProvider` tags every row it writes with its own primary
@@ -173,6 +177,40 @@ popular US mega-caps) the instant a gateway connects. Only falls back to `None`
 (unresolvable) for a true no-match, or if that preference itself doesn't leave exactly
 one candidate. See `backend-ibkr-primary-data-provider`'s `decisions` entry for the full
 live search responses this was confirmed against.
+
+**DB-backed conid cache, surviving a process restart**
+(`docs/tasks/done/backend-ibkr-conid-db-cache.json`). The 24h in-memory cache above solves
+the per-request round-trip cost but not the per-process-restart cost: every deploy, crash,
+or dev-container rebuild previously lost every ticker's resolved conid, re-running
+`_resolve_stk_conid`'s disambiguation logic from scratch for every ticker on its next use.
+An IBKR conid-to-ticker mapping is, for all practical purposes, permanent — it only changes
+on a genuine re-listing/delisting event — so `IBKRConidCacheORM` (§7: `ticker` primary key,
+`conid`, `resolved_at`) persists each **successful** resolution with no TTL and no
+re-validation; a resolved-to-`None`/ambiguous result is deliberately never written there
+(unlike the in-memory cache, which does cache a `None`), since a once-ambiguous ticker's set
+of candidate listings can itself change in ways this app has no notification of, and
+permanently freezing that ticker as unresolvable would be a worse failure mode than an
+occasional redundant live re-query. A DB-cache hit returns immediately and also repopulates
+the in-memory cache (so this process's later calls for the same ticker hit the fast path
+again), skipping `_require_available()`'s gateway-status check entirely — no gateway call at
+all for an already-known-permanent mapping. `IBKRProvider` reaches the database via an
+injected `session_factory: Callable[[], Session] | None` (defaulting to `None`, i.e. no DB
+cache at all — every existing test/call site that doesn't pass one keeps working exactly as
+before), the same long-lived-singleton-needs-its-own-short-lived-sessions pattern
+`app.api.dependencies.get_data_provider_factory` already established, rather than threading
+a `db` session through `resolve_conid` and every one of its callers (some of which, like
+`app.api.day_trader_signal`'s per-ticker fan-out, have no request-scoped session in
+scope at all). Production wiring passes `session_factory=SessionLocal` from
+`_get_ibkr_provider_singleton`. Concurrent-write races (two processes/instances resolving
+the same previously-unresolved ticker for the first time at once) are handled with the same
+`IntegrityError`/`OperationalError`-catch-and-discard-the-loser convention
+`app/data/cache.py`'s `CachedDataProvider._upsert` already established; both of this cache's
+own `SELECT`s (the fallback read and the pre-write existence check) get the identical
+treatment, since SQLite's default whole-file write locking (no WAL mode/`busy_timeout`
+configured in `app/db/session.py`) can raise `OperationalError` on a concurrent *read* just
+as easily as on a concurrent write's commit, and `resolve_conid` must never raise anything
+but `IBKRUnavailableError` — a failed best-effort DB-cache read or write degrades to a cache
+miss/skipped write rather than ever propagating out to a caller.
 
 **This is fully optional and off by default.** `Settings.ibkr_enabled` (env var
 `FINTRADE_IBKR_ENABLED`) defaults to `False`, and every other part of the app —

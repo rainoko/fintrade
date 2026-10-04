@@ -1542,6 +1542,92 @@ class TestResolveConidDbCache:
 
         assert conid == 265598
 
+    def test_operational_error_on_db_cache_read_falls_through_to_live_fetch(
+        self, mocker, conid_session_factory
+    ) -> None:
+        """Blocking finding from PR #384's review: `_read_conid_db_cache`'s own `SELECT`
+        (line ~918, not just `_write_conid_db_cache`'s `commit()`) must never propagate a
+        transient `OperationalError` out of `resolve_conid` -- SQLite's default whole-file
+        write locking (`app/db/session.py` configures no WAL mode/`busy_timeout`) can raise
+        "database is locked" on a concurrent *read* just as easily as on a concurrent
+        write's commit. A failed read must degrade to a cache miss and fall through to a
+        live resolution, matching `resolve_conid`'s own documented "never raises anything
+        but IBKRUnavailableError" contract that `app.api.day_trader_signal`'s batch fan-out
+        relies on -- before this fix, this exact scenario raised `OperationalError`
+        straight out of `resolve_conid`."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            return_value=[self._stk_entry("AAPL", 265598)],
+        )
+        provider = IBKRProvider(session_factory=conid_session_factory)
+
+        original_query = Session.query
+
+        def _query_raises_once(self_session: Session, *args: object, **kwargs: object):
+            Session.query = original_query  # type: ignore[method-assign]
+            raise OperationalError("SELECT", {}, Exception("database is locked"))
+
+        mocker.patch.object(Session, "query", _query_raises_once)
+
+        conid = provider.resolve_conid("AAPL")
+
+        # Falls through to a live resolution and succeeds, rather than raising.
+        assert conid == 265598
+        request.assert_called_once()
+        # The live resolution's own best-effort write (query already restored to the real
+        # implementation by the time `_write_conid_db_cache` runs) still lands normally.
+        check_db = conid_session_factory()
+        row = check_db.query(IBKRConidCacheORM).filter_by(ticker="AAPL").one()
+        assert row.conid == 265598
+        check_db.close()
+
+    def test_operational_error_on_db_cache_write_precommit_read_is_swallowed(
+        self, mocker, conid_session_factory
+    ) -> None:
+        """The other half of the same PR #384 review finding: `_write_conid_db_cache`'s
+        own pre-commit `SELECT` (line ~933, checking for an existing row to update) gets
+        identical treatment -- a failed read there is treated as "no existing row, insert
+        fresh" rather than propagated, and the already-successful live resolution this call
+        is persisting is still returned to `resolve_conid`'s caller regardless of whether
+        this best-effort write's own read succeeds."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            return_value=[self._stk_entry("AAPL", 265598)],
+        )
+        provider = IBKRProvider(session_factory=conid_session_factory)
+
+        original_query = Session.query
+        call_count = 0
+
+        def _query_raises_on_second_call(self_session: Session, *args: object, **kwargs: object):
+            nonlocal call_count
+            call_count += 1
+            # Call 1 is `_read_conid_db_cache`'s own miss check (must succeed normally so
+            # this scenario reaches the live-fetch + write path at all); call 2 is
+            # `_write_conid_db_cache`'s pre-commit existence check -- the one this test
+            # targets.
+            if call_count == 2:
+                raise OperationalError("SELECT", {}, Exception("database is locked"))
+            return original_query(self_session, *args, **kwargs)
+
+        mocker.patch.object(Session, "query", _query_raises_on_second_call)
+
+        conid = provider.resolve_conid("AAPL")
+
+        assert conid == 265598
+        check_db = conid_session_factory()
+        row = check_db.query(IBKRConidCacheORM).filter_by(ticker="AAPL").one()
+        assert row.conid == 265598
+        check_db.close()
+
 
 class TestGetDailyBars:
     """`IBKRProvider.get_daily_bars` (`backend-ibkr-primary-data-provider`'s checklist

@@ -15,17 +15,24 @@
   "checklist": [
     {
       "step": "`docs/architecture/Backend.md`'s description of `IBKRProvider.resolve_conid`'s caching (the paragraph beginning \"`IBKRProvider.resolve_conid` caches each ticker's resolved conid... for 24h on the `IBKRProvider` instance itself\") still describes the cache as purely in-memory/process-wide-singleton and doesn't mention the new `IBKRConidCacheORM`-backed, permanent, restart-surviving fallback cache this PR added. Update that paragraph (or add a short new subsection, matching the precedent `backend-cftc-cot-caching-scheduler` set by adding Backend.md's own §9 for an analogous DB-backed-cache addition) to describe the new DB-cache layer, its 'only successful resolutions, no TTL' semantics, and the `session_factory` injection pattern.",
-      "done": false
+      "done": true
     },
     {
       "step": "No test asserts that `app.api.dependencies._get_ibkr_provider_singleton()`'s production wiring actually passes `session_factory=SessionLocal` to the constructed `IBKRProvider` (e.g. `provider._session_factory is SessionLocal`) -- the new line is only exercised incidentally by existing singleton-construction tests (which is why it shows as 100% covered), not verified behaviorally. Add a small assertion so a future refactor that silently drops this wiring (re-introducing the pre-this-PR behavior of never checking the DB cache in production) would be caught.",
-      "done": false
+      "done": true
     },
     {
       "step": "The task's own checklist item 1 suggested the new cache table could additionally persist 'the disambiguating exchange/description if useful for debugging a wrong resolution later', but the final schema (`ticker`, `conid`, `resolved_at`) omits it, and none of the three recorded `decisions` entries explain why that optional field was left out. Either add a `decisions` entry recording that this was considered and deliberately scoped out (and why), or add the column if it's judged worth having for debugging a future wrong-resolution report.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-04T06:11:28Z",
+      "recorded_by": "task-worker",
+      "decision": "All 3 non-blocking checklist items here were folded directly into PR #384 itself (the same PR this followups task tracks findings from), while that PR was being revised to address pr-reviewer's separate blocking finding, rather than being picked up later as an independent branch/PR against this followups task.",
+      "rationale": "The dispatch instruction resuming `backend-ibkr-conid-db-cache` to fix the blocking review finding explicitly asked to fold these in now if low-risk, and all three were: a docs-only Backend.md update (new subsection + one paragraph edit), a small behavioral assertion added to an existing test class, and a decisions-entry-only resolution for the third (no code change). Doing all three in the one already-open PR avoids a second near-simultaneous PR touching overlapping code/docs for no real benefit. This task's own `state` is deliberately left as `planned` rather than `done`: the work only exists on PR #384's branch so far, not on `main`, and this task's `depends_on: [\"backend-ibkr-conid-db-cache\"]` isn't satisfied until that PR actually merges -- a future pass (mirroring PR #381's `backend-cftc-cot-caching-scheduler-followups` closure precedent, which verified checklist items complete on `main` before closing) should verify these changes landed on `main` and then formally close this task, rather than this entry prematurely declaring it done before that's true."
+    }
+  ],
   "questions": []
 }

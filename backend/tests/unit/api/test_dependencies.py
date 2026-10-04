@@ -31,6 +31,7 @@ from app.data.ibkr_provider import GatewayStatus, IBKRProvider, IBKRUnavailableE
 from app.data.stooq_provider import StooqProvider
 from app.data.yfinance_provider import YFinanceProvider
 from app.db.models import Base
+from app.db.session import SessionLocal
 
 
 @pytest.fixture(autouse=True)
@@ -387,6 +388,24 @@ class TestGetIbkrProvider:
             # end of a request), just with nothing to clean up.
             with pytest.raises(StopIteration):
                 next(generator)
+        finally:
+            get_settings.cache_clear()
+
+    def test_singleton_wires_session_factory_to_sessionlocal(self, monkeypatch) -> None:
+        """Non-blocking follow-up from PR #384's review: the previous test coverage of
+        `_get_ibkr_provider_singleton` only exercised this line incidentally (it showed as
+        100% line-covered without ever checking what was actually passed), so a future
+        refactor that silently dropped `session_factory=SessionLocal` -- re-introducing the
+        pre-`backend-ibkr-conid-db-cache` behavior of never consulting the DB conid cache in
+        production -- would not have been caught. Asserts the constructed singleton's own
+        `_session_factory` actually IS (not just equals) `SessionLocal` itself."""
+        monkeypatch.setenv("FINTRADE_IBKR_ENABLED", "true")
+        get_settings.cache_clear()
+
+        try:
+            provider = next(get_ibkr_provider())
+
+            assert provider._session_factory is SessionLocal
         finally:
             get_settings.cache_clear()
 
