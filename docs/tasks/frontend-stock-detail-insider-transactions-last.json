@@ -49,5 +49,11 @@
       "rationale": "Keeps the 'unsupported by the currently active provider, distinct from checked-and-found-nothing' distinction (the whole point of this branch, per `fundamentalDataUnavailableHelp`'s/`insiderTransactionsUnavailableHelp`'s own `elderContext`) visible at both the top-of-page fundamentals card and the bottom-of-page insider-transactions card independently, since after this move they're no longer visually or spatially linked the way they were when both lived inside one `FundamentalDataPanel` early-return."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-stock-detail-insider-transactions-last",
+    "pr_number": 397,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/397",
+    "pushed_at": "2026-10-09T20:48:20Z"
+  }
 }
