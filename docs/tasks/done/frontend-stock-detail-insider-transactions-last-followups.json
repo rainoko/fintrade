@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from frontend-stock-detail-insider-transactions-last's PR review",
   "area": "frontend/stocks",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-stock-detail-insider-transactions-last"],
   "references": [
     "docs/tasks/done/frontend-stock-detail-insider-transactions-last.json",
@@ -31,5 +31,12 @@
       "rationale": "A DOM-position check is the only one of the two options considered that can't be defeated by content coincidences elsewhere on the page, and reusing the 'Price history range' group (already load-bearing elsewhere in this test file as a StockCharts marker) avoids introducing a new, single-purpose test id just for this one assertion."
     }
   ],
-  "questions": []
+  "questions": [],
+  "review": {
+    "reviewed_at": "2026-10-09T21:17:29Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/398",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Independently re-verified task-worker's claims: (1) mutation-tested the new test by swapping InsiderTransactionsPanel/StockCharts render order in StockDetailPage.tsx -- test failed with the exact claimed `AssertionError: expected +0 to be truthy`, then restored (git diff empty) and confirmed it passes again (17/17 in the file); (2) read the compareDocumentPosition logic directly -- `priceChartGroup.compareDocumentPosition(insiderHeading) & Node.DOCUMENT_POSITION_FOLLOWING` correctly tests that the Insider Transactions heading follows the Price history range group in DOM order, not a tautology; (3) `git diff main...HEAD --stat` confirms the diff is scoped to exactly the new test block plus this task's own JSON and index.json's mirrored state -- no application code touched; (4) re-ran full suites from scratch: backend pytest --cov 1618 passed/99.94% coverage, frontend vitest --coverage 1043/1043 passed/99.77-99.84% across statements/branches/functions/lines, backend ruff+mypy clean, frontend eslint+tsc clean, check_profit_target_wording.py clean, validate_tasks.py clean (378 files). No UI-facing application code changed by this PR (test-only diff locking in already-verified-live behavior), so per this review's scope no browser walkthrough or e2e run was needed beyond the unit test itself -- noted explicitly rather than silently skipped. No blocking or non-blocking findings; nothing filed on a -followups task for this one."
+  }
 }
