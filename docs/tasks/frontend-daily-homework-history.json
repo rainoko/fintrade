@@ -53,5 +53,11 @@
       "rationale": "Not originally in the checklist, but add-frontend-feature's own step 3 treats an omitted invalidation as a stale-UI bug, not a style nit: a successful POST /api/daily-homework always changes GET /api/daily-homework's list too (either adding today's row or overwriting its existing one), so leaving the history query un-invalidated would have shown a stale history table immediately after a successful submission until some unrelated refetch happened to occur. Confirmed end to end via a live browser walkthrough (submitting today's entry updates the History table's row immediately, no manual reload) -- see this task's report."
     }
   ],
+  "git": {
+    "branch": "task/frontend-daily-homework-history",
+    "pr_number": 402,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/402",
+    "pushed_at": "2026-10-09T23:02:09Z"
+  },
   "questions": []
 }
