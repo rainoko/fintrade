@@ -2602,7 +2602,7 @@
       "id": "frontend-backend-feature-gap-audit",
       "area": "frontend",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-backend-feature-gap-audit.json"
     },
     {
@@ -2653,6 +2653,27 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/backend-ibkr-import-entry-date-from-trades.json"
+    },
+    {
+      "id": "frontend-cftc-cot-display",
+      "area": "frontend/pages",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-cftc-cot-display.json"
+    },
+    {
+      "id": "frontend-trade-strategy-tagging",
+      "area": "frontend/pages/portfolio",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-trade-strategy-tagging.json"
+    },
+    {
+      "id": "frontend-daily-homework-history",
+      "area": "frontend/pages",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-daily-homework-history.json"
     }
   ]
 }

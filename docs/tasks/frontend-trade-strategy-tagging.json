@@ -1,0 +1,29 @@
+{
+  "id": "frontend-trade-strategy-tagging",
+  "title": "Add UI input + display for the per-trade personal strategy tag -- PositionIn/Out.strategy and ClosedTradeOut.strategy have zero frontend consumer",
+  "area": "frontend/pages/portfolio",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "backend/app/api/schemas.py",
+    "docs/tasks/done/backend-trade-strategy-tagging.json",
+    "docs/tasks/done/backend-trade-strategy-tagging-followups.json",
+    "docs/tasks/done/backend-trade-strategy-tagging-followups-followups.json",
+    "docs/tasks/done/frontend-trade-journal-entry-notes.json",
+    "frontend/src/features/portfolio/components/AddPositionDialog.tsx",
+    "frontend/src/features/portfolio/components/TradeJournalPanel.tsx",
+    "frontend/src/features/portfolio/components/PositionsTable.tsx",
+    "docs/tasks/frontend-backend-feature-gap-audit.json"
+  ],
+  "description": "Filed by the frontend-backend-feature-gap-audit task. `strategy` (Elder ch. 55/56/58/59's personal, named strategy/setup tag -- his own examples: 'false breakout with a divergence,' 'pullback to value') exists on `PositionIn`, `PositionOut`, and `ClosedTradeOut` (backend/app/api/schemas.py) and is fully implemented backend-side across three already-`done` tasks (`backend-trade-strategy-tagging` plus two followups covering free-text-vs-fixed-list scoping, merge/overwrite semantics on re-adding the same ticker, and whitespace normalization) -- but grep confirms zero production frontend usage anywhere: the only hits for `strategy` outside `frontend/src/api/types.ts` are in `frontend/src/features/methodology/data/methodologyContent.ts`, which only prose-describes the Elder methodology, never reads a live API field. Concretely: `AddPositionDialog.tsx` has a free-text input wired to `PositionIn.entry_notes` but no equivalent input for `strategy` at all, so a user can never actually set this field through the UI, ever; `TradeJournalPanel.tsx` (the closed-trades table) has a 'Notes' column reading `entry_notes` but no 'Strategy' column reading `ClosedTradeOut.strategy`; `PositionsTable.tsx` has neither. This is a complete, previously-untracked UI gap for an entire Elder-methodology feature end-to-end, not a cosmetic single field -- for contrast, both `entry_notes` and `follow_up_notes` each got their own matching frontend task filed alongside (or shortly after) their backend counterpart (`frontend-trade-journal-entry-notes`, `frontend-trade-journal-followup-review`); `strategy` never did, and its own backend task's checklist never mentions a frontend consumer either (its own explicit scope note, 'not the Apgar or equity-curve features themselves', is about those two specific downstream features, not about basic UI input/display).",
+  "checklist": [
+    { "step": "Add a free-text 'Strategy' input to AddPositionDialog.tsx (PositionIn.strategy), following entry_notes' own trim-and-omit-if-blank convention rather than inventing a new one.", "done": false },
+    { "step": "Display PositionOut.strategy somewhere a held position's own entry_notes-equivalent context is already surfaced (PositionsTable.tsx and/or HeldPositionBanner.tsx -- check both for the closest existing precedent and decide).", "done": false },
+    { "step": "Add a 'Strategy' column to TradeJournalPanel.tsx (ClosedTradeOut.strategy), matching the existing Notes column's em-dash-when-absent convention.", "done": false },
+    { "step": "Decide whether strategy is offered as a free-text input only (matching entry_notes) or also as a 'recent tags' autocomplete/suggestion list sourced from the user's own prior strategy values (Elder's own framing: strategies are personal and evolve over time, so a fixed predefined list was already rejected by the backend task) -- record the decision and rationale either way.", "done": false },
+    { "step": "MetricHelp/explanatory copy if warranted; tests + Storybook stories for any new/changed components; confirm the 90% coverage gate still holds.", "done": false }
+  ],
+  "decisions": [],
+  "questions": []
+}

@@ -1,0 +1,26 @@
+{
+  "id": "frontend-daily-homework-history",
+  "title": "Show a history/trend view of past daily self-test entries -- GET /api/daily-homework (list) has zero frontend consumer",
+  "area": "frontend/pages",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "backend/app/api/routers/homework.py",
+    "backend/app/api/schemas.py",
+    "frontend/src/api/homework.ts",
+    "docs/tasks/done/backend-daily-homework-self-test.json",
+    "docs/tasks/done/frontend-daily-homework-page.json",
+    "frontend/src/features/homework/components/HomeworkScoreBanner.tsx",
+    "docs/tasks/frontend-backend-feature-gap-audit.json"
+  ],
+  "description": "Filed by the frontend-backend-feature-gap-audit task. `GET /api/daily-homework` (`operation_id: list_daily_homework`, `backend/app/api/routers/homework.py`) returns `DailyHomeworkListResponse` -- 'Every recorded self-test entry, most recent date first', the router's own docstring calling it 'a history/trend view of how \"ready to trade\" scores have looked over time' -- but grep confirms `frontend/src/api/homework.ts` has no caller for it at all (only `GET /today`, `POST /api/daily-homework`, and `GET /yesterday-trading-suggestion` are wired up), and `frontend/src/features/homework/` has no history/list component or hook of any kind. `DailyHomeworkPage` (`frontend-daily-homework-page`) only ever shows today's single entry via `DailyHomeworkForm`/`HomeworkScoreBanner` (today's recorded scores, or today's suggested defaults if not yet recorded) -- a user can dutifully record a self-test every single day but can never see how their own readiness score has trended over the past weeks or months, despite the backend already fully supporting exactly that view with no further backend work needed. Neither `frontend-daily-homework-page` nor either of its two followup tasks mentions deferring a history view as a conscious decision -- this was simply never built.",
+  "checklist": [
+    { "step": "Add a `listDailyHomework()`/`getDailyHomeworkHistory()` function to frontend/src/api/homework.ts (GET /api/daily-homework) plus a TanStack Query hook and MSW mock.", "done": false },
+    { "step": "Decide presentation: a plain table (date, the 5 component scores, total_score, band) vs. a trend chart of total_score/band over time, or both -- record the decision and rationale.", "done": false },
+    { "step": "Add the history view to DailyHomeworkPage (a new section, or its own sub-route reached from there) -- reuse HomeworkScoreBanner's existing red/yellow/green band-coloring convention rather than inventing a new color scheme.", "done": false },
+    { "step": "Tests + a Storybook story for the new component(s); confirm the 90% coverage gate still holds.", "done": false }
+  ],
+  "decisions": [],
+  "questions": []
+}
