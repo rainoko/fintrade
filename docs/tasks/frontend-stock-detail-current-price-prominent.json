@@ -3,7 +3,7 @@
   "title": "Stock Detail page: show the ticker's current price prominently near the top",
   "area": "frontend/stocks",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "frontend/src/pages/StockDetailPage.tsx",
@@ -16,25 +16,44 @@
   "checklist": [
     {
       "step": "Confirm (don't assume) current price is genuinely absent from both `AnalysisResponse` and anywhere on `StockDetailPage` today, with a fresh grep/read -- source may have moved since this task was written.",
-      "done": false
+      "done": true
     },
     {
       "step": "Decide and record the data-sourcing approach: a new `AnalysisResponse.current_price` field (the reasoning above favors this) vs. reusing `StockCharts`' own already-fetched data. If adding a schema field, follow the API documentation standard (field `description`, `scripts/export_openapi.py`, commit the regenerated `backend/openapi.json`, regenerate the frontend's generated types per the project's usual `add-api-endpoint` process).",
-      "done": false
+      "done": true
     },
     {
       "step": "Decide and record the exact placement and visual treatment for 'prominent' on the page.",
-      "done": false
+      "done": true
     },
     {
       "step": "Implement (backend field addition if chosen, plus the frontend display).",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests (backend schema/route test if a new field was added; frontend component test for the new prominent display) and a real-browser screenshot check confirming the price is visible without scrolling on a typical viewport.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-09T19:28:47Z",
+      "recorded_by": "task-worker",
+      "decision": "Re-confirmed the gap before touching anything: a fresh read of `backend/app/api/schemas.py`'s `AnalysisResponse` (no current-price/close field) and `frontend/src/pages/StockDetailPage.tsx` (PageHeader -> methodology/Trade-Apgar row -> TradeApgarDialog -> HeldPositionBanner -> loading/error -> SignalSummary/FundamentalDataPanel/ScreensPanel/IndicatorsPanel/StockCharts) showed the gap is unchanged from the task's own description -- no other task landed in the meantime that would have closed it.",
+      "rationale": "The task explicitly calls for confirming rather than assuming, since the gap was 'confirmed via reading the current code before writing this task' and source may have moved since."
+    },
+    {
+      "timestamp": "2026-10-09T19:28:47Z",
+      "recorded_by": "task-worker",
+      "decision": "Added `AnalysisResponse.current_price` (required float) and `AnalysisResponse.current_price_change_pct` (nullable float, percentage convention e.g. 2.5 for +2.5%, matching `unrealized_pnl_pct`'s existing percentage convention elsewhere in this API -- not a 0-1 fraction) rather than threading `StockCharts`' own `history`/`indicators` queries up into the page header. Computed in `app.api.routers.stocks.get_analysis` directly from the `daily_ohlcv` it already has in hand (`daily_ohlcv[\"close\"].iloc[-1]` for `current_price`, day-over-day diff against `.iloc[-2]` for the change -- null only when fewer than 2 daily bars are available), mirroring the exact value `app.portfolio.profit_target.suggest_profit_target` already computes internally and falling back to the latest weekly close (no change_pct) under the same on-paper empty-`daily_ohlcv` condition `as_of` already guards against. Regenerated `backend/openapi.json` (`python scripts/export_openapi.py`) and the frontend's generated `src/api/types.ts` (`yarn generate:api-types`) from it.",
+      "rationale": "Reusing `StockCharts`' own data would mean either duplicating a `GET /.../history` fetch at the page level (extra network round-trip, and a second source of truth for 'the latest close') or lifting `StockCharts`' internal query state up through props -- both more invasive than exposing one already-computed value already sitting in the exact response `StockDetailPage` already fetches via `useStockAnalysis`. The day-over-day change was included (not scoped out) because it's genuinely cheap -- the same `daily_ohlcv` frame, one more `.iloc[-2]` read -- and a reusable common component (`common/PercentChange`) already existed for exactly this percentage-with-color display, so the marginal implementation cost was minimal versus the value of an at-a-glance 'up or down today' signal next to the price. Used the percentage (not fraction) convention to match this codebase's own existing `unrealized_pnl_pct`/`PercentChange` precedent rather than the 0-1 fraction convention `confidence_breakdown.weight/score` use elsewhere -- `PercentChange` already expects a raw percentage number, so matching that convention meant the component could be reused directly with no extra scaling logic at the call site."
+    },
+    {
+      "timestamp": "2026-10-09T19:28:47Z",
+      "recorded_by": "task-worker",
+      "decision": "Placed the new price display as its own element directly below `PageHeader` (ahead of even the methodology-reference/Trade-Apgar action row), via a new feature component `features/stocks/components/CurrentPriceDisplay.tsx` -- a large bold price (`formatCurrency`, MUI `variant=\"h4\"`) plus the day-over-day change via the existing `common/PercentChange` component when non-null. Not placed inside `PageHeader`'s own `title` prop/area.",
+      "rationale": "Keeping `PageHeader` itself domain-agnostic (it currently only knows `title: string` + an arbitrary trailing `action` slot, reused across Dashboard/Portfolio/Watchlist/Scanner/Settings/Methodology/Daily-Homework) outweighed the marginal visual benefit of literally inlining the price next to the ticker text -- widening its contract (e.g. a new `subtitle`/`titleSuffix` prop) for one page's need isn't worth it when 'directly below the header' is already the task's own alternative suggestion and achieves the same 'visible without scrolling' goal (confirmed via an actual Playwright screenshot against the real dev server at a 1280x800 viewport -- the price renders at ~170px from the top, well above the fold). Gated on `analysisQuery.data` (nothing to show while loading/erroring), the same convention the existing Trade Apgar button already uses in this same page for data-dependent elements."
+    }
+  ],
   "questions": []
 }

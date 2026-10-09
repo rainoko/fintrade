@@ -2623,7 +2623,7 @@
       "id": "frontend-stock-detail-current-price-prominent",
       "area": "frontend/stocks",
       "skill": "add-frontend-feature",
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/frontend-stock-detail-current-price-prominent.json"
     },
     {

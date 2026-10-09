@@ -664,10 +664,30 @@ def get_analysis(
     latest_bar = daily_ohlcv.index[-1] if len(daily_ohlcv) > 0 else weekly_ohlcv.index[-1]
     as_of = latest_bar.date() if hasattr(latest_bar, "date") else latest_bar
 
+    # `current_price`/`current_price_change_pct` (frontend-stock-detail-current-price-
+    # prominent): the same `daily_ohlcv["close"].iloc[-1]` read
+    # `app.portfolio.profit_target.suggest_profit_target` already does internally for its own
+    # target-price math -- exposed here rather than computed twice. Falls back to the latest
+    # weekly close (no day-over-day change available in that case) under the same on-paper
+    # empty-`daily_ohlcv` condition `as_of` above already guards against.
+    if len(daily_ohlcv) > 0:
+        current_price = float(daily_ohlcv["close"].iloc[-1])
+        previous_close = float(daily_ohlcv["close"].iloc[-2]) if len(daily_ohlcv) > 1 else None
+    else:
+        current_price = float(weekly_ohlcv["close"].iloc[-1])
+        previous_close = None
+    current_price_change_pct = (
+        (current_price - previous_close) / previous_close * 100.0
+        if previous_close is not None and previous_close != 0
+        else None
+    )
+
     return AnalysisResponse(
         ticker=ticker,
         as_of=as_of,
         trading_mode=trading_mode_setting_to_schema(trading_mode_setting),
+        current_price=current_price,
+        current_price_change_pct=current_price_change_pct,
         signal=result.signal,
         confidence=result.confidence,
         confidence_band=result.confidence_band,

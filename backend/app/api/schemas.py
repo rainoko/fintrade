@@ -373,6 +373,8 @@ class AnalysisResponse(BaseModel):
         "chart data, per this task's own decision to defer the portfolio/profit-target layer's "
         "hard-coded weekly/daily split to a follow-up task (docs/architecture/Backend.md §10)."
     )
+    current_price: float = Field(description="The ticker's latest daily closing price -- `daily_ohlcv[\"close\"].iloc[-1]` after `drop_malformed_daily_bars`, the exact same value/row `app.portfolio.profit_target.suggest_profit_target` already uses internally as its own `current_price` for target-price math (this field just exposes it, rather than computing anything new). Always derived from the ordinary daily chart regardless of `trading_mode` (see `trading_mode`'s own description for which fields *do* vary by mode) -- falls back to the latest *weekly* close only in the on-paper case `daily_ohlcv` itself comes back empty while `weekly_ohlcv` doesn't (mirrors `as_of`'s own fallback). Informational display only -- not itself wired into `signal`/`confidence`.")
+    current_price_change_pct: float | None = Field(description="Day-over-day change in `current_price` versus the prior daily bar's close, as a percentage (e.g. 2.5 for +2.5%, matching `unrealized_pnl_pct`'s own percentage convention elsewhere in this API -- not a 0-1 fraction). Null whenever fewer than 2 daily bars are available to compare (e.g. the `current_price` weekly-fallback case above, or a brand-new ticker).")
     signal: Signal
     confidence: int = Field(description="0-100 weighted composite score (docs/Analyse.md §6). Not a statistical probability.")
     confidence_band: ConfidenceBand = Field(description="Low <40, Medium 40-70, High >70.")

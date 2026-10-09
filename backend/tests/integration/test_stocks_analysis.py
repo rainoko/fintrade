@@ -369,6 +369,13 @@ class TestGetAnalysis:
         body = response.json()
         assert body["ticker"] == "AAPL"
         assert body["as_of"] == _buy_daily_ohlcv().index[-1].date().isoformat()
+        # current_price/current_price_change_pct (frontend-stock-detail-current-price-
+        # prominent) -- see TestCurrentPriceField below for dedicated coverage.
+        daily_closes = _buy_daily_ohlcv()["close"]
+        assert body["current_price"] == pytest.approx(daily_closes.iloc[-1])
+        assert body["current_price_change_pct"] == pytest.approx(
+            (daily_closes.iloc[-1] - daily_closes.iloc[-2]) / daily_closes.iloc[-2] * 100.0
+        )
         assert body["signal"] == "BUY"
         assert 0 <= body["confidence"] <= 100
         assert body["confidence_band"] in ("Low", "Medium", "High")
@@ -621,6 +628,47 @@ class TestGetAnalysis:
         response = _get_analysis(provider)
 
         assert response.status_code == 503
+
+
+class TestCurrentPriceField:
+    """Dedicated coverage for `current_price`/`current_price_change_pct`
+    (frontend-stock-detail-current-price-prominent) -- exposing
+    `daily_ohlcv["close"].iloc[-1]` (and its day-over-day change) on
+    `GET /api/stocks/{ticker}/analysis`, the same value/row
+    `app.portfolio.profit_target.suggest_profit_target` already reads internally.
+    `test_buy_signal_response_shape` above already covers the ordinary non-flat case; these
+    tests cover the zero-change and single-daily-bar edge cases."""
+
+    def test_flat_series_reports_zero_percent_change_not_null(self) -> None:
+        # _hold_daily_ohlcv is 30 identical $100.00 closes -- previous_close is real (not
+        # None) and nonzero, so current_price_change_pct should resolve to an explicit 0.0,
+        # not null -- null is reserved for genuinely too-little-history, not a flat market.
+        provider = _StubProvider(
+            daily={"AAPL": _hold_daily_ohlcv()}, weekly={"AAPL": _hold_weekly_ohlcv()}
+        )
+
+        response = _get_analysis(provider)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["current_price"] == pytest.approx(100.0)
+        assert body["current_price_change_pct"] == pytest.approx(0.0)
+
+    def test_single_daily_bar_has_null_change_pct(self) -> None:
+        # Only one daily bar means there's no prior close to diff against -- this fixture
+        # still clears InsufficientHistoryError's own (lower) daily-bar floor since that
+        # check only inspects weekly history length, not daily.
+        single_bar_daily = _hold_daily_ohlcv().iloc[[-1]]
+        provider = _StubProvider(
+            daily={"AAPL": single_bar_daily}, weekly={"AAPL": _hold_weekly_ohlcv()}
+        )
+
+        response = _get_analysis(provider)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["current_price"] == pytest.approx(single_bar_daily["close"].iloc[-1])
+        assert body["current_price_change_pct"] is None
 
 
 class _SlowStubProvider(_StubProvider):
@@ -1389,10 +1437,12 @@ class TestDayTraderMode:
         assert body["screens"]["trigger"]["fired"] is True
         assert body["signal"] == "BUY"
         assert 0 <= body["confidence"] <= 100
-        # extended_data/as_of are still derived from the ordinary daily/weekly fixture,
-        # unaffected by day-trader mode (this task's own decision, see AnalysisResponse
-        # .trading_mode's field description).
+        # extended_data/as_of/current_price are still derived from the ordinary daily/weekly
+        # fixture, unaffected by day-trader mode (this task's own decision, see
+        # AnalysisResponse.trading_mode's field description) -- current_price_change_pct
+        # (frontend-stock-detail-current-price-prominent) follows the same rule.
         assert body["as_of"] == _hold_daily_ohlcv().index[-1].date().isoformat()
+        assert body["current_price"] == pytest.approx(_hold_daily_ohlcv()["close"].iloc[-1])
 
     def test_swing_mode_default_is_unaffected_by_a_configured_day_trader_triple(
         self, _isolated_db: Session
