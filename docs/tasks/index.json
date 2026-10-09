@@ -2616,7 +2616,7 @@
       "id": "frontend-stock-detail-insider-transactions-last",
       "area": "frontend/stocks",
       "skill": "add-frontend-feature",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-stock-detail-insider-transactions-last.json"
     },
     {

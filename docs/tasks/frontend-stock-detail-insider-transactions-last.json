@@ -3,7 +3,7 @@
   "title": "Stock Detail page: move the Insider Transactions block to the bottom of the page",
   "area": "frontend/stocks",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "frontend/src/pages/StockDetailPage.tsx",
@@ -14,33 +14,40 @@
   "checklist": [
     {
       "step": "Re-read `FundamentalDataPanel.tsx` and `StockDetailPage.tsx` in full to confirm the current structure matches this task's description (source may have moved since this task was written).",
-      "done": false
+      "done": true
     },
     {
       "step": "Extract the Insider Transactions card (`InsiderClusterCallouts`, `insiderColumns`/`InsiderRow`, the trailing `Card`/`CardContent` block) into a new sibling component, preserving its existing `MetricHelp` content (`insiderClustersHelp`/`insiderTransactionsHelp`) and behavior exactly.",
-      "done": false
+      "done": true
     },
     {
       "step": "Decide and record how the new component handles `extendedData.unavailable_reason === 'fallback_provider_active'` (its own empty/unavailable state vs. some other treatment) so that messaging isn't silently dropped.",
-      "done": false
+      "done": true
     },
     {
       "step": "Wire the new component into `StockDetailPage.tsx` as the last block on the page (after `StockCharts`), passing `extendedData`/`insiderClusters` the same way `FundamentalDataPanel` currently receives them.",
-      "done": false
+      "done": true
     },
     {
       "step": "Update `FundamentalDataPanel.tsx`'s own prop types and doc comment (drop the `insiderClusters` prop and the now-inaccurate 'same card, stay visually grouped' rationale) and its unavailable-provider branch's copy (no longer needs to mention insider transactions in the same sentence).",
-      "done": false
+      "done": true
     },
     {
       "step": "Move/update existing tests: `FundamentalDataPanel.test.tsx`'s insider-related cases move to the new component's own test file; `StockDetailPage.test.tsx`'s assertions about block order are updated to match the new bottom placement.",
-      "done": false
+      "done": true
     },
     {
       "step": "Real-browser check confirming the Insider Transactions block visually renders last on the page, below the chart panes, with no change to the earnings-warning banner's own top-of-page prominence.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-09T20:47:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted the Insider Transactions card into a new `InsiderTransactionsPanel.tsx` component (features/stocks/components/) rendered by `StockDetailPage.tsx` as the last element in its `Stack`, after `StockCharts`. Gave it its own 'fallback provider active' unavailable empty state (a dashed-border Card naming the cause, mirroring `FundamentalDataPanel`'s own equivalent branch) rather than letting that messaging silently disappear or folding it back into `FundamentalDataPanel`'s branch. This required a new `insiderTransactionsUnavailableHelp` MetricHelp content entry (metricHelpContent.ts), separate from `fundamentalDataUnavailableHelp`, whose own copy was narrowed to drop its insider-transactions mention now that `FundamentalDataPanel` only renders earnings/dividend dates and short interest. Rejected alternatives: (a) silently dropping the insider-unavailable messaging entirely -- explicitly ruled out by the task description; (b) having `InsiderTransactionsPanel` render nothing in that state and relying on `FundamentalDataPanel`'s banner alone to convey it -- rejected because the two components are no longer adjacent on the page (one is now at the very bottom), so a user scrolling straight to the bottom block would see a misleading blank/empty-looking table state with no explanation; (c) reusing `fundamentalDataUnavailableHelp` as-is for the new component -- rejected because its copy explicitly named earnings/dividend/short-interest fields that `InsiderTransactionsPanel` doesn't render, which would be confusing copy for a reader of just that card.",
+      "rationale": "Keeps the 'unsupported by the currently active provider, distinct from checked-and-found-nothing' distinction (the whole point of this branch, per `fundamentalDataUnavailableHelp`'s/`insiderTransactionsUnavailableHelp`'s own `elderContext`) visible at both the top-of-page fundamentals card and the bottom-of-page insider-transactions card independently, since after this move they're no longer visually or spatially linked the way they were when both lived inside one `FundamentalDataPanel` early-return."
+    }
+  ],
   "questions": []
 }

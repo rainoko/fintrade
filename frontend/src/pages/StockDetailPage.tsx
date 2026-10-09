@@ -13,6 +13,7 @@ import TradeApgarDialog from '../features/portfolio/components/TradeApgarDialog'
 import CurrentPriceDisplay from '../features/stocks/components/CurrentPriceDisplay'
 import FundamentalDataPanel from '../features/stocks/components/FundamentalDataPanel'
 import IndicatorsPanel from '../features/stocks/components/IndicatorsPanel'
+import InsiderTransactionsPanel from '../features/stocks/components/InsiderTransactionsPanel'
 import ScreensPanel from '../features/stocks/components/ScreensPanel'
 import SignalSummary from '../features/stocks/components/SignalSummary'
 import StockCharts from '../features/stocks/components/StockCharts'
@@ -37,16 +38,23 @@ import { useStockAnalysis } from '../features/stocks/hooks/useStockAnalysis'
  * see this task's `decisions` entry for why this reuses rather than
  * duplicates that component.
  *
- * `FundamentalDataPanel` (earnings/dividend dates, short interest, insider
- * transactions and (frontend-insider-clusters-badge) detected
- * insider-transaction clusters — frontend-fundamental-data-panel) sits
- * directly below `SignalSummary`, ahead of `ScreensPanel`/`IndicatorsPanel`/
- * `StockCharts` — see that component's own doc comment for why (its
- * earnings-date warning banner needs to stay visible near the top of the
- * page, not buried below several other panels and the price chart).
- * `AnalysisResponse.insider_clusters` is passed straight through from this
- * page (it's a top-level sibling field to `extended_data`, not nested
- * inside it).
+ * `FundamentalDataPanel` (earnings/dividend dates and short interest —
+ * frontend-fundamental-data-panel) sits directly below `SignalSummary`,
+ * ahead of `ScreensPanel`/`IndicatorsPanel`/`StockCharts` — see that
+ * component's own doc comment for why (its earnings-date warning banner
+ * needs to stay visible near the top of the page, not buried below several
+ * other panels and the price chart).
+ *
+ * `InsiderTransactionsPanel` (insider transactions and
+ * (frontend-insider-clusters-badge) detected insider-transaction clusters)
+ * sits at the OPPOSITE end of the page — the LAST block, after
+ * `StockCharts` (frontend-stock-detail-insider-transactions-last) — since it
+ * used to be `FundamentalDataPanel`'s own last `Card` purely as an
+ * implementation detail, not because Insider Transactions itself needed
+ * top-of-page prominence the way the earnings banner does; see that task's
+ * `decisions` entry. `AnalysisResponse.insider_clusters` is passed straight
+ * through from this page to `InsiderTransactionsPanel` (it's a top-level
+ * sibling field to `extended_data`, not nested inside it).
  *
  * A "Methodology reference" link to `/methodology`
  * (frontend-methodology-explainer) sits directly under the page header,
@@ -151,10 +159,7 @@ export default function StockDetailPage() {
             profitTarget={analysisQuery.data.profit_target}
           />
 
-          <FundamentalDataPanel
-            extendedData={analysisQuery.data.extended_data}
-            insiderClusters={analysisQuery.data.insider_clusters}
-          />
+          <FundamentalDataPanel extendedData={analysisQuery.data.extended_data} />
 
           <ScreensPanel
             screens={analysisQuery.data.screens}
@@ -164,6 +169,11 @@ export default function StockDetailPage() {
           <IndicatorsPanel indicators={analysisQuery.data.indicators} />
 
           <StockCharts ticker={ticker} />
+
+          <InsiderTransactionsPanel
+            extendedData={analysisQuery.data.extended_data}
+            insiderClusters={analysisQuery.data.insider_clusters}
+          />
         </Stack>
       )}
     </>
