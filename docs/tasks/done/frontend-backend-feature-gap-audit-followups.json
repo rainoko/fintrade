@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from frontend-backend-feature-gap-audit's PR review (#400)",
   "area": "frontend",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-backend-feature-gap-audit"],
   "references": [
     "docs/tasks/done/frontend-backend-feature-gap-audit.json",
@@ -44,5 +44,12 @@
     "pr_number": 401,
     "pr_url": "https://github.com/rainoko/fintrade/pull/401",
     "pushed_at": "2026-10-09T22:29:13Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-09T22:31:18Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/401",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Pure task-board housekeeping, no application code changed (confirmed via `git diff --stat main...HEAD`: only docs/tasks/done/frontend-backend-feature-gap-audit.json, docs/tasks/frontend-backend-feature-gap-audit-followups.json, docs/tasks/index.json touched). Verified independently: (1) the new decisions entry on frontend-backend-feature-gap-audit.json is correctly APPENDED, not amended in place -- the original entry's '#151-era' text is untouched in the diff; re-read CLAUDE.md's Decision memory section and agree the append-only default applies here since this task's checklist item only described the citation error conditionally ('should be corrected if that decisions entry is ever revisited') rather than explicitly naming the existing entry's own text as the thing to fix, unlike backend-cftc-cot-data-followups's checklist, which did. (2) Citation correction itself is accurate: `git log --oneline 5018850f` shows 'Mark bullish/bearish divergences on price and oscillator charts (#158)', confirming PR #158 not '#151-era'; the commit hash and 2026-09-19 date were already correct. (3) Re-ran grep for all 4 flagged fields (centerline_crossed, ownership, as_of_date/asOfDate, net_realized_pnl/netRealizedPnl) across frontend/src/**/*.ts(x), excluding *.test.* and api/types.ts -- all 4 came back with zero production consumers (the one net_realized_pnl hit, in frontend/src/api/homework.ts, is a JSDoc comment in the excluded api client wrapper file, not a UI consumer), matching the field names in backend/app/api/schemas.py exactly. Treating them as non-actionable/opportunistic-only is reasonable given the source finding's own framing. (4) `python3 scripts/validate_tasks.py` reports no violations (382 files). No application test suite or browser walkthrough needed -- no code touched, as the dispatch correctly noted."
   }
 }
