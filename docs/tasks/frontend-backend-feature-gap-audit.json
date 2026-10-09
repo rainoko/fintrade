@@ -51,5 +51,11 @@
       "rationale": "Scoped strictly to 'does the UI ever render/use this value' per the task's own framing, not 'does the signal/confidence engine use it' (the latter is a separate, already-understood, already-intentional backend-internal gap this task was explicitly told not to conflate with a UI gap -- most 'detection + exposure only'/'not wired into signal/confidence' schema fields in this codebase, e.g. divergence, kangaroo_tail, support_resistance_zones, season, trend_strength, obv/accumulation_distribution, DO have real UI consumers despite that docstring phrasing, confirming the task description's own warning about this exact conflation risk was well-founded). Filed 3 new tasks rather than fixing any of them directly within this audit task, per the task's own default ('implementing a fix directly within THIS task is fine only for a genuinely trivial case') -- none of the three genuine gaps found is trivial: each needs real UI design decisions (placement, input conventions, a MetricHelp entry) that belong in their own task-worker pass with their own tests/Storybook coverage, not squeezed into an audit task's commit."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-backend-feature-gap-audit",
+    "pr_number": 400,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/400",
+    "pushed_at": "2026-10-09T22:09:00Z"
+  }
 }
