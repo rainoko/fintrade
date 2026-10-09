@@ -1,0 +1,88 @@
+{
+  "id": "frontend-daily-homework-history-followups",
+  "title": "Non-blocking findings from frontend-daily-homework-history's PR review (#402)",
+  "area": "frontend/pages",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-daily-homework-history"],
+  "references": [
+    "docs/tasks/done/frontend-daily-homework-history.json",
+    "https://github.com/rainoko/fintrade/pull/402",
+    "frontend/tests/e2e/daily-homework.spec.ts",
+    "frontend/src/features/homework/components/DailyHomeworkHistoryTable.test.tsx",
+    "frontend/src/features/homework/components/DailyHomeworkHistoryTable.tsx"
+  ],
+  "description": "pr-reviewer's full review of PR #402 (frontend-daily-homework-history) accepted it -- tests/coverage, static analysis, build/build-storybook, a live browser walkthrough, and the persisted e2e suite all passed, and the `band.ts` extraction / eslint react-refresh justification / query-invalidation rationale were all independently verified as genuine, not rationalized. Three non-blocking findings surfaced during that review that shouldn't disappear once PR #402 merges.",
+  "checklist": [
+    {
+      "step": "`frontend/tests/e2e/daily-homework.spec.ts` (the persisted Playwright e2e spec for this page) still only covers the form+banner flow -- it was not extended to cover the new History section/table this PR added (no navigation to/assertion on the history rows, sort, or the band-chip coloring in the persisted suite). This page already needed a dedicated `-followups` task once before precisely because a UI flow shipped without e2e coverage (see this spec's own docstring, filed from PR #271's review) -- the same gap now exists for the History table specifically. Add a case (either a new `test()` in this spec, or an extension of the existing one) that submits an entry and asserts it appears as a row in the History table with the correct band chip.",
+      "done": true
+    },
+    {
+      "step": "`DailyHomeworkHistoryTable.test.tsx`'s band-chip test exercises red, green, and the 9-10 'too perfect' yellow case, but never a plain yellow (5-6, 'trade cautiously') row -- the fourth practically distinct band state. Coverage numbers aren't affected (the `isTooPerfectBand`-false branch is already exercised by the red/green rows), but the test doesn't directly confirm a plain-yellow row renders `YELLOW` (no '(too perfect)' suffix) with the warning color. Add a 4th seeded entry (e.g. total_score 6) to that test.",
+      "done": true
+    },
+    {
+      "step": "This task's checklist item 4 ('Tests + a Storybook story for the new component(s)') was marked done without a `.stories.tsx` for `DailyHomeworkHistoryTable`. This is actually correct per Frontend.md §4 ('Feature-specific components ... do not get stories') -- `DailyHomeworkHistoryTable` is correctly placed under `features/homework/components/`, not `components/common/` -- but neither the task's `decisions` array nor the checklist item itself records that reasoning explicitly; a future reader scanning the checklist sees 'done' next to a literal ask for a story that doesn't exist. If this task's checklist/decisions is ever revisited, add a short note (or amend the checklist item's own wording) making the Frontend.md §4 exemption explicit rather than leaving it implicit in the placement decision.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-10-09T23:29:17Z",
+      "recorded_by": "task-worker",
+      "decision": "For checklist item 3 (making the Frontend.md §4 Storybook-story exemption explicit), appended a new `decisions` entry to the parent `frontend-daily-homework-history` task (now under `docs/tasks/done/`) rather than amending that task's existing placement `decisions` entry text in place, and left the parent's checklist item 4 wording as originally written.",
+      "rationale": "CLAUDE.md's 'Decision memory' section defaults to appending a brand-new entry over amending an already-done task's existing entry text in place, reserving in-place amendment for the narrower case where the checklist item or task explicitly calls out the *existing entry's own text* as the thing to fix. This followup's own checklist item offered a choice ('add a short note (or amend the checklist item's own wording)') but did not call out the existing placement decisions entry's text itself as wrong or stale -- that entry never claimed a story existed, so there is nothing factually incorrect in it to correct. Appending a new entry (rather than editing the checklist item 4 label, which is a historical record of what was literally asked and marked done, not a place to retroactively annotate reasoning) keeps the original record intact while making the exemption fully explicit and independently discoverable."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-daily-homework-history-followups",
+    "pr_number": 403,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/403",
+    "pushed_at": "2026-10-09T23:32:35Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-09T23:42:25Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/403",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Ran the new e2e assertions and mutation-tested them: temporarily removed useRecordDailyHomework's invalidateQueries(homeworkKeys.history) call and re-ran tests/e2e/daily-homework.spec.ts in isolation -- the new 'History table picks up the just-submitted entry' assertion genuinely failed (table never appeared, since the cached empty-list query was never invalidated), confirming the new coverage would actually catch the regression PR #402's review flagged as silently passable. Restored the hook afterward (git status clean, no diff left).",
+        "file": "frontend/tests/e2e/daily-homework.spec.ts",
+        "line": 90
+      },
+      {
+        "summary": "Confirmed the new plain-yellow (total_score 6) test row is correct, not a copy-paste of another band: physical(1)+yesterday(1)+planning(1)+mood(2)+schedule(1)=6, backend's band_for_total_score (backend/app/portfolio/homework.py) maps 5-6 to 'yellow' (not green's 7-8 or the 9-10 too-perfect yellow), and isTooPerfectBand (band.ts) returns false for totalScore<9 -- matching the test's assertion of a bare 'YELLOW' chip with no '(TOO PERFECT)' suffix.",
+        "file": "frontend/src/features/homework/components/DailyHomeworkHistoryTable.test.tsx",
+        "line": 88
+      },
+      {
+        "summary": "Verified the append-vs-amend decision is consistent with CLAUDE.md's Decision memory section: diffed docs/tasks/done/frontend-daily-homework-history.json and confirmed the new decisions entry is a pure addition (no deletions in that file's diff) -- the original placement decisions entry's text is byte-for-byte unchanged. The checklist item offered either option and didn't call out the existing entry's own text as wrong, so appending (rather than amending) was the correct default per CLAUDE.md.",
+        "file": "docs/tasks/done/frontend-daily-homework-history.json",
+        "line": 56
+      },
+      {
+        "summary": "Confirmed backend/fintrade.db is genuinely untouched: git status reports no diff on the file, and its daily_homework_entries table holds exactly the one pre-existing 2026-09-27 row. The e2e run's own data (the new History assertions) lives entirely in Playwright's dedicated e2e.db, consistent with the task-worker's claim.",
+        "file": "backend/fintrade.db",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking (surfaced by a `code-review` skill pass dispatched in parallel with the rest of this review): the new History-row date assertion computes 'today' client-side via `new Date().toISOString().slice(0, 10)` *after* the Save click, form re-render, and banner assertions have already elapsed, while the backend stamps the row's date via `today()` (backend/app/time_utils.py) at POST-handling time, earlier in that same sequence. A suite run straddling a UTC-midnight boundary between those two moments would see the stored and asserted dates disagree -- a narrow, low-probability latent flake this diff newly introduces (the spec made no date-sensitive assertions before). Tracked as a follow-up rather than blocking, since reproducing/fixing it meaningfully needs either an injectable clock or reading the date back from the POST response instead of recomputing it.",
+        "file": "frontend/tests/e2e/daily-homework.spec.ts",
+        "line": 100
+      },
+      {
+        "summary": "Non-blocking (same code-review pass): `expectedHistoryDateCell` (line 35) re-implements `formatDate`'s (frontend/src/utils/format.ts) exact `toLocaleDateString` options inline instead of importing it directly, or adding a shared helper under `tests/` the way `tests/dateFixtures.ts`'s `isoDateWeeksAgo` already does for an analogous need (shared between MSW mocks and e2e specs). `tsconfig.app.json` includes both `src` and `tests`, so importing `formatDate` directly was available. If `formatDate`'s options ever change, this copy won't follow, and the assertion would start failing for a reason unrelated to any real regression.",
+        "file": "frontend/tests/e2e/daily-homework.spec.ts",
+        "line": 35
+      }
+    ],
+    "notes": "Full independent re-verification: backend pytest (1618 passed, 99.94% coverage, unaffected since no backend files changed) and frontend vitest --coverage (1054 passed, 99.78%/99.05%/99.84%/99.81% across statements/branches/functions/lines) both comfortably clear the 90% gate, matching the task-worker's claimed numbers exactly. ruff, mypy, eslint, tsc -b, and the profit-target stale-wording guard are all clean. Ran `make e2e` twice (28/28 both times, including the extended daily-homework.spec.ts) and once more with a deliberately reintroduced regression (see comments) to confirm the new History-section assertions are load-bearing, not decorative. `python3 scripts/validate_tasks.py` reports no violations (383 files). No API/schema changes in this PR (diff is test files + task JSON only), so no openapi.json regeneration was needed. This PR touches only test files and task-board JSON, not application/component source -- no new or changed UI component, so the step-7a placement check and a fresh interactive browser walkthrough don't apply beyond what the persisted e2e run (driving a real browser against a real backend) and the mutation test above already exercised; said so explicitly rather than silently skipping. All three checklist items are now done with corresponding verified work, and the task's own `decisions` entry about the append-vs-amend choice is itself accurate and justified. No `pr_decision` existed to clear (first review pass for this task). A dedicated `code-review` skill pass (dispatched in the background alongside the rest of this review) surfaced two non-blocking test-quality findings in the new e2e assertions (a narrow UTC-midnight date race, and date-formatting logic duplicated instead of reused) -- both are test-maintainability/flakiness issues, not functional regressions, and are tracked at docs/tasks/frontend-daily-homework-history-followups-followups.json per CLAUDE.md's tracked-follow-up convention rather than left only in this PR's comments."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-10-09T23:51:18Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran both suites and confirmed numbers match pr-reviewer exactly: backend pytest 1618 passed / 99.94% coverage; frontend vitest 1054 passed / 99.78% stmts, 99.05% branches, 99.84% fns, 99.81% lines. ruff, mypy, eslint, and tsc -b all clean. Skimmed the full diff myself (two test files + three task JSONs, no application source). Ran `make e2e` (28/28), then independently reproduced the mutation test: removed useRecordDailyHomework's invalidateQueries(homeworkKeys.history) call, re-ran tests/e2e/daily-homework.spec.ts alone, and confirmed the new History-table assertion genuinely fails ('table not found' -- the cached empty-list query is never invalidated); restored the hook afterward (git status clean). Hand-verified the plain-yellow seeded row (1+1+1+2+1=6) against band_for_total_score (backend/app/portfolio/homework.py, 5-6 maps to yellow, not green/too-perfect) and isTooPerfectBand (frontend band.ts, false for totalScore<9) -- matches the component test's bare 'YELLOW' assertion. While reviewing, pr-reviewer's own backgrounded code-review pass returned (commit 0ebb32d2) and filed the two non-blocking findings it had flagged as outstanding as docs/tasks/frontend-daily-homework-history-followups-followups.json, explicitly reaffirming the accepted verdict -- I agree both are narrow test-maintainability issues (a UTC-midnight date race, duplicated date-formatting logic), not functional regressions, and they're now properly tracked per CLAUDE.md rather than left only in a PR comment. python3 scripts/validate_tasks.py reports no violations (384 files, including the new followup task). No human comments/reviews on PR #403, only the shared automation account. The accept holds."
+  }
+}

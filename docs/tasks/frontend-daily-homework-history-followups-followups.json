@@ -1,0 +1,29 @@
+{
+  "id": "frontend-daily-homework-history-followups-followups",
+  "title": "Non-blocking test-quality findings from frontend-daily-homework-history-followups' PR review (#403)",
+  "area": "frontend/pages",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-daily-homework-history-followups"],
+  "references": [
+    "docs/tasks/done/frontend-daily-homework-history-followups.json",
+    "https://github.com/rainoko/fintrade/pull/403",
+    "frontend/tests/e2e/daily-homework.spec.ts",
+    "frontend/src/utils/format.ts",
+    "frontend/tests/dateFixtures.ts",
+    "backend/app/time_utils.py"
+  ],
+  "description": "pr-reviewer's full review of PR #403 (frontend-daily-homework-history-followups, which extended the e2e suite and a component test, and recorded a decisions entry) accepted it -- tests/coverage, static analysis, make e2e (run twice, plus once with a deliberately reintroduced regression to confirm the new e2e assertions are load-bearing), and the dev-DB/decisions-append checks all passed. A `code-review` skill pass dispatched alongside that review surfaced two non-blocking test-quality findings in the new e2e assertions this PR added, which shouldn't disappear once PR #403 merges.",
+  "checklist": [
+    {
+      "step": "`frontend/tests/e2e/daily-homework.spec.ts`'s new History-row date assertion (around line 100) computes 'today' client-side via `new Date().toISOString().slice(0, 10)` *after* the Save click, form re-render, and banner assertions have already elapsed, while the backend stamps the row's date via `today()` (backend/app/time_utils.py) at POST-handling time, earlier in that same sequence. A suite run straddling a UTC-midnight boundary between those two moments would see the stored and asserted dates disagree -- a narrow, low-probability latent flake this diff newly introduced (the spec made no date-sensitive assertions before this PR). Fix by reading the date back from the POST response (or the rendered form/banner) instead of recomputing 'today' independently client-side, so the assertion can never disagree with what the backend actually stored.",
+      "done": false
+    },
+    {
+      "step": "`expectedHistoryDateCell` (frontend/tests/e2e/daily-homework.spec.ts line 35) re-implements `formatDate`'s (frontend/src/utils/format.ts) exact `toLocaleDateString` options inline instead of importing `formatDate` directly (available -- `tsconfig.app.json` includes both `src` and `tests`), or adding a shared helper under `tests/` the way `tests/dateFixtures.ts`'s `isoDateWeeksAgo` already does for an analogous need shared between MSW mocks and e2e specs. If `formatDate`'s options ever change, this copy won't follow, and the e2e assertion would start failing for a reason unrelated to any real regression. Replace the local re-implementation with a direct import of `formatDate`.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
