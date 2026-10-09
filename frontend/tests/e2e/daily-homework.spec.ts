@@ -21,7 +21,25 @@ import { expect, test } from '@playwright/test'
  * neutral (1) default rather than a specific suggested value, the same
  * "only assert what's deterministic against the real backend" reasoning
  * watchlist.spec.ts uses for its signal badge.
+ *
+ * The History table (`DailyHomeworkHistoryTable`, `GET /api/daily-homework`,
+ * frontend-daily-homework-history) is covered below too -- PR #402's own
+ * review flagged this spec as still only exercising the form+banner flow
+ * despite adding that section (frontend-daily-homework-history-followups'
+ * checklist). The expected row date is computed the same way `formatDate`
+ * (frontend/src/utils/format.ts) renders it, rather than a literal string,
+ * since this spec runs against whatever the real calendar date is on any
+ * future day it's re-run -- a hardcoded date would break on every run but
+ * the day this was written.
  */
+function expectedHistoryDateCell(isoDate: string): string {
+  return new Date(isoDate).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  })
+}
 test.describe('daily homework: nav, submit, and see the color-coded score banner', () => {
   test('nav drawer link opens the page, submitting the form shows the score banner, and it persists across reload', async ({
     page,
@@ -69,6 +87,21 @@ test.describe('daily homework: nav, submit, and see the color-coded score banner
     await expect(banner).toHaveText(/any change is bound to be for the worse/i)
     await expect(page.getByRole('button', { name: 'Update' })).toBeVisible()
 
+    // The History table (below the form, same page -- frontend-daily-
+    // homework-history) picks up the just-submitted entry via
+    // useRecordDailyHomework's query invalidation, with no reload needed.
+    // `e2e.db` is deleted fresh before every run (playwright.config.ts), so
+    // this is the only row.
+    await expect(page.getByRole('heading', { level: 2, name: 'History' })).toBeVisible()
+    const historyTable = page.getByRole('table', { name: 'Daily homework history' })
+    await expect(historyTable).toBeVisible()
+    const todayHistoryRow = historyTable.getByRole('row').nth(1)
+    await expect(todayHistoryRow.getByRole('cell').first()).toHaveText(
+      expectedHistoryDateCell(new Date().toISOString().slice(0, 10)),
+    )
+    await expect(todayHistoryRow.getByRole('cell').nth(6)).toHaveText('9')
+    await expect(todayHistoryRow).toContainText('YELLOW (TOO PERFECT)')
+
     // Reloading re-fetches today's now-recorded entry and shows the same
     // band without resubmitting -- confirms the entry actually persisted
     // server-side, not just in local component state.
@@ -81,5 +114,11 @@ test.describe('daily homework: nav, submit, and see the color-coded score banner
       page.getByRole('combobox', { name: /How do I feel physically/ }),
     ).toHaveText(/^2 —/)
     await expect(page.getByRole('button', { name: 'Update' })).toBeVisible()
+
+    // The History row survives the reload too -- a fresh GET, not stale
+    // client cache.
+    await expect(
+      page.getByRole('table', { name: 'Daily homework history' }).getByRole('row').nth(1),
+    ).toContainText('YELLOW (TOO PERFECT)')
   })
 })

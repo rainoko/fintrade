@@ -24,17 +24,29 @@ describe('DailyHomeworkHistoryTable', () => {
   })
 
   it('lists every recorded entry most-recent-first, with per-row scores and a band chip', async () => {
-    // Backfills two past days (a red day and a green day) plus today
-    // (yellow, "too perfect") via the real upsert endpoint -- DailyHomeworkIn's
-    // optional `date` field lets a caller backfill/correct an earlier day,
-    // which this seeds through rather than reaching into the mock store's
-    // internals directly.
+    // Backfills three past days (a red day, a plain "trade cautiously"
+    // yellow day, and a green day) plus today (yellow, "too perfect") via
+    // the real upsert endpoint -- DailyHomeworkIn's optional `date` field
+    // lets a caller backfill/correct an earlier day, which this seeds
+    // through rather than reaching into the mock store's internals
+    // directly. The plain yellow (total_score 6) row is the fourth
+    // practically distinct band state (red / plain-yellow / too-perfect-
+    // yellow / green) -- see frontend-daily-homework-history-followups'
+    // checklist for why it was added after the fact.
     await recordDailyHomework({
       date: '2026-09-01',
       physical_state_score: 0,
       yesterday_trading_score: 0,
       trade_planning_score: 1,
       mood_score: 0,
+      schedule_score: 1,
+    })
+    await recordDailyHomework({
+      date: '2026-09-10',
+      physical_state_score: 1,
+      yesterday_trading_score: 1,
+      trade_planning_score: 1,
+      mood_score: 2,
       schedule_score: 1,
     })
     await recordDailyHomework({
@@ -61,8 +73,8 @@ describe('DailyHomeworkHistoryTable', () => {
     )
 
     const rows = screen.getAllByRole('row')
-    // Header row + 3 data rows, most-recent date first.
-    expect(rows).toHaveLength(4)
+    // Header row + 4 data rows, most-recent date first.
+    expect(rows).toHaveLength(5)
     expect(within(rows[1]).getByText('Sep 20, 2026')).toBeInTheDocument()
     expect(within(rows[1]).getByText('10')).toBeInTheDocument()
     expect(within(rows[1]).getByText('YELLOW (TOO PERFECT)')).toBeInTheDocument()
@@ -71,9 +83,16 @@ describe('DailyHomeworkHistoryTable', () => {
     expect(within(rows[2]).getByText('8')).toBeInTheDocument()
     expect(within(rows[2]).getByText('GREEN')).toBeInTheDocument()
 
-    expect(within(rows[3]).getByText('Sep 1, 2026')).toBeInTheDocument()
-    expect(within(rows[3]).getByText('2')).toBeInTheDocument()
-    expect(within(rows[3]).getByText('RED')).toBeInTheDocument()
+    // Plain yellow (5-6, "trade cautiously"): no "(too perfect)" suffix,
+    // still the warning/amber color via the shared SEVERITY_BY_BAND map.
+    expect(within(rows[3]).getByText('Sep 10, 2026')).toBeInTheDocument()
+    expect(within(rows[3]).getByText('6')).toBeInTheDocument()
+    expect(within(rows[3]).getByText('YELLOW')).toBeInTheDocument()
+    expect(within(rows[3]).queryByText(/TOO PERFECT/)).not.toBeInTheDocument()
+
+    expect(within(rows[4]).getByText('Sep 1, 2026')).toBeInTheDocument()
+    expect(within(rows[4]).getByText('2')).toBeInTheDocument()
+    expect(within(rows[4]).getByText('RED')).toBeInTheDocument()
   })
 
   it('shows a loading state, then an ApiError via common/ErrorState on failure', async () => {

@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from frontend-daily-homework-history's PR review (#402)",
   "area": "frontend/pages",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-daily-homework-history"],
   "references": [
     "docs/tasks/done/frontend-daily-homework-history.json",
@@ -16,17 +16,24 @@
   "checklist": [
     {
       "step": "`frontend/tests/e2e/daily-homework.spec.ts` (the persisted Playwright e2e spec for this page) still only covers the form+banner flow -- it was not extended to cover the new History section/table this PR added (no navigation to/assertion on the history rows, sort, or the band-chip coloring in the persisted suite). This page already needed a dedicated `-followups` task once before precisely because a UI flow shipped without e2e coverage (see this spec's own docstring, filed from PR #271's review) -- the same gap now exists for the History table specifically. Add a case (either a new `test()` in this spec, or an extension of the existing one) that submits an entry and asserts it appears as a row in the History table with the correct band chip.",
-      "done": false
+      "done": true
     },
     {
       "step": "`DailyHomeworkHistoryTable.test.tsx`'s band-chip test exercises red, green, and the 9-10 'too perfect' yellow case, but never a plain yellow (5-6, 'trade cautiously') row -- the fourth practically distinct band state. Coverage numbers aren't affected (the `isTooPerfectBand`-false branch is already exercised by the red/green rows), but the test doesn't directly confirm a plain-yellow row renders `YELLOW` (no '(too perfect)' suffix) with the warning color. Add a 4th seeded entry (e.g. total_score 6) to that test.",
-      "done": false
+      "done": true
     },
     {
       "step": "This task's checklist item 4 ('Tests + a Storybook story for the new component(s)') was marked done without a `.stories.tsx` for `DailyHomeworkHistoryTable`. This is actually correct per Frontend.md §4 ('Feature-specific components ... do not get stories') -- `DailyHomeworkHistoryTable` is correctly placed under `features/homework/components/`, not `components/common/` -- but neither the task's `decisions` array nor the checklist item itself records that reasoning explicitly; a future reader scanning the checklist sees 'done' next to a literal ask for a story that doesn't exist. If this task's checklist/decisions is ever revisited, add a short note (or amend the checklist item's own wording) making the Frontend.md §4 exemption explicit rather than leaving it implicit in the placement decision.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-09T23:29:17Z",
+      "recorded_by": "task-worker",
+      "decision": "For checklist item 3 (making the Frontend.md §4 Storybook-story exemption explicit), appended a new `decisions` entry to the parent `frontend-daily-homework-history` task (now under `docs/tasks/done/`) rather than amending that task's existing placement `decisions` entry text in place, and left the parent's checklist item 4 wording as originally written.",
+      "rationale": "CLAUDE.md's 'Decision memory' section defaults to appending a brand-new entry over amending an already-done task's existing entry text in place, reserving in-place amendment for the narrower case where the checklist item or task explicitly calls out the *existing entry's own text* as the thing to fix. This followup's own checklist item offered a choice ('add a short note (or amend the checklist item's own wording)') but did not call out the existing placement decisions entry's text itself as wrong or stale -- that entry never claimed a story existed, so there is nothing factually incorrect in it to correct. Appending a new entry (rather than editing the checklist item 4 label, which is a historical record of what was literally asked and marked done, not a place to retroactively annotate reasoning) keeps the original record intact while making the exemption fully explicit and independently discoverable."
+    }
+  ],
   "questions": []
 }
