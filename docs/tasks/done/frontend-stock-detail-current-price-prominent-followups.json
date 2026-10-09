@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from frontend-stock-detail-current-price-prominent's PR review",
   "area": "frontend/stocks",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-stock-detail-current-price-prominent"],
   "references": [
     "docs/tasks/frontend-stock-detail-current-price-prominent.json",
@@ -38,16 +38,21 @@
     "pushed_at": "2026-10-09T20:06:12Z"
   },
   "review": {
-    "reviewed_at": "2026-10-09T20:10:21Z",
+    "reviewed_at": "2026-10-09T20:17:19Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/395",
-    "verdict": "needs_work",
+    "verdict": "accepted",
     "comments": [
       {
-        "summary": "backend/openapi.json was not regenerated. The get_analysis docstring change (adding current_price/current_price_change_pct to the trading_mode-unaffected enumeration) is embedded verbatim as this operation's OpenAPI `description` (FastAPI uses the docstring as `description`, per CLAUDE.md's API documentation standard). Running `python scripts/export_openapi.py` from backend/ on this branch produces a real 1-line diff in the committed snapshot at the /api/stocks/{ticker}/analysis GET operation's description -- it still has the pre-this-PR text missing the two new field names. Needs to be regenerated and committed.",
+        "summary": "(Resolved from prior needs_work round.) backend/openapi.json was not regenerated after the get_analysis docstring change. Re-verified on commit 29b2ff2b: independently re-ran `python scripts/export_openapi.py` from backend/ and diffed against the committed snapshot -- zero diff, genuinely in sync now. `git diff main...HEAD -- backend/openapi.json` shows exactly the single predicted description-field line changed at the /api/stocks/{ticker}/analysis GET operation, nothing else moved.",
         "file": "backend/openapi.json",
         "line": 4190
+      },
+      {
+        "summary": "Non-blocking (code-review, medium effort): this PR's new docs/architecture/API.md prose for `current_price_change_pct` says it's null only when fewer than 2 daily bars are available, but the code (`previous_close != 0` check in stocks.py's get_analysis) also returns null when the prior bar's close is exactly 0.0 -- a case the new sentence doesn't mention, and which could mislead a reader into thinking null is impossible once >=2 bars exist. Pre-existing: `backend/app/api/schemas.py`'s `current_price_change_pct` Field description has the identical omission (not touched by this PR), so this PR reproduces rather than introduces the gap. Tracked as a follow-up rather than blocking, since it's an edge-case documentation completeness nit, not a behavior bug.",
+        "file": "docs/architecture/API.md",
+        "line": 153
       }
     ],
-    "notes": "Diff independently confirmed docs/docstring-only (git diff --stat), no copy-paste drift between the new API.md prose and schemas.py's existing Field descriptions / actual get_analysis behavior (lines 665-691). Backend ruff/mypy/pytest (1618 passed) and scripts/validate_tasks.py all clean; frontend lint/tsc clean (no frontend files touched). No UI surface -- browser walkthrough and e2e suite correctly skipped. code-review (medium effort) returned no findings. Sole blocking issue is the stale backend/openapi.json snapshot; see review.comments."
+    "notes": "Re-review after task-worker's fix commit (29b2ff2b). Independently confirmed: (1) `python scripts/export_openapi.py` produces no diff against the committed backend/openapi.json -- snapshot is genuinely current; (2) full PR diff (`gh pr diff 395`) reviewed line-by-line -- stocks.py docstring edit, openapi.json's matching 1-line description regeneration, docs/architecture/API.md prose, and task-board bookkeeping only, no application code/behavior change; (3) backend ruff (`ruff check .`), mypy (scoped `mypy` per pyproject's `files=[\"app\"]`), pytest+coverage (1618 passed, 99.94% line coverage), scripts/validate_tasks.py, and scripts/check_profit_target_wording.py all clean; frontend unchanged (last known clean from prior round, no frontend files touched here). No UI surface -- browser walkthrough and e2e suite correctly skipped, same as prior round. code-review (medium effort) dispatched against the diff; it independently verified the docstring/API.md text against the actual implementation and the regenerated openapi.json, and surfaced one non-blocking documentation-completeness nit (previous_close == 0 edge case, see review.comments) that reproduces a pre-existing gap in schemas.py rather than introducing a new one -- tracked as a follow-up, not blocking. All prior blocking finding resolved."
   }
 }
