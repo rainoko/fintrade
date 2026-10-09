@@ -2790,6 +2790,53 @@ describe('PriceChart', () => {
       expect(screen.queryByLabelText('Divergence details')).not.toBeInTheDocument()
     })
 
+    // Non-blocking followup (frontend-chart-legend-toggle-not-working-
+    // followups' own checklist, originally raised during PR #391's review):
+    // defensive reset of `divergenceBalloonAnchor` in the overlay-removal
+    // effect's own cleanup, so the balloon can never outlive the overlay it
+    // explains once the "Price Divergence" legend toggle turns it off --
+    // confirmed NOT reachable via an ordinary mouse/keyboard interaction in a
+    // real browser today (MUI `Popover`'s backdrop/focus-trap both block it,
+    // per this task's own `decisions` entry), but this test drives the click
+    // handler directly (the same way the balloon-opening tests above do)
+    // rather than through MUI's own Popover affordances, so it exercises the
+    // defensive reset itself regardless of whether a real user could
+    // currently reach the stale-balloon state it guards against.
+    it('closes the divergence balloon when the Divergence legend toggle hides the overlay while it is open', async () => {
+      const user = userEvent.setup()
+      mockHistory(barsSpanningDivergence)
+      mockAnalysis([], { divergence: bullishDivergence })
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(subscribeClickMock).toHaveBeenCalledTimes(1))
+      const handleClick = subscribeClickMock.mock.calls[0][0] as (param: unknown) => void
+      handleClick({
+        time: '2026-08-31',
+        point: { x: 10, y: 10 },
+        sourceEvent: { pageX: 123, pageY: 45 },
+        seriesData: new Map(),
+      })
+      expect(await screen.findByLabelText('Divergence details')).toBeInTheDocument()
+
+      // `{ hidden: true }` -- MUI's open `Popover` marks the rest of the
+      // page `aria-hidden` while it's open (the real mechanism, confirmed in
+      // this task's own `decisions` entry, that keeps an ordinary user from
+      // ever reaching this toggle button while the balloon is open at all),
+      // so an accessibility-tree-respecting query wouldn't find this button
+      // right now -- this test's whole point is exercising the defensive
+      // cleanup itself, independent of whether today's `Popover` config
+      // happens to block the real interaction that would trigger it.
+      await user.click(
+        screen.getByRole('button', {
+          name: 'Hide Price Divergence on the chart',
+          hidden: true,
+        }),
+      )
+
+      expect(screen.queryByLabelText('Divergence details')).not.toBeInTheDocument()
+    })
+
     it('removes the previous divergence line/markers/click subscription and adds new ones when the divergence changes', async () => {
       mockHistory(barsSpanningDivergence)
       mockAnalysis([], { divergence: bullishDivergence })
