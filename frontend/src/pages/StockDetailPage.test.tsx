@@ -127,6 +127,39 @@ describe('StockDetailPage', () => {
     )
   })
 
+  it('renders InsiderTransactionsPanel after StockCharts in document order (frontend-stock-detail-insider-transactions-last-followups)', async () => {
+    // Genuine DOM-order regression test for
+    // frontend-stock-detail-insider-transactions-last: a prior review found
+    // that PR's own claim of updating this file with an order assertion was
+    // false (zero diff, no order-assertion mechanism existed before or
+    // after). This uses `compareDocumentPosition` against two elements that
+    // are each unique to their respective block -- PriceChart's own
+    // "Price history range" toggle group (StockCharts' first child) and
+    // InsiderTransactionsPanel's "Insider Transactions" card heading -- so
+    // an accidental revert of StockDetailPage.tsx's render order (moving
+    // InsiderTransactionsPanel back above StockCharts) fails this test
+    // instead of passing the suite silently. Mutation-tested by temporarily
+    // swapping the two blocks' render order in StockDetailPage.tsx and
+    // confirming this assertion fails, then restoring it -- see this task's
+    // PR description.
+    renderStockDetail('AAPL')
+
+    await waitFor(() =>
+      expect(screen.getByTestId('signal-badge')).toHaveTextContent('BUY'),
+    )
+
+    const priceChartGroup = screen.getByRole('group', { name: 'Price history range' })
+    const insiderHeading = await screen.findByText('Insider Transactions')
+
+    // DOCUMENT_POSITION_FOLLOWING set on the bitmask means `insiderHeading`
+    // comes AFTER `priceChartGroup` in document order -- i.e.
+    // InsiderTransactionsPanel renders after StockCharts, as intended.
+    expect(
+      priceChartGroup.compareDocumentPosition(insiderHeading) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
   it('renders a SELL signal', async () => {
     server.use(
       http.get('/api/stocks/:ticker/analysis', ({ params }) =>

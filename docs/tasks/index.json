@@ -2623,7 +2623,7 @@
       "id": "frontend-stock-detail-insider-transactions-last-followups",
       "area": "frontend/stocks",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-stock-detail-insider-transactions-last-followups.json"
     },
     {

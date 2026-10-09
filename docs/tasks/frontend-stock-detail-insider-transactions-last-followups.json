@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from frontend-stock-detail-insider-transactions-last's PR review",
   "area": "frontend/stocks",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-stock-detail-insider-transactions-last"],
   "references": [
     "docs/tasks/done/frontend-stock-detail-insider-transactions-last.json",
@@ -14,9 +14,16 @@
   "checklist": [
     {
       "step": "frontend-stock-detail-insider-transactions-last's own checklist marked 'StockDetailPage.test.tsx's assertions about block order are updated to match the new bottom placement' done, but `git diff` against that commit shows zero changes to StockDetailPage.test.tsx, and the file never had any DOM-order assertions to begin with (confirmed via git history of the file and a text grep for `InsiderTransactionsPanel`/`compareDocumentPosition`/`StockCharts` in that test file). The task's entire purpose is the new bottom placement, yet no automated test actually locks that placement in -- an accidental revert of the StockDetailPage.tsx render order (InsiderTransactionsPanel moved back above StockCharts) would pass the full vitest/e2e suite with no regression signal. pr-reviewer independently confirmed the actual live placement via a real-browser walkthrough (Playwright script against the running dev server: 'Short Interest' heading at ~605px, 'Insider Transactions' heading at ~3580px, nothing rendered below the insider table), so the PR's behavior itself is correct -- this finding is specifically about the missing regression test and the checklist item's misleading 'done' status, not about a behavior bug. Add a StockDetailPage.test.tsx (or equivalent) assertion that InsiderTransactionsPanel's DOM node comes after StockCharts' (e.g. via `element.compareDocumentPosition` on their respective testids/headings, or asserting render order via text order in the container), and correct the record on why the original checklist item was marked done without adding one.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-09T21:10:13Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a new StockDetailPage.test.tsx test ('renders InsiderTransactionsPanel after StockCharts in document order') using `Node.compareDocumentPosition`/`DOCUMENT_POSITION_FOLLOWING` between PriceChart's 'Price history range' toggle group (StockCharts' first rendered child, already used as a StockCharts marker elsewhere in this file) and InsiderTransactionsPanel's 'Insider Transactions' card heading, rather than a weaker 'text order in the container' check (e.g. comparing `container.textContent.indexOf(...)` of each heading's text) -- rejected because a textContent-index comparison can give a false pass/fail if either heading's text ever appears elsewhere earlier/later in the page (e.g. inside a help-tooltip string), whereas `compareDocumentPosition` checks actual DOM tree position directly and can't be fooled by incidental text matches. Mutation-tested per the task's own checklist wording: temporarily swapped InsiderTransactionsPanel/StockCharts' render order in StockDetailPage.tsx, reran just this test and confirmed it failed (`AssertionError: expected +0 to be truthy`), then restored the file (confirmed via `git diff` showing zero diff) and reran the full suite to confirm it passes again (1043/1043). Also corrects the record on the original task's checklist item: that item was marked done despite zero diff to this file because the person/agent working frontend-stock-detail-insider-transactions-last conflated 'the placement is behaviorally correct' (which was independently verified live) with 'there's an automated regression test for the placement' (which there wasn't) -- this task's own checklist item exists specifically to close that gap, and this entry plus the new test is that closure, not a correction to the done task's own `decisions`/`review` text (which already accurately records the gap as found by pr-reviewer/pr-decision, so no append-only correction is needed there).",
+      "rationale": "A DOM-position check is the only one of the two options considered that can't be defeated by content coincidences elsewhere on the page, and reusing the 'Price history range' group (already load-bearing elsewhere in this test file as a StockCharts marker) avoids introducing a new, single-purpose test id just for this one assertion."
+    }
+  ],
   "questions": []
 }
