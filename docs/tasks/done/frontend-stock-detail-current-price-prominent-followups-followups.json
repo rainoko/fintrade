@@ -1,0 +1,42 @@
+{
+  "id": "frontend-stock-detail-current-price-prominent-followups-followups",
+  "title": "Non-blocking follow-up from frontend-stock-detail-current-price-prominent-followups's PR #395 review",
+  "area": "frontend/stocks",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-stock-detail-current-price-prominent-followups"],
+  "references": [
+    "docs/tasks/done/frontend-stock-detail-current-price-prominent-followups.json",
+    "https://github.com/rainoko/fintrade/pull/395",
+    "docs/architecture/API.md",
+    "backend/app/api/schemas.py",
+    "backend/app/api/routers/stocks.py"
+  ],
+  "description": "Tracked, non-blocking finding from pr-reviewer's code-review pass on PR #395 (frontend-stock-detail-current-price-prominent-followups). See that PR's review comment and docs/tasks/done/frontend-stock-detail-current-price-prominent-followups.json's review.comments for full context.",
+  "checklist": [
+    {
+      "step": "docs/architecture/API.md's `current_price_change_pct` prose (added by PR #395, in the `GET /api/stocks/{ticker}/analysis` section) says the field is null only 'whenever fewer than 2 daily bars are available to compare', but `backend/app/api/routers/stocks.py`'s `get_analysis` also returns null when the prior daily bar's close is exactly 0.0 (the `previous_close != 0` guard, since dividing by a zero previous close is undefined) -- a case with >=2 bars that the current sentence doesn't cover, which could mislead a reader into assuming null is impossible once 2+ bars exist. The identical omission already exists in `backend/app/api/schemas.py`'s `current_price_change_pct` Field description (pre-existing, not introduced by PR #395). Update both the API.md prose and the schemas.py Field description to also name the zero-previous-close case as a null trigger.",
+      "done": true
+    }
+  ],
+  "decisions": [],
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-stock-detail-current-price-prominent-followups-followups",
+    "pr_number": 396,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/396",
+    "pushed_at": "2026-10-09T20:26:17Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-09T20:32:05Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/396",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Verified independently (per the explicit scrutiny this task called for, after PR #395's needs_work round for a stale openapi.json): diff is exactly docs/architecture/API.md + backend/app/api/schemas.py's Field description + backend/openapi.json + task-board bookkeeping (5 files, confirmed via `git diff --stat main...HEAD`) -- no change to backend/app/api/routers/stocks.py or any other production code. The route's `previous_close != 0` guard (stocks.py:676-682) matches the new wording exactly. Re-ran `python scripts/export_openapi.py` from backend/ myself and diffed the regenerated file against the committed snapshot -- zero diff, so openapi.json is genuinely in sync, not just claimed to be. ruff check (backend, repo-wide convention) and mypy both clean. Full backend pytest suite: 1618 passed, 99.94% coverage (well above the 90% gate), no regression. scripts/validate_tasks.py: no violations. scripts/check_profit_target_wording.py: no stale wording. code-review skill (medium effort) over the diff: no findings. No frontend files touched (confirmed via git diff --stat), so no UI surface -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) are explicitly skipped as inapplicable, not silently omitted. No checklist item phrased as 'decide X' here, so no decisions-entry gap. Zero findings overall, so no follow-up task was created."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-10-09T20:35:08Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the checks pr-reviewer reported: `python scripts/export_openapi.py` produced a zero-diff openapi.json (git status clean after), ruff check and mypy both clean, full backend pytest suite reproduced 1618 passed / 99.94% coverage, scripts/validate_tasks.py found no violations. Skimmed the full diff myself (`git diff origin/main...HEAD`): exactly the API.md prose + schemas.py Field description + openapi.json + task-board bookkeeping, no production code touched; confirmed stocks.py:676-682's `previous_close != 0` guard matches the added wording. Accept holds up."
+  }
+}

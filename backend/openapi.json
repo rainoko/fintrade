@@ -45,7 +45,7 @@
                 "type": "null"
               }
             ],
-            "description": "Day-over-day change in `current_price` versus the prior daily bar's close, as a percentage (e.g. 2.5 for +2.5%, matching `unrealized_pnl_pct`'s own percentage convention elsewhere in this API -- not a 0-1 fraction). Null whenever fewer than 2 daily bars are available to compare (e.g. the `current_price` weekly-fallback case above, or a brand-new ticker).",
+            "description": "Day-over-day change in `current_price` versus the prior daily bar's close, as a percentage (e.g. 2.5 for +2.5%, matching `unrealized_pnl_pct`'s own percentage convention elsewhere in this API -- not a 0-1 fraction). Null whenever fewer than 2 daily bars are available to compare (e.g. the `current_price` weekly-fallback case above, or a brand-new ticker), or when the prior daily bar's close is exactly 0 (dividing by a zero previous close is undefined).",
             "title": "Current Price Change Pct"
           },
           "divergence": {
