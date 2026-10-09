@@ -38,5 +38,11 @@
       "rationale": "The checklist item's own framing already judges all four fields 'minor/cosmetic... not warranting their own feature task' and only suggests a UI-polish pass 'if someone is already touching these components' -- i.e. opportunistic, not a standalone deliverable. Filing a dedicated feature task for a change this task's own source finding explicitly says doesn't warrant one would contradict the finding rather than act on it; the useful action here is confirming the finding still holds (preserving it as searchable context for whoever next touches InsiderTransactionsPanel.tsx or DailyHomeworkForm.tsx), not inventing scope. This task is itself the CLAUDE.md-mandated '<id>-followups' tracked record of pr-reviewer's non-blocking PR #400 findings, so no further `-followups-followups` task is needed for a finding this task's own checklist already judges sub-task-worthy."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-backend-feature-gap-audit-followups",
+    "pr_number": 401,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/401",
+    "pushed_at": "2026-10-09T22:29:13Z"
+  }
 }
