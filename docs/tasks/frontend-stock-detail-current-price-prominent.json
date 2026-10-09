@@ -3,7 +3,7 @@
   "title": "Stock Detail page: show the ticker's current price prominently near the top",
   "area": "frontend/stocks",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "frontend/src/pages/StockDetailPage.tsx",
@@ -53,6 +53,12 @@
       "recorded_by": "task-worker",
       "decision": "Placed the new price display as its own element directly below `PageHeader` (ahead of even the methodology-reference/Trade-Apgar action row), via a new feature component `features/stocks/components/CurrentPriceDisplay.tsx` -- a large bold price (`formatCurrency`, MUI `variant=\"h4\"`) plus the day-over-day change via the existing `common/PercentChange` component when non-null. Not placed inside `PageHeader`'s own `title` prop/area.",
       "rationale": "Keeping `PageHeader` itself domain-agnostic (it currently only knows `title: string` + an arbitrary trailing `action` slot, reused across Dashboard/Portfolio/Watchlist/Scanner/Settings/Methodology/Daily-Homework) outweighed the marginal visual benefit of literally inlining the price next to the ticker text -- widening its contract (e.g. a new `subtitle`/`titleSuffix` prop) for one page's need isn't worth it when 'directly below the header' is already the task's own alternative suggestion and achieves the same 'visible without scrolling' goal (confirmed via an actual Playwright screenshot against the real dev server at a 1280x800 viewport -- the price renders at ~170px from the top, well above the fold). Gated on `analysisQuery.data` (nothing to show while loading/erroring), the same convention the existing Trade Apgar button already uses in this same page for data-dependent elements."
+    },
+    {
+      "timestamp": "2026-10-09T19:43:33Z",
+      "recorded_by": "task-worker",
+      "decision": "Addressed pr-reviewer's blocking needs_work finding on PR #394: added `current_price: 228.9` and `current_price_change_pct: 1.4` (matching `tests/mocks/handlers.ts`'s own `analysisFixture` values) to the three locally-defined `AnalysisResponse`-typed test fixtures that were missed in the original round -- `PriceChart.test.tsx`'s `baseAnalysis`, `OscillatorChart.test.tsx`'s `baseAnalysis`, and `StockCharts.test.tsx`'s `baseAnalysisForDivergence`. Verified with a live `yarn tsc -b --noEmit` run (clean, no errors) rather than trusting `yarn vitest run` alone, since the reviewer's finding was specifically that vitest's esbuild transform doesn't type-check and so couldn't have caught this. Also re-ran the full frontend suite (`yarn vitest run`: 1040/1040 passed) and `yarn eslint .` (clean) before pushing. Did not touch the two non-blocking findings (API.md and the routers/stocks.py docstring) -- those are correctly scoped to the separate `frontend-stock-detail-current-price-prominent-followups` task per the reviewer's own filing.",
+      "rationale": "The task instruction was explicit that only the tsc-blocking issue should be fixed on this round, and that tsc itself (not vitest) must be the thing actually verified before pushing, since that's exactly the gap that let the bug through the first time."
     }
   ],
   "questions": [],
