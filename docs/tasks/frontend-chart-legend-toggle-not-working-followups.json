@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from frontend-chart-legend-toggle-not-working's PR #391 review",
   "area": "frontend/stocks",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["frontend-chart-legend-toggle-not-working"],
   "references": [
     "docs/tasks/done/frontend-chart-legend-toggle-not-working.json",
@@ -57,5 +57,11 @@
       "rationale": "Chose an unconditional reset in the shared cleanup (not a toggle-specific branch keyed off `divergenceVisible`) because the invariant this item asks for -- 'the balloon can never outlive the overlay it explains' -- holds just as well, and is simpler to reason about, when applied to every teardown of this effect rather than special-cased to only the toggle-driven one; a data/theme-driven rebuild tearing down and recreating the overlay out from under an open balloon is exactly the same kind of staleness this item is guarding against, just via a different trigger. Chose to drive the test through the click handler + a `hidden: true` role query (bypassing the accessibility-tree visibility MUI's `Popover` itself imposes) over wrapping the whole interaction in an `act()` block or using `fireEvent` directly on a DOM node found via `container.querySelector` -- `hidden: true` is the standard Testing Library escape hatch for exactly this situation (an element that's present and clickable in the DOM but intentionally excluded from the accessibility tree by an ancestor's `aria-hidden`), and keeps the test readable as 'click this specific toggle button' rather than a raw DOM query that would obscure which element is being interacted with."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-chart-legend-toggle-not-working-followups",
+    "pr_number": 392,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/392",
+    "pushed_at": "2026-10-09T17:51:35Z"
+  }
 }

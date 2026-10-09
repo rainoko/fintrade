@@ -2595,7 +2595,7 @@
       "id": "frontend-chart-legend-toggle-not-working-followups",
       "area": "frontend/stocks",
       "skill": null,
-      "state": "implementing",
+      "state": "testing",
       "path": "docs/tasks/frontend-chart-legend-toggle-not-working-followups.json"
     }
   ]
