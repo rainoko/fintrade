@@ -1,0 +1,28 @@
+{
+  "id": "frontend-chart-legend-toggle-not-working-followups",
+  "title": "Non-blocking follow-ups from frontend-chart-legend-toggle-not-working's PR #391 review",
+  "area": "frontend/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-chart-legend-toggle-not-working"],
+  "references": [
+    "docs/tasks/done/frontend-chart-legend-toggle-not-working.json",
+    "https://github.com/rainoko/fintrade/pull/391",
+    "frontend/tests/e2e/stock-analysis.spec.ts",
+    "frontend/src/features/stocks/components/PriceChart.tsx",
+    "frontend/src/features/stocks/components/OscillatorChart.tsx"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #391 (frontend-chart-legend-toggle-not-working), recorded here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "No persisted/versioned e2e spec (frontend/tests/e2e/*.spec.ts) exercises the chart legend click-to-toggle feature at all -- not for any of the 11 original toggle targets from frontend-chart-legend-toggle-overlay (PR #374/#376/#378) nor the 4 added by this task (PR #391). Every verification of this feature across all four PRs has relied on mocked-series vitest assertions plus an ad hoc, non-persisted Playwright MCP/script walkthrough performed fresh each review round -- exactly the gap that let this task's own user-reported 'not working' bug (actually: 4 legend rows with zero toggle affordance at all) go undetected through 3 prior rounds of review each claiming extensive verification. Add at least one `make e2e` spec (likely extending `stock-analysis.spec.ts`) that clicks a representative legend toggle button and asserts a durable, visible change (at minimum `aria-pressed` flipping; ideally also a chart-visible side effect such as a price-line/marker/series disappearing, matching the rigor pr-reviewer's own independent walkthrough used for PR #391) -- so a future regression of this specific feature is caught by the persisted regression suite without requiring a fresh manual/ad hoc browser pass every time.",
+      "done": false
+    },
+    {
+      "step": "PR #391's own description states the frontend vitest suite passed '1037/1037'; pr-reviewer independently re-ran `yarn vitest run` twice against the same commit and got 1035/1035 passing both times (coverage percentages matched the PR description exactly, so this isn't a correctness concern -- just a miscounted number in the PR's self-reported test count). Non-blocking, but worth a quick note/correction for anyone cross-checking test counts against this PR later.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
