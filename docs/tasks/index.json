@@ -2623,8 +2623,8 @@
       "id": "frontend-stock-detail-insider-transactions-last-followups",
       "area": "frontend/stocks",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/frontend-stock-detail-insider-transactions-last-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-stock-detail-insider-transactions-last-followups.json"
     },
     {
       "id": "frontend-stock-detail-current-price-prominent",
