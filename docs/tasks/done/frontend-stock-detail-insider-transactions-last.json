@@ -3,7 +3,7 @@
   "title": "Stock Detail page: move the Insider Transactions block to the bottom of the page",
   "area": "frontend/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "frontend/src/pages/StockDetailPage.tsx",
@@ -55,5 +55,33 @@
     "pr_number": 397,
     "pr_url": "https://github.com/rainoko/fintrade/pull/397",
     "pushed_at": "2026-10-09T20:48:20Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-09T20:57:36Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/397",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Behavior-preserving extraction verified line-by-line: FundamentalDataPanel.tsx's earnings-warning banner and Earnings Date/Ex-Dividend Date/Short Interest cards are byte-for-byte untouched except for dropping the trailing Insider Transactions Card and the insiderClusters prop; its own 'fallback provider active' branch copy was correctly narrowed (no longer mentions insider transactions). No stale references to the old insiderClusters prop or the old in-panel InsiderClusterCallouts location remain anywhere (grepped frontend/src).",
+        "file": "frontend/src/features/stocks/components/FundamentalDataPanel.tsx",
+        "line": 60
+      },
+      {
+        "summary": "InsiderTransactionsPanel's own new 'fallback provider active' unavailable state is well-justified and non-duplicative: it's scoped to insider-transactions-only copy via a new insiderTransactionsUnavailableHelp MetricHelp entry, while fundamentalDataUnavailableHelp's copy was correctly narrowed to drop the insider-transactions mention it used to carry. Read both unavailable_reason branches directly -- no contradiction or duplication between the two cards' messaging.",
+        "file": "frontend/src/features/stocks/components/InsiderTransactionsPanel.tsx",
+        "line": 226
+      },
+      {
+        "summary": "Independent live-browser check (Playwright script driven against the actual running dev server, not just trusting the task's screenshot claim) confirms the Insider Transactions card (heading, cluster callouts, and table) renders as the genuine last block on the page, directly after StockCharts' final chart panes ('Short Interest' heading at ~605px, 'Insider Transactions' heading at ~3580px, nothing below the insider table), with the earnings-warning-banner/Earnings Date/Ex-Dividend Date/Short Interest cards unchanged near the top. No console errors, no failed/4xx+ network requests observed.",
+        "file": "frontend/src/pages/StockDetailPage.tsx",
+        "line": 172
+      },
+      {
+        "summary": "Non-blocking (code-review, filed as a follow-up task): the checklist item 'StockDetailPage.test.tsx's assertions about block order are updated to match the new bottom placement' is marked done, but the diff shows zero changes to that file, and it never had any DOM-order assertions to begin with -- so nothing actually locks the new bottom placement into the automated regression suite. The behavior itself is correct (confirmed above), but an accidental future revert of the render order would pass the full test suite silently. See frontend-stock-detail-insider-transactions-last-followups.",
+        "file": "frontend/src/pages/StockDetailPage.test.tsx",
+        "line": 1
+      }
+    ],
+    "notes": "Full review of PR #397. Backend: pytest+coverage 1618 passed, 99.94% line coverage (unchanged by this frontend-only PR, reconfirmed). Frontend: vitest 1042/1042 passed, 99.77%/99.05%/99.84%/99.81% statements/branches/functions/lines (both InsiderTransactionsPanel.tsx and FundamentalDataPanel.tsx report 100%). Static analysis clean: backend ruff + mypy clean, frontend eslint + tsc -b --noEmit clean, scripts/check_profit_target_wording.py clean. No API/schema changes -- backend/openapi.json regeneration check N/A. Component placement (step 7a): InsiderTransactionsPanel correctly placed under features/stocks/components/ (ticker-specific domain types InsiderTransactionOut/InsiderClusterOut/ExtendedDataOut throughout), not components/common/ -- no placement issue. code-review (medium effort) dispatched against the diff: found the suite clean of correctness bugs, no stale callers, and flagged the one non-blocking test-coverage gap recorded above. Browser walkthrough (step 9) and the persisted e2e suite (step 9a, make e2e) both run: e2e suite 28/28 specs passed (dashboard/navigation/portfolio/stock-analysis/watchlist), confirming no unrelated regression. No checklist item phrased as 'decide X' was left undecided -- the task's own decisions entry resolves the one edge case (unavailable-state treatment) the task description flagged. No blocking findings; one non-blocking finding filed as frontend-stock-detail-insider-transactions-last-followups."
   }
 }

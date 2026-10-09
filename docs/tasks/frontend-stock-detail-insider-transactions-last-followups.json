@@ -1,0 +1,22 @@
+{
+  "id": "frontend-stock-detail-insider-transactions-last-followups",
+  "title": "Non-blocking follow-up from frontend-stock-detail-insider-transactions-last's PR review",
+  "area": "frontend/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-stock-detail-insider-transactions-last"],
+  "references": [
+    "docs/tasks/done/frontend-stock-detail-insider-transactions-last.json",
+    "https://github.com/rainoko/fintrade/pull/397",
+    "frontend/src/pages/StockDetailPage.test.tsx"
+  ],
+  "description": "Tracked, non-blocking finding from pr-reviewer's review of PR #397 (frontend-stock-detail-insider-transactions-last, extracting Insider Transactions into its own InsiderTransactionsPanel rendered last on the Stock Detail page). See that PR's review comment and docs/tasks/done/frontend-stock-detail-insider-transactions-last.json's review.comments for full context.",
+  "checklist": [
+    {
+      "step": "frontend-stock-detail-insider-transactions-last's own checklist marked 'StockDetailPage.test.tsx's assertions about block order are updated to match the new bottom placement' done, but `git diff` against that commit shows zero changes to StockDetailPage.test.tsx, and the file never had any DOM-order assertions to begin with (confirmed via git history of the file and a text grep for `InsiderTransactionsPanel`/`compareDocumentPosition`/`StockCharts` in that test file). The task's entire purpose is the new bottom placement, yet no automated test actually locks that placement in -- an accidental revert of the StockDetailPage.tsx render order (InsiderTransactionsPanel moved back above StockCharts) would pass the full vitest/e2e suite with no regression signal. pr-reviewer independently confirmed the actual live placement via a real-browser walkthrough (Playwright script against the running dev server: 'Short Interest' heading at ~605px, 'Insider Transactions' heading at ~3580px, nothing rendered below the insider table), so the PR's behavior itself is correct -- this finding is specifically about the missing regression test and the checklist item's misleading 'done' status, not about a behavior bug. Add a StockDetailPage.test.tsx (or equivalent) assertion that InsiderTransactionsPanel's DOM node comes after StockCharts' (e.g. via `element.compareDocumentPosition` on their respective testids/headings, or asserting render order via text order in the container), and correct the record on why the original checklist item was marked done without adding one.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
