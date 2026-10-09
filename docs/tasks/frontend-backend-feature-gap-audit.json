@@ -1,0 +1,42 @@
+{
+  "id": "frontend-backend-feature-gap-audit",
+  "title": "Audit: which backend-computed data has no UI consumer at all",
+  "area": "frontend",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "backend/app/api/routers/",
+    "backend/app/api/schemas.py",
+    "backend/openapi.json",
+    "frontend/src/api/",
+    "docs/Analyse.md",
+    "docs/tasks/frontend-trailing-stop-display.json",
+    "docs/tasks/backend-ibkr-import-entry-date-from-trades.json"
+  ],
+  "description": "User-requested audit: find backend-provided functionality (an endpoint, or a response-schema field within an endpoint already called by the frontend) that currently has NO consumer anywhere in a production UI component. This is scoped specifically to 'does the UI ever render/use this value', not 'does the signal/confidence engine use this value internally' -- docs/Analyse.md uses similar-sounding language ('detection + exposure only', 'not wired into signal/confidence') for a different, already-understood, already-intentional gap (backend-internal, about `app.signals`/`app.portfolio` wiring, not about the UI) -- don't conflate the two. Two concrete examples already confirmed by reading the current code before writing this task, to calibrate what counts:\n\n- `RiskPosition.trailing_stop` (`GET /api/portfolio/risk`, backend/app/portfolio/risk.py's `ratchet_trailing_profit_stop`): typed in `frontend/src/api/types.ts`, but grep confirms no production component reads `trailing_stop`/`trailingStop` anywhere -- `PositionsTable.tsx`'s 'Protective Stop' column and `HeldPositionBanner.tsx`'s 'Current Stop' field both show only the raw, un-ratcheted `protective_stop`. **Already filed as its own task, `frontend-trailing-stop-display` -- don't re-file this one.**\n- `GET /api/cftc/cot`: confirmed via grep that there is no `frontend/src/api/cftc.ts` (or any file) calling this endpoint at all -- zero frontend consumption of any kind, not even a schema-field-level gap within an otherwise-used response. Check whether this is deliberate backend-only infrastructure (e.g. feeding some other internal computation, not meant for direct UI display) before assuming it's a pure UI gap -- read `docs/tasks/done/backend-cftc-cot-data*.json`'s own decisions for why it was built, and grep the backend for any internal caller of `app.data.cftc_cot_provider`/the CFTC endpoint's underlying data beyond the router itself.\n\nA third candidate worth checking carefully rather than assuming either way: `AnalysisResponse.divergence.aborted` (the 'Hound of the Baskervilles' flag) is typed and present in test fixtures (`PriceChart.test.tsx`/`OscillatorChart.test.tsx`/`StockCharts.test.tsx`), but grep confirms no production chart code reads it. docs/Analyse.md §5 item 5 says 'Exposed as `aborted` -- detected and exposed only; this app doesn't (yet) act on it,' which reads ambiguously as to whether that's about signal-wiring (the usual sense of that phrase in this doc) or also covers 'not shown in the UI either' as an accepted, already-decided gap -- don't silently exclude it either way; read the referenced task's own decisions, and record your own judgment call explicitly.\n\n`backend-ibkr-import-entry-date-from-trades` (sibling task in this same batch, IBKR import's `entry_date` always being today's date) is a related but distinct kind of gap -- not 'unused backend data' but 'backend data that's genuinely unavailable/not yet fetched at all' -- also already tracked, don't re-file.",
+  "checklist": [
+    {
+      "step": "Enumerate every backend API endpoint (grep `@router.(get|post|put|patch|delete)` across backend/app/api/routers/*.py) and confirm each one has at least one real caller in frontend/src/api/*.ts (not just a type definition in types.ts). Note any endpoint with zero frontend callers.",
+      "done": false
+    },
+    {
+      "step": "For every field on a response schema already fetched by the frontend (backend/app/api/schemas.py's response models for endpoints that DO have a frontend caller), grep frontend/src/features/**/*.tsx and frontend/src/components/**/*.tsx (excluding *.test.tsx, api/types.ts, and the api client wrapper files themselves) for an actual read of that field name. Compile the list of fields with zero production-component usage.",
+      "done": false
+    },
+    {
+      "step": "For each endpoint/field found above, determine whether it's (a) a deliberate, already-documented 'not surfaced in UI' decision not worth re-raising (read the referenced task's own `decisions` entry to confirm, don't assume from the field's docstring alone), (b) already covered by `frontend-trailing-stop-display` or `backend-ibkr-import-entry-date-from-trades` (don't re-file these), or (c) a genuine, previously-untracked UI gap.",
+      "done": false
+    },
+    {
+      "step": "File a new tracked follow-up task (state `planned`, its own concrete description/checklist grounded in the actual code read -- not a generic placeholder) for every genuine gap found under (c), add each to docs/tasks/index.json, and run `python3 scripts/validate_tasks.py` to confirm the board is still structurally valid. Implementing a fix directly within THIS task is fine only for a genuinely trivial case (your own judgment call, recorded as a decision) -- the default is to file, not fix, since this task's job is the audit.",
+      "done": false
+    },
+    {
+      "step": "Record the full findings list as a `decisions` entry on this task -- including what was checked and deliberately ruled out (not only what became a new task), so a future reader doesn't have to re-derive the same audit from scratch.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
