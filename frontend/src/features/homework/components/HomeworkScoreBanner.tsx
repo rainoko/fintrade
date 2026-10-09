@@ -1,31 +1,12 @@
 import SelfImprovementIcon from '@mui/icons-material/SelfImprovement'
-import Alert, { type AlertColor } from '@mui/material/Alert'
+import Alert from '@mui/material/Alert'
 import Typography from '@mui/material/Typography'
 import type { HomeworkBand } from '../../../api/homework'
+import { isTooPerfectBand, SEVERITY_BY_BAND } from './band'
 
 export interface HomeworkScoreBannerProps {
   totalScore: number
   band: HomeworkBand
-}
-
-const SEVERITY_BY_BAND: Record<HomeworkBand, AlertColor> = {
-  red: 'error',
-  yellow: 'warning',
-  green: 'success',
-}
-
-// `band` alone doesn't distinguish the book's two very different "yellow"
-// readings -- 5-6 ("trade cautiously") vs. 9-10 ("everything is so perfect,
-// any change is bound to be for the worse") -- so the component below
-// computes this once per render (matching docs/ideas.md's ch. 57 entry /
-// API.md's own band-threshold wording exactly) and passes the result to
-// `messageFor`/`iconFor`/the inline JSX label suffix, rather than each of
-// those three call sites re-deriving the same `band === 'yellow' &&
-// totalScore >= 9` condition independently -- which risked one getting out
-// of sync with the others on a future threshold/band-naming change -- see
-// this task's `decisions` entry (frontend-daily-homework-page-followups-followups).
-function isTooPerfectBand(totalScore: number, band: HomeworkBand): boolean {
-  return band === 'yellow' && totalScore >= 9
 }
 
 function messageFor(band: HomeworkBand, isTooPerfect: boolean): string {
