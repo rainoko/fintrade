@@ -21,6 +21,14 @@
     {
       "step": "PR #391's own description states the frontend vitest suite passed '1037/1037'; pr-reviewer independently re-ran `yarn vitest run` twice against the same commit and got 1035/1035 passing both times (coverage percentages matched the PR description exactly, so this isn't a correctness concern -- just a miscounted number in the PR's self-reported test count). Non-blocking, but worth a quick note/correction for anyone cross-checking test counts against this PR later.",
       "done": false
+    },
+    {
+      "step": "Non-blocking, carried forward from the first review round (needs_work pass): the False Breakout effect extracted in PriceChart.tsx (around line 1725, the dedicated effect added to give False Breakout its own click-to-toggle gate) calls `buildZoneRenderData(...)` purely to read `zone.false_breakout` off its returned `.zone` field, discarding the `fillColor`/`lineColor`/`lineStyle` it also computes -- `displayedZones` already carries `false_breakout` directly, so the extra mapping (building unused color/line-style strings on every render of this effect, including every toggle click) is pure waste reintroduced by the extraction. A plain `for (const zone of displayedZones)` would do the same job without it. (Note: the first review round's own notes claimed this had already been filed here alongside the e2e-spec-gap and test-count items above, but it was never actually added to this checklist -- filed now, on the re-review pass that caught the gap.)",
+      "done": false
+    },
+    {
+      "step": "Non-blocking, found during the re-review pass that confirmed PR #391's duplicate-accessible-name fix (code-review skill, medium effort): `PriceChart.tsx`'s divergence click-to-explain balloon (`divergenceBalloonAnchor` state, `AnchoredInfoBalloon` around line 2734) is not reset when the new 'Price Divergence' legend toggle turns the divergence overlay off while the balloon is open -- the overlay-removal effect's cleanup (around line 1901) only unsubscribes the click handler and tears down the series/markers, never calls `setDivergenceBalloonAnchor(null)`. Verified this is NOT reachable via an ordinary mouse click or Tab/keyboard interaction in a real browser: MUI `Popover`'s backdrop is `invisible` (CSS-transparent only, confirmed via `node_modules/@mui/material/Backdrop/Backdrop.js` -- `invisible` does not set `pointer-events: none`) so it still captures and closes the popover on any click outside its Paper before that click could reach the toggle underneath, and `Popover`'s `disableEnforceFocus` defaults to `false` so Tab is focus-trapped inside the open popover too. Still worth a defensive `setDivergenceBalloonAnchor(null)` in that effect's cleanup (or folded into the toggle handler) so the invariant doesn't silently rely on `AnchoredInfoBalloon`'s own backdrop/focus-trap configuration never changing.",
+      "done": false
     }
   ],
   "decisions": [],
