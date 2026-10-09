@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from frontend-stock-detail-current-price-prominent-followups's PR #395 review",
   "area": "frontend/stocks",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-stock-detail-current-price-prominent-followups"],
   "references": [
     "docs/tasks/done/frontend-stock-detail-current-price-prominent-followups.json",
@@ -26,5 +26,12 @@
     "pr_number": 396,
     "pr_url": "https://github.com/rainoko/fintrade/pull/396",
     "pushed_at": "2026-10-09T20:26:17Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-09T20:32:05Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/396",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Verified independently (per the explicit scrutiny this task called for, after PR #395's needs_work round for a stale openapi.json): diff is exactly docs/architecture/API.md + backend/app/api/schemas.py's Field description + backend/openapi.json + task-board bookkeeping (5 files, confirmed via `git diff --stat main...HEAD`) -- no change to backend/app/api/routers/stocks.py or any other production code. The route's `previous_close != 0` guard (stocks.py:676-682) matches the new wording exactly. Re-ran `python scripts/export_openapi.py` from backend/ myself and diffed the regenerated file against the committed snapshot -- zero diff, so openapi.json is genuinely in sync, not just claimed to be. ruff check (backend, repo-wide convention) and mypy both clean. Full backend pytest suite: 1618 passed, 99.94% coverage (well above the 90% gate), no regression. scripts/validate_tasks.py: no violations. scripts/check_profit_target_wording.py: no stale wording. code-review skill (medium effort) over the diff: no findings. No frontend files touched (confirmed via git diff --stat), so no UI surface -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) are explicitly skipped as inapplicable, not silently omitted. No checklist item phrased as 'decide X' here, so no decisions-entry gap. Zero findings overall, so no follow-up task was created."
   }
 }
