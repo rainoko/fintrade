@@ -3,7 +3,7 @@
   "title": "Non-blocking test-quality findings from frontend-daily-homework-history-followups' PR review (#403)",
   "area": "frontend/pages",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-daily-homework-history-followups"],
   "references": [
     "docs/tasks/done/frontend-daily-homework-history-followups.json",
@@ -17,13 +17,20 @@
   "checklist": [
     {
       "step": "`frontend/tests/e2e/daily-homework.spec.ts`'s new History-row date assertion (around line 100) computes 'today' client-side via `new Date().toISOString().slice(0, 10)` *after* the Save click, form re-render, and banner assertions have already elapsed, while the backend stamps the row's date via `today()` (backend/app/time_utils.py) at POST-handling time, earlier in that same sequence. A suite run straddling a UTC-midnight boundary between those two moments would see the stored and asserted dates disagree -- a narrow, low-probability latent flake this diff newly introduced (the spec made no date-sensitive assertions before this PR). Fix by reading the date back from the POST response (or the rendered form/banner) instead of recomputing 'today' independently client-side, so the assertion can never disagree with what the backend actually stored.",
-      "done": false
+      "done": true
     },
     {
       "step": "`expectedHistoryDateCell` (frontend/tests/e2e/daily-homework.spec.ts line 35) re-implements `formatDate`'s (frontend/src/utils/format.ts) exact `toLocaleDateString` options inline instead of importing `formatDate` directly (available -- `tsconfig.app.json` includes both `src` and `tests`), or adding a shared helper under `tests/` the way `tests/dateFixtures.ts`'s `isoDateWeeksAgo` already does for an analogous need shared between MSW mocks and e2e specs. If `formatDate`'s options ever change, this copy won't follow, and the e2e assertion would start failing for a reason unrelated to any real regression. Replace the local re-implementation with a direct import of `formatDate`.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-09T23:58:45Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the UTC-midnight date race by capturing the POST /api/daily-homework response itself (via `page.waitForResponse` wrapped around the Save click) and reading its `date` field back as `recordedDate`, rather than accepting either adjacent calendar date or restructuring the assertion order so the client-side 'today' computation happens closer to the POST. `recordedDate` is then passed through the real `formatDate` helper (imported directly, closing the second finding too) for the History-row cell assertion.",
+      "rationale": "This is the only option of the three considered that makes the assertion compare against the literal value the backend actually persisted, so it can never disagree with it regardless of timing -- not just less likely to disagree. Accepting either of two adjacent dates would still pass on a wrong-looking assertion (weakening what's actually being verified, which the e2e-test skill's 'don't weaken a spec to make it pass' rule and this task's own description discourage) and wouldn't catch a genuine backend date-stamping bug as precisely. Reordering the assertions so the client-side 'today' snapshot is taken immediately after the Save click (before the banner/form-rerender assertions) would narrow the race window but not eliminate it -- there's always some nonzero gap between the click resolving and `new Date()` evaluating, and the backend's own clock read happens strictly earlier in the request lifecycle than either. Reading the POST response's own `date` field removes the client-side 'today' guess entirely, which is also a smaller diff than reordering every assertion in the test body. `DailyHomeworkOut.date` is already a stable, documented field on the exact response type `recordDailyHomework` (frontend/src/api/homework.ts) returns, so no backend or schema change was needed."
+    }
+  ],
   "questions": []
 }

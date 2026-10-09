@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test'
+import type { DailyHomeworkOut } from '../../src/api/homework'
+import { formatDate } from '../../src/utils/format'
 
 /**
  * Daily Homework page (pages/DailyHomeworkPage.tsx, `/homework`,
@@ -26,20 +28,15 @@ import { expect, test } from '@playwright/test'
  * frontend-daily-homework-history) is covered below too -- PR #402's own
  * review flagged this spec as still only exercising the form+banner flow
  * despite adding that section (frontend-daily-homework-history-followups'
- * checklist). The expected row date is computed the same way `formatDate`
- * (frontend/src/utils/format.ts) renders it, rather than a literal string,
- * since this spec runs against whatever the real calendar date is on any
- * future day it's re-run -- a hardcoded date would break on every run but
- * the day this was written.
+ * checklist). The expected row date is rendered via the real `formatDate`
+ * helper (frontend/src/utils/format.ts, imported directly rather than
+ * re-implemented inline -- a local copy of its `toLocaleDateString` options
+ * wouldn't follow if those ever changed, per
+ * frontend-daily-homework-history-followups-followups' checklist), applied
+ * to the `date` the backend actually recorded in its POST response -- see
+ * the `recordedDate` capture below for why that's read back from the
+ * response rather than recomputed client-side.
  */
-function expectedHistoryDateCell(isoDate: string): string {
-  return new Date(isoDate).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  })
-}
 test.describe('daily homework: nav, submit, and see the color-coded score banner', () => {
   test('nav drawer link opens the page, submitting the form shows the score banner, and it persists across reload', async ({
     page,
@@ -50,7 +47,9 @@ test.describe('daily homework: nav, submit, and see the color-coded score banner
     await nav.getByRole('link', { name: 'Daily Homework' }).click()
 
     await expect(page).toHaveURL(/\/homework$/)
-    await expect(page.getByRole('heading', { level: 1, name: 'Daily Homework' })).toBeVisible()
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Daily Homework' }),
+    ).toBeVisible()
     await expect(
       page.getByRole('heading', { name: 'Am I ready to trade today?' }),
     ).toBeVisible()
@@ -79,7 +78,26 @@ test.describe('daily homework: nav, submit, and see the color-coded score banner
     await selectTop('What is my mood', '2 — Good')
     await selectTop('How busy is my schedule today', '2 — Clear')
 
-    await page.getByRole('button', { name: 'Save' }).click()
+    // Capture the POST's own response rather than recomputing "today"
+    // client-side (e.g. `new Date().toISOString().slice(0, 10)`) after the
+    // fact: the backend stamps the row's `date` via `today()`
+    // (backend/app/time_utils.py) at POST-handling time, and several
+    // assertions (the banner, the form re-render) elapse between that click
+    // and the History-row assertion below -- recomputing "today" independently
+    // at that later point could disagree with what the backend actually
+    // stored if the run happens to straddle a UTC-midnight boundary in
+    // between. Reading the date back from the response itself means the
+    // assertion compares against the literal value the backend persisted,
+    // so it can never disagree with it.
+    const [postResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url().endsWith('/api/daily-homework') &&
+          response.request().method() === 'POST',
+      ),
+      page.getByRole('button', { name: 'Save' }).click(),
+    ])
+    const recordedDate = ((await postResponse.json()) as DailyHomeworkOut).date
 
     const banner = page.getByTestId('homework-score-banner')
     await expect(banner).toBeVisible()
@@ -97,7 +115,7 @@ test.describe('daily homework: nav, submit, and see the color-coded score banner
     await expect(historyTable).toBeVisible()
     const todayHistoryRow = historyTable.getByRole('row').nth(1)
     await expect(todayHistoryRow.getByRole('cell').first()).toHaveText(
-      expectedHistoryDateCell(new Date().toISOString().slice(0, 10)),
+      formatDate(recordedDate),
     )
     await expect(todayHistoryRow.getByRole('cell').nth(6)).toHaveText('9')
     await expect(todayHistoryRow).toContainText('YELLOW (TOO PERFECT)')
