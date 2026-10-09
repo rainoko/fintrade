@@ -1967,6 +1967,84 @@ describe('PriceChart', () => {
       ).not.toBeInTheDocument()
     })
 
+    // Legend click-to-toggle (frontend-chart-legend-toggle-not-working):
+    // False Breakout was deliberately left OUT of frontend-chart-legend-
+    // toggle-overlay's own scope -- these are the first tests actually
+    // covering it, using the same "ISeriesMarkersPluginApi/IPriceLine both
+    // lack a `visible` option -- remove and skip creation while hidden"
+    // mechanism the Fibonacci toggle test above already covers for its own
+    // price lines.
+    it('clicking the False Breakout legend label removes its marker + stop price line, and clicking it again redraws them -- independent of the Support/Resistance zone bands sharing the same legend row group', async () => {
+      const user = userEvent.setup()
+      mockHistory(twoBars)
+      mockAnalysis([
+        buildZone({
+          role: 'resistance',
+          upper: 236.9,
+          lower: 233.4,
+          false_breakout: {
+            direction: 'up',
+            breakout_date: '2026-08-20',
+            reentry_date: '2026-09-02',
+            extreme_price: 238.5,
+          },
+        }),
+      ])
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(createPriceLineMock).toHaveBeenCalledTimes(FIBONACCI_PRICE_LINE_COUNT + 1),
+      )
+      createPriceLineMock.mockClear()
+      removePriceLineMock.mockClear()
+      detachMarkersMock.mockClear()
+      addSeriesMock.mockClear()
+      createSeriesMarkersMock.mockClear()
+
+      const toggle = screen.getByRole('button', { name: 'Hide False Breakout on the chart' })
+      expect(toggle).toHaveAttribute('aria-pressed', 'true')
+
+      await user.click(toggle)
+
+      // The false-breakout marker plugin is detached and its stop price
+      // line removed; nothing new is created while hidden -- same
+      // "IPriceLine/ISeriesMarkersPluginApi have no `visible` option, so
+      // skip creation while hidden" mechanism as Fibonacci's price lines.
+      expect(detachMarkersMock).toHaveBeenCalledTimes(1)
+      expect(removePriceLineMock).toHaveBeenCalledTimes(1)
+      expect(createPriceLineMock).not.toHaveBeenCalled()
+      expect(createSeriesMarkersMock).not.toHaveBeenCalled()
+      // The Support/Resistance zone band this false breakout belongs to is
+      // untouched -- toggling False Breakout off doesn't tear down or
+      // recreate the zone-bands effect it used to share before being
+      // extracted into its own effect.
+      expect(addSeriesMock).not.toHaveBeenCalled()
+      expect(
+        screen.getByRole('button', { name: 'Show False Breakout on the chart' }),
+      ).toHaveAttribute('aria-pressed', 'false')
+
+      await user.click(
+        screen.getByRole('button', { name: 'Show False Breakout on the chart' }),
+      )
+
+      await waitFor(() =>
+        expect(createPriceLineMock).toHaveBeenCalledWith(
+          expect.objectContaining({ price: 238.5, title: 'False-breakout stop' }),
+        ),
+      )
+      const falseBreakoutMarkersCall = createSeriesMarkersMock.mock.calls.find(
+        ([, markers]) =>
+          Array.isArray(markers) &&
+          (markers as { shape: string }[]).every((marker) => marker.shape === 'arrowDown'),
+      )
+      expect(falseBreakoutMarkersCall).toBeDefined()
+      // Not a single `addSeries` call throughout either toggle direction --
+      // the Support/Resistance zone bands (a DIFFERENT, untouched series)
+      // are never torn down or recreated by this toggle.
+      expect(addSeriesMock).not.toHaveBeenCalled()
+    })
+
     it('renders zone bands regardless of interval, unlike the daily-only EMA/signal overlay', async () => {
       server.use(
         http.get('/api/stocks/:ticker/history', ({ request }) => {
@@ -2800,6 +2878,61 @@ describe('PriceChart', () => {
       // ...plus the out-of-range explanation.
       expect(screen.getByText(/isn’t drawn on the chart right now/)).toBeInTheDocument()
     })
+
+    // Legend click-to-toggle (frontend-chart-legend-toggle-not-working):
+    // Divergence was deliberately left OUT of frontend-chart-legend-toggle-
+    // overlay's own scope -- this is the first test actually covering it.
+    // Unlike the series-backed overlays (`useSeriesVisibilityToggle`), this
+    // folds the toggle directly into the whole effect's own gate/deps --
+    // both the connecting `LineSeries` AND the `circle` markers plugin are
+    // torn down together on hide and recreated together on show, the same
+    // "skip creation while hidden" mechanism Fibonacci/False-Breakout use.
+    it('clicking the Divergence legend label removes the connecting line + markers + click subscription, and clicking it again redraws them', async () => {
+      const user = userEvent.setup()
+      mockHistory(barsSpanningDivergence)
+      mockAnalysis([], { divergence: bullishDivergence })
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(subscribeClickMock).toHaveBeenCalledTimes(1))
+      removeSeriesMock.mockClear()
+      detachMarkersMock.mockClear()
+      unsubscribeClickMock.mockClear()
+      createSeriesMarkersMock.mockClear()
+      subscribeClickMock.mockClear()
+      setDataMock.mockClear()
+
+      const toggle = screen.getByRole('button', { name: 'Hide Divergence on the chart' })
+      expect(toggle).toHaveAttribute('aria-pressed', 'true')
+
+      await user.click(toggle)
+
+      expect(removeSeriesMock).toHaveBeenCalledTimes(1)
+      expect(detachMarkersMock).toHaveBeenCalledTimes(1)
+      expect(unsubscribeClickMock).toHaveBeenCalledTimes(1)
+      // Nothing new created while hidden.
+      expect(createSeriesMarkersMock).not.toHaveBeenCalled()
+      expect(subscribeClickMock).not.toHaveBeenCalled()
+      expect(
+        screen.getByRole('button', { name: 'Show Divergence on the chart' }),
+      ).toHaveAttribute('aria-pressed', 'false')
+
+      await user.click(screen.getByRole('button', { name: 'Show Divergence on the chart' }))
+
+      await waitFor(() =>
+        expect(setDataMock).toHaveBeenCalledWith([
+          { time: '2026-08-03', value: 210.5 },
+          { time: '2026-08-31', value: 205.2 },
+        ]),
+      )
+      expect(subscribeClickMock).toHaveBeenCalledTimes(1)
+      const divergenceMarkersCall = createSeriesMarkersMock.mock.calls.find(
+        ([, markers]) =>
+          Array.isArray(markers) &&
+          (markers as { shape: string }[]).every((marker) => marker.shape === 'circle'),
+      )
+      expect(divergenceMarkersCall).toBeDefined()
+    })
   })
 
   describe('kangaroo tail overlay (frontend-kangaroo-tail-markers)', () => {
@@ -3006,6 +3139,58 @@ describe('PriceChart', () => {
         screen.getByText(/Bearish \(upward-pointing\) Kangaroo Tail/),
       ).toBeInTheDocument()
       expect(screen.getByText(/isn't marked on the chart right now/)).toBeInTheDocument()
+    })
+
+    // Legend click-to-toggle (frontend-chart-legend-toggle-not-working):
+    // Kangaroo Tail was deliberately left OUT of frontend-chart-legend-
+    // toggle-overlay's own scope -- this is the first test actually
+    // covering it, same "skip creation while hidden" mechanism as the
+    // False Breakout/Divergence tests above.
+    it('clicking the Kangaroo Tail legend label removes its marker + stop price line, and clicking it again redraws them', async () => {
+      const user = userEvent.setup()
+      mockHistory(barsSpanningKangarooTail)
+      mockAnalysis([], { kangaroo_tail: upwardKangarooTail })
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(createPriceLineMock).toHaveBeenCalledWith(
+          expect.objectContaining({ price: 226.83, title: 'Kangaroo Tail stop' }),
+        ),
+      )
+      createPriceLineMock.mockClear()
+      removePriceLineMock.mockClear()
+      detachMarkersMock.mockClear()
+      createSeriesMarkersMock.mockClear()
+
+      const toggle = screen.getByRole('button', { name: 'Hide Kangaroo Tail on the chart' })
+      expect(toggle).toHaveAttribute('aria-pressed', 'true')
+
+      await user.click(toggle)
+
+      expect(detachMarkersMock).toHaveBeenCalledTimes(1)
+      expect(removePriceLineMock).toHaveBeenCalledTimes(1)
+      expect(createPriceLineMock).not.toHaveBeenCalled()
+      expect(createSeriesMarkersMock).not.toHaveBeenCalled()
+      expect(
+        screen.getByRole('button', { name: 'Show Kangaroo Tail on the chart' }),
+      ).toHaveAttribute('aria-pressed', 'false')
+
+      await user.click(
+        screen.getByRole('button', { name: 'Show Kangaroo Tail on the chart' }),
+      )
+
+      await waitFor(() =>
+        expect(createPriceLineMock).toHaveBeenCalledWith(
+          expect.objectContaining({ price: 226.83, title: 'Kangaroo Tail stop' }),
+        ),
+      )
+      const kangarooTailMarkersCall = createSeriesMarkersMock.mock.calls.find(
+        ([, markers]) =>
+          Array.isArray(markers) &&
+          (markers as { shape: string }[]).every((marker) => marker.shape === 'square'),
+      )
+      expect(kangarooTailMarkersCall).toBeDefined()
     })
   })
 

@@ -905,6 +905,61 @@ describe('OscillatorChart', () => {
       expect(detachMarkersMock).toHaveBeenCalled()
       expect(subscribeClickMock).toHaveBeenCalledTimes(2)
     })
+
+    // Legend click-to-toggle (frontend-chart-legend-toggle-not-working):
+    // this pane's own Divergence row was deliberately left OUT of
+    // frontend-chart-legend-toggle-overlay's own scope (same as
+    // PriceChart.tsx's own Divergence/False Breakout/Kangaroo Tail rows) --
+    // this is the first test actually covering it. Folds the toggle
+    // directly into the whole effect's own gate/deps -- both the connecting
+    // `LineSeries` AND the `circle` markers plugin are torn down together on
+    // hide and recreated together on show (same mechanism
+    // PriceChart.test.tsx's own Divergence toggle test covers).
+    it('clicking the Divergence legend label removes the connecting line + markers + click subscription, and clicking it again redraws them', async () => {
+      const user = userEvent.setup()
+      mockIndicators(indicatorPointsSpanningDivergence)
+      mockAnalysis(bearishDivergence)
+
+      renderWithProviders(<OscillatorChart ticker="AAPL" range="1y" />)
+
+      await waitFor(() => expect(subscribeClickMock).toHaveBeenCalledTimes(1))
+      removeSeriesMock.mockClear()
+      detachMarkersMock.mockClear()
+      unsubscribeClickMock.mockClear()
+      createSeriesMarkersMock.mockClear()
+      subscribeClickMock.mockClear()
+      setDataMock.mockClear()
+
+      const toggle = screen.getByRole('button', { name: 'Hide Divergence on the chart' })
+      expect(toggle).toHaveAttribute('aria-pressed', 'true')
+
+      await user.click(toggle)
+
+      expect(removeSeriesMock).toHaveBeenCalledTimes(1)
+      expect(detachMarkersMock).toHaveBeenCalledTimes(1)
+      expect(unsubscribeClickMock).toHaveBeenCalledTimes(1)
+      expect(createSeriesMarkersMock).not.toHaveBeenCalled()
+      expect(subscribeClickMock).not.toHaveBeenCalled()
+      expect(
+        screen.getByRole('button', { name: 'Show Divergence on the chart' }),
+      ).toHaveAttribute('aria-pressed', 'false')
+
+      await user.click(screen.getByRole('button', { name: 'Show Divergence on the chart' }))
+
+      await waitFor(() =>
+        expect(setDataMock).toHaveBeenCalledWith(
+          0,
+          expect.arrayContaining([{ time: '2026-08-03', value: 72.0 }]),
+        ),
+      )
+      expect(subscribeClickMock).toHaveBeenCalledTimes(1)
+      const divergenceMarkersCall = createSeriesMarkersMock.mock.calls.find(
+        ([, markers]) =>
+          Array.isArray(markers) &&
+          (markers as { shape: string }[]).every((marker) => marker.shape === 'circle'),
+      )
+      expect(divergenceMarkersCall).toBeDefined()
+    })
   })
 
   // frontend-chart-fullscreen-resize-followups checklist item: see
