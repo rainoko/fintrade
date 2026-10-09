@@ -2630,7 +2630,7 @@
       "id": "frontend-stock-detail-current-price-prominent-followups",
       "area": "frontend/stocks",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-stock-detail-current-price-prominent-followups.json"
     },
     {
