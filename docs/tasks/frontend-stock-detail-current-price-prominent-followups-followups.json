@@ -20,5 +20,11 @@
     }
   ],
   "decisions": [],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-stock-detail-current-price-prominent-followups-followups",
+    "pr_number": 396,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/396",
+    "pushed_at": "2026-10-09T20:26:17Z"
+  }
 }
