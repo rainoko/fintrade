@@ -1,4 +1,5 @@
 import { screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import type { PortfolioResponse, RiskResponse } from '../../../api/portfolio'
@@ -38,7 +39,7 @@ const aaplPortfolio: PortfolioResponse = {
 }
 
 describe('HeldPositionBanner', () => {
-  it('shows entry price/quantity/date, protective stop, and profit target for a held position', async () => {
+  it('shows entry price/quantity/date, the (pre-ratchet) stop, and profit target for a held position', async () => {
     mockPortfolio(aaplPortfolio)
     mockRisk({
       trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
@@ -75,6 +76,43 @@ describe('HeldPositionBanner', () => {
     expect(within(banner).getByText('2.0:1')).toBeInTheDocument()
   })
 
+  it('shows the ratcheted trailing_stop (not the raw, lower protective_stop) once a position has earned enough profit to trigger it, and explains the divergence in the Stop help popover', async () => {
+    mockPortfolio(aaplPortfolio)
+    mockRisk({
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
+      total_open_risk_pct: 1.8,
+      realized_losses_this_month_pct: 0,
+      six_percent_rule_breached: false,
+      positions: [
+        {
+          id: 'pos_123',
+          ticker: 'AAPL',
+          // Post-ratchet: trailing_stop has locked in above the raw,
+          // currently-lower protective_stop (frontend-trailing-stop-display).
+          protective_stop: 195.3,
+          trailing_stop: 206.67,
+          position_risk_pct: 1.8,
+          two_percent_rule_breached: false,
+          exit_flags: [],
+        },
+      ],
+    })
+    const user = userEvent.setup()
+
+    renderWithProviders(<HeldPositionBanner ticker="AAPL" />)
+
+    const banner = await screen.findByRole('note', { name: 'You hold this position' })
+    // The higher, ratcheted figure is shown, not the lower raw stop.
+    expect(within(banner).getByText('$206.67')).toBeInTheDocument()
+
+    await user.click(within(banner).getByRole('button', { name: 'Stop help' }))
+    expect(
+      screen.getByText(
+        /Currently 206.67 -- tighter \(higher\) than today’s raw protective stop \(195.30\)/,
+      ),
+    ).toBeInTheDocument()
+  })
+
   it("renders nothing for a ticker that isn't a held position", async () => {
     mockPortfolio(aaplPortfolio)
     mockRisk({
@@ -97,7 +135,7 @@ describe('HeldPositionBanner', () => {
     expect(screen.queryByRole('note')).not.toBeInTheDocument()
   })
 
-  it('shows field-specific warning icons (not an em dash) on Current Stop and Profit Target when GET /api/portfolio/risk fails', async () => {
+  it('shows field-specific warning icons (not an em dash) on Stop and Profit Target when GET /api/portfolio/risk fails', async () => {
     mockPortfolio(aaplPortfolio)
     server.use(
       http.get('/api/portfolio/risk', () =>
@@ -118,7 +156,7 @@ describe('HeldPositionBanner', () => {
     // Field-specific aria-labels (not a shared "Risk data unavailable") so a
     // screen reader user can tell which field failed from the label alone.
     expect(
-      await within(banner).findByLabelText('Current Stop unavailable'),
+      await within(banner).findByLabelText('Stop unavailable'),
     ).toBeInTheDocument()
     expect(within(banner).getByLabelText('Profit target unavailable')).toBeInTheDocument()
     // No misleading '—' ("no stop/target configured") anywhere in the banner

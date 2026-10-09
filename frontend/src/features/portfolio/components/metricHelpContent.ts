@@ -46,6 +46,47 @@ import {
  * candidate for this position" (or the rarer column-validation degrade),
  * never "not a fresh BUY" -- there's no such gate to explain any more.
  */
+/**
+ * Help for the "Stop" figure shown by `PositionsTable.tsx`'s and
+ * `RiskPanel.tsx`'s Stop column and `HeldPositionBanner.tsx`'s Stop field
+ * (`frontend-trailing-stop-display`) -- all three now show
+ * `RiskPosition.trailing_stop` (the hard-ratcheted trailing/profit-
+ * protecting stop, Elder ch. 54, `app.portfolio.risk
+ * .ratchet_trailing_profit_stop`) as the primary value, with the raw,
+ * un-ratcheted `protective_stop` (SafeZone, docs/Analyse.md §7) demoted to
+ * this popover's `valueInterpretation` rather than kept as its own
+ * permanently-separate column/field -- see this task's `decisions` entry
+ * for why: the two values are identical for most positions most of the time
+ * (before a position's unrealized profit has crossed the breakeven-ratchet
+ * trigger), so a second always-visible column would mostly just duplicate
+ * the first one. `interpretValue` always states today's raw protective_stop
+ * figure too, and explicitly says whether it currently differs from the
+ * shown trailing stop (and in which direction) -- so the detail a trader
+ * would want (the live, unratcheted number) is still one click away, not
+ * silently dropped.
+ */
+export const stopHelp = {
+  metricLabel: 'Stop',
+  definition:
+    'The stop currently protecting this position -- a hard ratchet that, once reported, never moves below any value this app has shown for it before (Elder ch. 54 "Don’t Let a Winning Trade Turn into a Loss" and its companion "Move Your Stop Only in the Direction of Your Trade"). Equal to the plain volatility-based protective stop (SafeZone concept, docs/Analyse.md §7) until this position’s unrealized profit crosses a 10%-of-entry-price trigger; from that point on it locks in at least breakeven and keeps protecting a growing share of the profit earned beyond that point.',
+  elderContext:
+    'Distinct from the raw protective stop alone: that figure is a pure point-in-time SafeZone recomputation and CAN move down day to day as volatility/the recent swing low change, even for a winning trade. This value never does once a position has started earning the ratchet’s protection -- it can be tighter (higher) or looser (lower) than today’s raw protective stop on any given day, since the two are independent stop-setting techniques meant to be considered together, not one superseding the other (docs/Analyse.md §7; app.portfolio.risk.ratchet_trailing_profit_stop’s own docstring).',
+  interpretValue(trailingStop: number, protectiveStop: number): string {
+    // A float-equality tolerance, not `===` -- `trailing_stop` is a running
+    // max folded over daily closes server-side, so a pre-trigger position
+    // (where the two values are defined to be identical) could in principle
+    // differ from `protective_stop` by sub-cent floating-point noise alone.
+    if (Math.abs(trailingStop - protectiveStop) < 0.005) {
+      return `Currently ${trailingStop.toFixed(2)} -- equal to today’s raw protective stop, since this position’s profit hasn’t yet crossed the breakeven trigger that starts the ratchet protecting it.`
+    }
+    const direction =
+      trailingStop > protectiveStop
+        ? 'tighter (higher) than'
+        : 'looser (lower) than'
+    return `Currently ${trailingStop.toFixed(2)} -- ${direction} today’s raw protective stop (${protectiveStop.toFixed(2)}): the ratchet has already locked in a value from an earlier day that this position’s own current volatility-based recompute alone wouldn’t produce today.`
+  },
+}
+
 export const profitTargetHelp = {
   metricLabel: 'Profit Target',
   definition: PROFIT_TARGET_DEFINITION,

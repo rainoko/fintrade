@@ -2609,8 +2609,8 @@
       "id": "frontend-trailing-stop-display",
       "area": "frontend/portfolio",
       "skill": "add-frontend-feature",
-      "state": "planned",
-      "path": "docs/tasks/frontend-trailing-stop-display.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-trailing-stop-display.json"
     },
     {
       "id": "frontend-stock-detail-insider-transactions-last",

@@ -90,11 +90,48 @@ describe('PositionsTable', () => {
     const aaplBadge = within(rows[0]).getByTestId('signal-badge')
     expect(aaplBadge).toHaveTextContent('BUY')
 
-    // Protective Stop/Profit Target columns (frontend-position-risk-columns)
-    // read from GET /api/portfolio/risk, cross-referenced by ticker.
+    // Stop/Profit Target columns (frontend-position-risk-columns) read from
+    // GET /api/portfolio/risk, cross-referenced by ticker.
     await waitFor(() => expect(within(rows[0]).getByText('$210.15')).toBeInTheDocument())
     expect(within(rows[0]).getByText('$245.00')).toBeInTheDocument()
     expect(within(rows[0]).getByText('2.0:1')).toBeInTheDocument()
+  })
+
+  it('shows the ratcheted trailing_stop (not the lower raw protective_stop) once a position has earned enough profit to trigger it, and explains the divergence in the Stop help popover (frontend-trailing-stop-display)', async () => {
+    const user = userEvent.setup()
+    mockRisk({
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
+      total_open_risk_pct: 1.8,
+      realized_losses_this_month_pct: 0,
+      six_percent_rule_breached: false,
+      positions: [
+        {
+          id: 'pos_123',
+          ticker: 'AAPL',
+          // Post-ratchet: trailing_stop has locked in above the raw,
+          // currently-lower protective_stop.
+          protective_stop: 195.3,
+          trailing_stop: 206.67,
+          position_risk_pct: 1.8,
+          two_percent_rule_breached: false,
+          exit_flags: [],
+        },
+      ],
+    })
+    renderPositionsTable(positions)
+
+    const table = screen.getByRole('table')
+    const rows = within(table).getAllByRole('row').slice(1)
+    await waitFor(() =>
+      expect(within(rows[0]).getByText('$206.67')).toBeInTheDocument(),
+    )
+
+    await user.click(within(rows[0]).getByRole('button', { name: 'Stop help' }))
+    expect(
+      screen.getByText(
+        /Currently 206.67 -- tighter \(higher\) than today’s raw protective stop \(195.30\)/,
+      ),
+    ).toBeInTheDocument()
   })
 
   it('renders an em dash for null current_price/unrealized_pnl_pct/signal, and for a ticker missing from the risk response', async () => {

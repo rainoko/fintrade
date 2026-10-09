@@ -1,6 +1,7 @@
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineOutlined'
 import Box from '@mui/material/Box'
 import IconButton from '@mui/material/IconButton'
+import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import { useState } from 'react'
 import type { PositionOut, RiskPosition } from '../../../api/portfolio'
@@ -8,6 +9,7 @@ import DataTable, {
   type DataTableColumn,
 } from '../../../components/common/DataTable/DataTable'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
+import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import PercentChange from '../../../components/common/PercentChange/PercentChange'
 import SignalBadge from '../../../components/common/SignalBadge/SignalBadge'
 import TickerLink from '../../../components/common/TickerLink/TickerLink'
@@ -15,6 +17,7 @@ import { formatCurrency, formatNullableCurrency } from '../../../utils/format'
 import { useDeletePosition } from '../hooks/useDeletePosition'
 import { usePortfolioRisk } from '../hooks/usePortfolioRisk'
 import ClosePositionDialog, { type ClosePositionConfirmValues } from './ClosePositionDialog'
+import { stopHelp } from './metricHelpContent'
 import PositionProfitTargetCell from './PositionProfitTargetCell'
 
 export interface PositionsTableProps {
@@ -65,8 +68,10 @@ export interface PositionsTableProps {
  * change. See frontend-close-position-dialog-followups (PR #261 round-2
  * review).
  *
- * Protective Stop and Profit Target columns (frontend-position-risk-columns)
- * read from GET /api/portfolio/risk via this component's own
+ * Stop and Profit Target columns (frontend-position-risk-columns; Stop was
+ * "Protective Stop" before frontend-trailing-stop-display promoted
+ * `trailing_stop` to its primary value) read from GET /api/portfolio/risk
+ * via this component's own
  * usePortfolioRisk call, cross-referenced against each row by ticker the
  * same way RiskPanel's own Signal column cross-references `positions` by
  * ticker in the other direction -- PositionOut itself carries neither
@@ -175,19 +180,47 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
         ),
     },
     {
-      // Synthetic column: `RiskPosition.protective_stop` isn't a field of
-      // `PositionOut`, so `key` can't be `'protective_stop'` --
-      // `DataTableColumn<T>.key` is typed `keyof T` and is only ever used
-      // as this column's own React key/non-sortable header, not a lookup
-      // into the row -- reuses one of `PositionOut`'s own otherwise-
-      // column-unused fields purely for that typing, same convention
-      // RiskPanel's own synthetic Signal/Profit Target columns use.
+      // Synthetic column: neither `RiskPosition.trailing_stop` nor
+      // `protective_stop` is a field of `PositionOut`, so `key` can't be
+      // either of those -- `DataTableColumn<T>.key` is typed `keyof T` and
+      // is only ever used as this column's own React key/non-sortable
+      // header, not a lookup into the row -- reuses one of `PositionOut`'s
+      // own otherwise-column-unused fields purely for that typing, same
+      // convention RiskPanel's own synthetic Signal/Profit Target columns
+      // use.
+      //
+      // Shows `trailing_stop` (the hard-ratcheted figure) as the primary
+      // value, not the raw `protective_stop` this column showed before --
+      // see this task's (frontend-trailing-stop-display) `decisions` entry
+      // and `stopHelp`'s own doc comment for why, and why the raw figure is
+      // demoted to this cell's MetricHelp popover rather than kept as a
+      // second, permanently-separate column.
       key: 'confidence',
-      header: 'Protective Stop',
+      header: 'Stop',
       align: 'right',
       render: (row) => {
         const risk = riskByTicker.get(row.ticker)
-        return risk ? formatCurrency(risk.protective_stop) : '—'
+        if (!risk) {
+          return '—'
+        }
+        return (
+          <Stack
+            direction="row"
+            spacing={0.5}
+            sx={{ alignItems: 'center', justifyContent: 'flex-end' }}
+          >
+            <Typography variant="body2">{formatCurrency(risk.trailing_stop)}</Typography>
+            <MetricHelp
+              metricLabel={stopHelp.metricLabel}
+              definition={stopHelp.definition}
+              elderContext={stopHelp.elderContext}
+              valueInterpretation={stopHelp.interpretValue(
+                risk.trailing_stop,
+                risk.protective_stop,
+              )}
+            />
+          </Stack>
+        )
       },
     },
     {

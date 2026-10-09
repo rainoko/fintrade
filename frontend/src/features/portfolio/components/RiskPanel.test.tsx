@@ -363,6 +363,72 @@ describe('RiskPanel', () => {
     expect(screen.getByText('Something went wrong')).toBeInTheDocument()
   })
 
+  it('shows the ratcheted trailing_stop (not the lower raw protective_stop) once a position has earned enough profit to trigger it, and explains the divergence in the Stop help popover (frontend-trailing-stop-display)', async () => {
+    mockRisk({
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
+      total_open_risk_pct: 1.8,
+      realized_losses_this_month_pct: 0,
+      six_percent_rule_breached: false,
+      positions: [
+        {
+          id: 'pos_123',
+          ticker: 'AAPL',
+          // Post-ratchet: trailing_stop has locked in above the raw,
+          // currently-lower protective_stop.
+          protective_stop: 195.3,
+          trailing_stop: 206.67,
+          position_risk_pct: 1.8,
+          two_percent_rule_breached: false,
+          exit_flags: [],
+        },
+      ],
+    })
+    const user = userEvent.setup()
+
+    renderRiskPanel([aaplPosition])
+
+    await waitFor(() => expect(screen.getByText('$206.67')).toBeInTheDocument())
+    expect(screen.queryByText('$195.30')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Stop help' }))
+    expect(
+      screen.getByText(
+        /Currently 206.67 -- tighter \(higher\) than today’s raw protective stop \(195.30\)/,
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('shows the Stop help popover explaining the pre-ratchet case, where trailing_stop equals protective_stop', async () => {
+    mockRisk({
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
+      total_open_risk_pct: 1.8,
+      realized_losses_this_month_pct: 0,
+      six_percent_rule_breached: false,
+      positions: [
+        {
+          id: 'pos_123',
+          ticker: 'AAPL',
+          protective_stop: 210.15,
+          trailing_stop: 210.15,
+          position_risk_pct: 1.8,
+          two_percent_rule_breached: false,
+          exit_flags: [],
+        },
+      ],
+    })
+    const user = userEvent.setup()
+
+    renderRiskPanel([aaplPosition])
+
+    await waitFor(() => expect(screen.getByText('$210.15')).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: 'Stop help' }))
+    expect(
+      screen.getByText(
+        /Currently 210.15 -- equal to today’s raw protective stop, since this position’s profit hasn’t yet crossed the breakeven trigger/,
+      ),
+    ).toBeInTheDocument()
+  })
+
   it('opens the Total Risk help popover with the open-vs-realized breakdown text (totalRiskHelp)', async () => {
     // Same PR #166 review-verified figures totalRiskHelp.test.ts hand-checks
     // directly -- this test locks in that the real value flows through
