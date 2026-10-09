@@ -35,5 +35,11 @@
       "rationale": "CLAUDE.md's 'Decision memory' section defaults to appending a brand-new entry over amending an already-done task's existing entry text in place, reserving in-place amendment for the narrower case where the checklist item or task explicitly calls out the *existing entry's own text* as the thing to fix. This followup's own checklist item offered a choice ('add a short note (or amend the checklist item's own wording)') but did not call out the existing placement decisions entry's text itself as wrong or stale -- that entry never claimed a story existed, so there is nothing factually incorrect in it to correct. Appending a new entry (rather than editing the checklist item 4 label, which is a historical record of what was literally asked and marked done, not a place to retroactively annotate reasoning) keeps the original record intact while making the exemption fully explicit and independently discoverable."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-daily-homework-history-followups",
+    "pr_number": 403,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/403",
+    "pushed_at": "2026-10-09T23:32:35Z"
+  }
 }
