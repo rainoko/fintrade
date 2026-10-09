@@ -65,5 +65,11 @@
       "rationale": "Modifying `FixtureDataProvider` to synthesize a Kangaroo Tail pattern is out of scope for a legend-toggle bug-fix task (a materially different, riskier change to shared test/dev infrastructure every other frontend task also depends on) and isn't necessary to be confident the fix is correct: Kangaroo Tail's new toggle effect is structurally identical to Divergence's and False Breakout's (same `createSeriesMarkers`/`createPriceLine` skip-while-hidden mechanism, same effect shape, same mutation-tested assertions), both of which were independently confirmed correct live against real rendered chart content (MSFT, `range=max`) with before/after screenshots. The unit test's own mutation test (reverting the gate and confirming the test fails) gives the same confidence the live walkthrough gives the other three, for the one case fixture data can't exercise end to end."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-chart-legend-toggle-not-working",
+    "pr_number": 391,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/391",
+    "pushed_at": "2026-10-09T07:33:04Z"
+  }
 }
