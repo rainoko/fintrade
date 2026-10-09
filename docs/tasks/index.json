@@ -2623,8 +2623,8 @@
       "id": "frontend-stock-detail-current-price-prominent",
       "area": "frontend/stocks",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-stock-detail-current-price-prominent.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-stock-detail-current-price-prominent.json"
     },
     {
       "id": "frontend-stock-detail-current-price-prominent-followups",

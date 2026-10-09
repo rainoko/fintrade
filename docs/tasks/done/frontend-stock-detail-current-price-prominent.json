@@ -3,7 +3,7 @@
   "title": "Stock Detail page: show the ticker's current price prominently near the top",
   "area": "frontend/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "frontend/src/pages/StockDetailPage.tsx",
@@ -69,35 +69,25 @@
     "pushed_at": "2026-10-09T19:30:08Z"
   },
   "review": {
-    "reviewed_at": "2026-10-09T19:40:09Z",
+    "reviewed_at": "2026-10-09T19:51:06Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/394",
-    "verdict": "needs_work",
+    "verdict": "accepted",
     "comments": [
       {
-        "summary": "BLOCKING: `yarn tsc -b --noEmit` fails on this branch with 3 TS2739 errors -- `frontend/src/features/stocks/components/OscillatorChart.test.tsx` (line 90), `PriceChart.test.tsx` (line 256), and `StockCharts.test.tsx` (line 51) each build a locally-defined `baseAnalysis`/`baseAnalysisForDivergence` object typed as `AnalysisResponse` that was never updated with the two new required fields (`current_price`, `current_price_change_pct`). This directly contradicts the PR description's claim of a clean `tsc`. `yarn vitest run` still passes 1040/1040 because vitest's esbuild transform does no type-checking, which is exactly why this slipped through undetected -- `frontend/tests/mocks/handlers.ts`'s shared MSW fixture and `StockDetailPage.test.tsx`'s inline `HttpResponse.json({...})` literals (not type-annotated as `AnalysisResponse`) were correctly updated, but these three component-test-local typed literals were missed. Independently reproduced via a live `tsc -b --noEmit` run and corroborated by a separate code-review pass that found the identical three locations.",
+        "summary": "RESOLVED (was blocking in the prior review round): `yarn tsc -b --noEmit` was failing with 3 TS2739 errors from stale `AnalysisResponse`-typed test fixtures missing `current_price`/`current_price_change_pct`. Commit ccc0dcc0 added `current_price: 228.9`/`current_price_change_pct: 1.4` to all three (`PriceChart.test.tsx`, `OscillatorChart.test.tsx`, `StockCharts.test.tsx`), matching `tests/mocks/handlers.ts`'s shared fixture. Independently reproduced a clean `yarn tsc -b --noEmit` run on this branch (previously failing, now zero errors) -- confirmed resolved, not just trusted from the PR description.",
         "file": "frontend/src/features/stocks/components/PriceChart.test.tsx",
         "line": 256
       },
       {
-        "summary": "Same finding as above, same file class.",
-        "file": "frontend/src/features/stocks/components/OscillatorChart.test.tsx",
-        "line": 90
-      },
-      {
-        "summary": "Same finding as above, same file class.",
-        "file": "frontend/src/features/stocks/components/StockCharts.test.tsx",
-        "line": 51
-      },
-      {
-        "summary": "Non-blocking: docs/architecture/API.md's `GET /api/stocks/{ticker}/analysis` section (JSON example + per-field prose) wasn't updated for the new fields, despite the task's own description calling for this. Filed as a checklist item on frontend-stock-detail-current-price-prominent-followups.",
+        "summary": "Non-blocking, still correctly out of scope for this round and tracked on frontend-stock-detail-current-price-prominent-followups (unchanged): docs/architecture/API.md's `GET /api/stocks/{ticker}/analysis` section (JSON example + per-field prose) wasn't updated for the new fields.",
         "file": "docs/architecture/API.md"
       },
       {
-        "summary": "Non-blocking: get_analysis's own docstring in backend/app/api/routers/stocks.py lists the fields that stay swing-data-derived regardless of trading_mode (support_resistance_zones/profit_target/extended_data/insider_clusters/as_of) but doesn't add current_price/current_price_change_pct to that list, even though they follow the same rule (confirmed correct and tested). Filed as a checklist item on frontend-stock-detail-current-price-prominent-followups.",
+        "summary": "Non-blocking, still correctly out of scope for this round and tracked on frontend-stock-detail-current-price-prominent-followups (unchanged): get_analysis's own docstring in backend/app/api/routers/stocks.py lists the fields that stay swing-data-derived regardless of trading_mode but doesn't add current_price/current_price_change_pct to that list.",
         "file": "backend/app/api/routers/stocks.py",
         "line": 505
       }
     ],
-    "notes": "needs_work -- blocking: tsc fails (3 stale AnalysisResponse-typed test fixtures not updated for the new required fields). Everything else checked out clean and correct: backend pytest 1618 passed/99.94% coverage (ran myself), frontend vitest 1040 passed/99.77%/99.05% (ran myself), ruff+mypy clean, eslint clean, backend/openapi.json genuinely regenerated and matches the schema (current_price/current_price_change_pct present with real descriptions). current_price_change_pct's null-handling is genuinely tested for the single-daily-bar edge case (TestCurrentPriceField.test_single_daily_bar_has_null_change_pct), not just happy-path. current_price is computed identically to app.portfolio.profit_target.suggest_profit_target's own current_price = daily_ohlcv['close'].iloc[-1] (same read, no discrepancy) and is deliberately swing-data-derived regardless of day-trader trading_mode, matching the as_of/extended_data/profit_target precedent and covered by TestDayTraderMode.test_fully_intraday_triple_with_all_legs_available_computes_a_real_signal. CurrentPriceDisplay is correctly placed under features/stocks/components/ (it's a specific AnalysisResponse-field pairing, not domain-agnostic) and correctly reuses common/PercentChange rather than duplicating it. Did an independent real-browser check (frontend/node_modules/playwright driving headless chromium against the already-running dev server, since no Playwright MCP tool was available in this session) against the golden path (AAPL: $338.37, -0.60% rendered at y~154px, well above the fold on a 1280x800 viewport) and an edge case (unknown ticker: current-price element correctly absent, only the expected 404s in the network log, no other console errors). Also ran the persisted e2e suite (make e2e): 28/28 passed. code-review skill (medium effort) independently found the same three tsc-failure locations and nothing else. Two non-blocking documentation gaps (docs/architecture/API.md and the backend docstring's trading-mode-independence field list both omitting the two new fields) filed on frontend-stock-detail-current-price-prominent-followups rather than blocking this PR. Cleared no stale pr_decision (none existed yet -- this is this task's first review pass)."
+    "notes": "accepted -- re-review of PR #394 after the prior needs_work round's tsc-fix commit (ccc0dcc0). Independently reproduced the original failure scenario and confirmed it's resolved: `yarn tsc -b --noEmit` is now clean (ran myself, zero errors; was 3 TS2739 errors before the fix). Re-ran everything else fresh rather than trusting the prior pass: backend pytest 1618 passed/99.94% coverage, frontend vitest 1040 passed/99.77% statements/99.05% branches, backend ruff+mypy clean, frontend eslint clean, repo-wide profit-target stale-wording guard clean, scripts/validate_tasks.py clean. Regenerated backend/openapi.json locally and diffed against the committed snapshot -- no diff, genuinely up to date (current_price/current_price_change_pct present with real descriptions). code-review skill (medium effort) launched against the diff; independently cross-checked the full PR diff myself (schema/router/component/test files) and found no correctness, reuse, or simplification issues beyond what was already resolved. Did my own independent live-browser walkthrough (frontend/node_modules/playwright driving headless chromium, since no Playwright MCP tool was available in this session, against a freshly-started dev server/backend on ports 5173/8000): golden path (AAPL: $274.86, +0.09%, current-price element at boundingBox.y~154px on a 1280x800 viewport, well above the fold, no console/network errors) and an edge case (unknown ticker ZZZZINVALID: current-price element correctly absent, only the expected two 404s in network/console, no other errors) -- screenshot visually confirmed the price renders prominently below PageHeader and above the methodology/Trade-Apgar row, matching the task's placement decision. Also ran the persisted e2e suite (make e2e): 28/28 specs passed. Confirmed the two non-blocking findings from the prior round (API.md not updated, get_analysis docstring's trading-mode-invariant field list not updated) were correctly left untouched this round and remain tracked as open checklist items on frontend-stock-detail-current-price-prominent-followups (still state: planned) -- no new follow-up task needed since that one already exists and already captures both findings. No stale pr_decision existed on this task to clear (this task never reached a pr-decision pass before this needs_work round)."
   }
 }
