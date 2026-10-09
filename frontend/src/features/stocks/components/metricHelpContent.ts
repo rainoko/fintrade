@@ -1237,10 +1237,33 @@ export const insiderClustersHelp = {
 export const fundamentalDataUnavailableHelp = {
   metricLabel: 'Fundamental Data',
   definition:
-    'Earnings/dividend dates, short interest, and recent insider transactions for this ticker (yfinance-only fields with no Stooq equivalent).',
+    'Earnings/dividend dates and short interest for this ticker (yfinance-only fields with no Stooq equivalent).',
   elderContext:
     'The fallback (Stooq) market data provider has no equivalent for any of this data at all (docs/architecture/Backend.md, backend-market-data-extra-fields task). This is a structural "unsupported by the currently active provider" condition, shown distinctly from a genuine "checked yfinance, found nothing for this ticker" result -- the two mean very different things and shouldn\'t both collapse into a blank panel.',
   interpretValue(): string {
-    return 'Currently unavailable -- the fallback (Stooq) provider is active for this ticker right now, and has no equivalent for earnings/dividend dates, short interest, or insider transactions. Not the same as "checked, nothing found" -- this data simply was never checked while the fallback provider is serving requests.'
+    return 'Currently unavailable -- the fallback (Stooq) provider is active for this ticker right now, and has no equivalent for earnings/dividend dates or short interest. Not the same as "checked, nothing found" -- this data simply was never checked while the fallback provider is serving requests.'
+  },
+}
+
+/**
+ * Separate registry entry from `fundamentalDataUnavailableHelp` above
+ * (frontend-stock-detail-insider-transactions-last's own `decisions` entry):
+ * once Insider Transactions became its own `InsiderTransactionsPanel`
+ * component rendered at the bottom of the page rather than inside
+ * `FundamentalDataPanel`, its "fallback provider active" unavailable state
+ * needed its own help entry scoped to insider transactions only, rather than
+ * either silently dropping that messaging or continuing to reuse the
+ * now-inaccurate `fundamentalDataUnavailableHelp` (whose copy was updated
+ * above to describe only what `FundamentalDataPanel` still renders --
+ * earnings/dividend dates and short interest).
+ */
+export const insiderTransactionsUnavailableHelp = {
+  metricLabel: 'Insider Transactions',
+  definition:
+    'Recent officer/director buy/sell filings for this ticker (yfinance-only data with no Stooq equivalent).',
+  elderContext:
+    'The fallback (Stooq) market data provider has no equivalent for insider-transaction filings at all (docs/architecture/Backend.md, backend-market-data-extra-fields task). This is a structural "unsupported by the currently active provider" condition, shown distinctly from a genuine "checked yfinance, found nothing for this ticker" result -- the two mean very different things and shouldn\'t both collapse into a blank panel.',
+  interpretValue(): string {
+    return 'Currently unavailable -- the fallback (Stooq) provider is active for this ticker right now, and has no equivalent for insider transactions. Not the same as "checked, nothing found" -- this data simply was never checked while the fallback provider is serving requests.'
   },
 }

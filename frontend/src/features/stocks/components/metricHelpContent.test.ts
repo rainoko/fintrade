@@ -31,6 +31,7 @@ import {
   impulseHelp,
   insiderClustersHelp,
   insiderTransactionsHelp,
+  insiderTransactionsUnavailableHelp,
   kangarooTailHelp,
   macdHistogramHelp,
   obvHelp,
@@ -1575,6 +1576,15 @@ describe('metricHelpContent', () => {
     it("explains the fallback-provider-active state distinctly from 'checked, nothing found'", () => {
       const message = fundamentalDataUnavailableHelp.interpretValue()
       expect(message).toContain('fallback (Stooq) provider is active')
+      expect(message).toContain('Not the same as "checked, nothing found"')
+    })
+  })
+
+  describe('insiderTransactionsUnavailableHelp.interpretValue', () => {
+    it("explains the fallback-provider-active state distinctly from 'checked, nothing found'", () => {
+      const message = insiderTransactionsUnavailableHelp.interpretValue()
+      expect(message).toContain('fallback (Stooq) provider is active')
+      expect(message).toContain('insider transactions')
       expect(message).toContain('Not the same as "checked, nothing found"')
     })
   })
