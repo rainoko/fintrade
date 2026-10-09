@@ -4,6 +4,7 @@ import {
   buyGradeHelp,
   profitTargetHelp,
   sellGradeHelp,
+  stopHelp,
   tradeGradeHelp,
 } from './metricHelpContent'
 
@@ -43,6 +44,32 @@ describe('portfolio metricHelpContent', () => {
 
     it('explains an unavailable grade (warm-up window / insufficient history) instead of rendering a bare null', () => {
       expect(tradeGradeHelp.interpretValue(null)).toMatch(/warm-up window/)
+    })
+  })
+
+  describe('stopHelp.interpretValue', () => {
+    it('states the pre-ratchet case (trailing_stop == protective_stop) without claiming a divergence', () => {
+      expect(stopHelp.interpretValue(210.15, 210.15)).toBe(
+        'Currently 210.15 -- equal to today’s raw protective stop, since this position’s profit hasn’t yet crossed the breakeven trigger that starts the ratchet protecting it.',
+      )
+    })
+
+    it('treats a sub-cent floating-point difference as "equal" rather than a false divergence', () => {
+      expect(stopHelp.interpretValue(210.150001, 210.15)).toBe(
+        'Currently 210.15 -- equal to today’s raw protective stop, since this position’s profit hasn’t yet crossed the breakeven trigger that starts the ratchet protecting it.',
+      )
+    })
+
+    it('states the post-ratchet case where trailing_stop is tighter (higher) than protective_stop', () => {
+      expect(stopHelp.interpretValue(206.67, 195.3)).toBe(
+        'Currently 206.67 -- tighter (higher) than today’s raw protective stop (195.30): the ratchet has already locked in a value from an earlier day that this position’s own current volatility-based recompute alone wouldn’t produce today.',
+      )
+    })
+
+    it('states the rarer case where trailing_stop is looser (lower) than protective_stop', () => {
+      expect(stopHelp.interpretValue(195.3, 206.67)).toBe(
+        'Currently 195.30 -- looser (lower) than today’s raw protective stop (206.67): the ratchet has already locked in a value from an earlier day that this position’s own current volatility-based recompute alone wouldn’t produce today.',
+      )
     })
   })
 

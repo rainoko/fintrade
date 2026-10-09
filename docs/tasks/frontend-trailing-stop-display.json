@@ -3,7 +3,7 @@
   "title": "Show the real ratcheted trailing/profit-protecting stop, not just the raw protective stop, in the Portfolio positions list and Stock Detail page",
   "area": "frontend/portfolio",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "backend/app/portfolio/risk.py",
@@ -17,29 +17,36 @@
   "checklist": [
     {
       "step": "Read `risk.py`'s `trailing_profit_stop`/`ratchet_trailing_profit_stop` docstrings in full, and `RiskPosition.trailing_stop`'s own schema description in schemas.py, to confirm the exact current semantics before changing any UI (source may have shifted since this task was written).",
-      "done": false
+      "done": true
     },
     {
       "step": "Decide and record (as a `decisions` entry) how `trailing_stop` is surfaced relative to the existing `protective_stop` display in both locations -- promoted-primary-value-with-raw-as-detail vs. a separate adjacent column/field -- and why.",
-      "done": false
+      "done": true
     },
     {
       "step": "Implement in `PositionsTable.tsx` (Portfolio page's positions list).",
-      "done": false
+      "done": true
     },
     {
       "step": "Implement in `HeldPositionBanner.tsx` (Stock Detail page).",
-      "done": false
+      "done": true
     },
     {
       "step": "Add or extend `MetricHelp` content explaining the protective-stop-vs-trailing-stop distinction if not already adequately covered by an existing entry, consistent with this app's existing `metricHelpContent.ts` conventions.",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests for both changed components confirming `trailing_stop` is actually read and rendered (not just that the component still renders at all), covering both the pre-ratchet (trailing_stop == protective_stop) and post-ratchet (trailing_stop > protective_stop) cases.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-09T21:35:01Z",
+      "recorded_by": "task-worker",
+      "decision": "Promoted `RiskPosition.trailing_stop` to be the primary 'Stop' value shown in all three existing locations (`PositionsTable.tsx`'s and `RiskPanel.tsx`'s stop column, renamed from 'Protective Stop' to 'Stop', and `HeldPositionBanner.tsx`'s field, renamed from 'Current Stop' to 'Stop'), with the raw, un-ratcheted `protective_stop` demoted to a new `MetricHelp` popover (`stopHelp` in `features/portfolio/components/metricHelpContent.ts`) attached to each of those three values. The popover's `interpretValue` always states both figures and explicitly says whether they currently differ (and in which direction, tighter/higher or looser/lower) rather than silently going quiet once they diverge.",
+      "rationale": "Rejected the alternative (a second, always-visible, permanently-separate column/field for trailing_stop alongside protective_stop) because the two values are identical for the common case (before a position's unrealized profit crosses the 10%-of-entry-price breakeven-ratchet trigger) -- a second column would mostly show a duplicate of the first for most positions most of the time, adding table width/field clutter for little information gain. Promoting trailing_stop as primary instead shows the number that's actually governing/never loosens (closer to what a trader should trust per Elder ch. 54's 'move your stop only in the direction of your trade'), while the raw, more-volatile protective_stop figure stays one click away via the existing MetricHelp affordance this app already uses for comparable detail (e.g. PositionProfitTargetCell's profit-target breakdown) -- no information is dropped, just reprioritized. Checked both `features/portfolio/components/metricHelpContent.ts` and `features/stocks/components/metricHelpContent.ts` for an existing protective-stop-vs-trailing-stop MetricHelp entry before writing `stopHelp`; neither had one. Renamed the column header/field label from 'Protective Stop'/'Current Stop' to the generic 'Stop' in all three locations (rather than keeping the old label while silently swapping the underlying value) since the label should describe what's actually displayed now, not what used to be displayed; RiskPanel's own `protective_stop` column was given the identical treatment even though the task's checklist named only PositionsTable.tsx explicitly, since both are portfolio-risk tables showing the exact same field and leaving one updated and one not would have reintroduced the same inconsistency this task exists to fix."
+    }
+  ],
   "questions": []
 }

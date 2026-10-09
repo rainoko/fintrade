@@ -3,9 +3,11 @@ import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
+import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import { formatCurrency } from '../../../utils/format'
 import { usePortfolio } from '../hooks/usePortfolio'
 import { usePortfolioRisk } from '../hooks/usePortfolioRisk'
+import { stopHelp } from './metricHelpContent'
 import PositionProfitTargetCell from './PositionProfitTargetCell'
 
 export interface HeldPositionBannerProps {
@@ -16,20 +18,21 @@ export interface HeldPositionBannerProps {
 /**
  * "You hold this position" context banner for the Stock Detail page
  * (`frontend-position-risk-columns`) -- shows entry price/quantity/date plus
- * the position's current protective stop and profit target when the viewed
- * ticker is one of the user's open positions, so the answer to "am I holding
- * this, and at what stop/target?" doesn't require navigating away to the
+ * the position's current stop and profit target when the viewed ticker is
+ * one of the user's open positions, so the answer to "am I holding this,
+ * and at what stop/target?" doesn't require navigating away to the
  * Portfolio page. Renders nothing for a ticker that isn't held.
  *
  * Lives under `features/portfolio/components/` rather than
  * `features/stocks/components/` despite being consumed from
  * `pages/StockDetailPage.tsx`: every field it renders (a position's entry
- * price, `RiskPosition.protective_stop`/`profit_target`) is a portfolio
- * domain concept it fetches itself via `usePortfolio`/`usePortfolioRisk`,
- * not something the stock-analysis endpoints know about -- the same
- * cross-feature placement `TradeApgarDialog` already established for this
- * exact page (a portfolio-domain component, imported and rendered from the
- * stock detail page). See this task's `decisions` entry.
+ * price, `RiskPosition.trailing_stop`/`protective_stop`/`profit_target`) is
+ * a portfolio domain concept it fetches itself via `usePortfolio`/
+ * `usePortfolioRisk`, not something the stock-analysis endpoints know about
+ * -- the same cross-feature placement `TradeApgarDialog` already
+ * established for this exact page (a portfolio-domain component, imported
+ * and rendered from the stock detail page). See this task's `decisions`
+ * entry.
  *
  * Fetches independently of `StockDetailPage`'s own `useStockAnalysis` call
  * (rather than being gated on it) -- whether a ticker is held is a portfolio
@@ -50,7 +53,7 @@ export interface HeldPositionBannerProps {
  * showing '—' here would misrepresent a fetch failure as "this position
  * has no stop" -- a materially different, worse claim for a page whose
  * whole point is telling the user their actual stop/target. Both the
- * Current Stop and Profit Target fields instead show a small inline warning
+ * Stop and Profit Target fields instead show a small inline warning
  * icon (`WarningAmberIcon` in a `Tooltip`, the same
  * icon-plus-tooltip-for-a-degraded-state pattern `common/IbkrStatusBadge`
  * already uses) with the backend's own `error.detail` as the tooltip text,
@@ -88,20 +91,18 @@ export default function HeldPositionBanner({ ticker }: HeldPositionBannerProps) 
   // A genuine GET /api/portfolio/risk failure -- rendered as a small inline
   // warning icon/tooltip on both affected fields below instead of falling
   // through to their normal '—' ("no stop/target configured") case. See
-  // this component's own doc comment above. Current Stop and Profit Target
-  // get distinct, field-specific `aria-label`s (rather than sharing one
-  // "Risk data unavailable" label) so a screen reader user encountering
-  // either icon on its own -- e.g. navigating by landmark/label rather than
+  // this component's own doc comment above. Stop and Profit Target get
+  // distinct, field-specific `aria-label`s (rather than sharing one "Risk
+  // data unavailable" label) so a screen reader user encountering either
+  // icon on its own -- e.g. navigating by landmark/label rather than
   // reading the whole banner in document order -- can tell which field
   // failed without relying on surrounding visual/DOM context.
   const stopDataError = riskQuery.isError ? (
-    <Tooltip
-      title={`Protective stop unavailable: ${riskQuery.error.detail}`}
-    >
+    <Tooltip title={`Stop unavailable: ${riskQuery.error.detail}`}>
       <WarningAmberIcon
         fontSize="small"
         color="warning"
-        aria-label="Current Stop unavailable"
+        aria-label="Stop unavailable"
         data-testid="held-position-stop-error"
       />
     </Tooltip>
@@ -148,13 +149,29 @@ export default function HeldPositionBanner({ ticker }: HeldPositionBannerProps) 
         </Box>
         <Box>
           <Typography variant="caption" color="text.secondary" component="div">
-            Current Stop
+            Stop
           </Typography>
           <Typography
             variant="body2"
             sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
           >
-            {stopDataError ?? (riskPosition ? formatCurrency(riskPosition.protective_stop) : '—')}
+            {stopDataError ??
+              (riskPosition ? (
+                <>
+                  {formatCurrency(riskPosition.trailing_stop)}
+                  <MetricHelp
+                    metricLabel={stopHelp.metricLabel}
+                    definition={stopHelp.definition}
+                    elderContext={stopHelp.elderContext}
+                    valueInterpretation={stopHelp.interpretValue(
+                      riskPosition.trailing_stop,
+                      riskPosition.protective_stop,
+                    )}
+                  />
+                </>
+              ) : (
+                '—'
+              ))}
           </Typography>
         </Box>
         <Box>

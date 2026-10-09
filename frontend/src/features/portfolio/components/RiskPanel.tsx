@@ -16,6 +16,7 @@ import StatCard from '../../../components/common/StatCard/StatCard'
 import TickerLink from '../../../components/common/TickerLink/TickerLink'
 import { formatCurrency } from '../../../utils/format'
 import ExitFlagChips from './ExitFlagChips'
+import { stopHelp } from './metricHelpContent'
 import PositionProfitTargetCell from './PositionProfitTargetCell'
 import { usePortfolioRisk } from '../hooks/usePortfolioRisk'
 import { totalRiskHelp } from './totalRiskHelp'
@@ -34,14 +35,20 @@ export interface RiskPanelProps {
 /**
  * Portfolio-level 2%/6% rule panel for `GET /api/portfolio/risk`
  * (docs/architecture/API.md#get-apiportfoliorisk, docs/Analyse.md §7).
- * Feature component (not `common/`) since every field it renders — protective
+ * Feature component (not `common/`) since every field it renders — the
  * stop, position risk, exit flags — is a portfolio-risk domain concept.
  *
+ * The Stop column shows `trailing_stop` (the hard-ratcheted figure), not
+ * the raw `protective_stop` it showed before `frontend-trailing-stop-
+ * display` -- see that task's `decisions` entry and `stopHelp`'s own doc
+ * comment for why, and for why the raw figure is demoted to the column's
+ * MetricHelp popover instead of a second, permanently-separate column.
+ *
  * The Profit Target column (`PositionProfitTargetCell`,
- * `frontend-profit-target-display`) sits next to Protective Stop for the
- * same reason the Signal column above sits next to it too: a held
- * position's suggested target/reward:risk ratio is shown alongside its
- * existing stop/risk figures, not as a disconnected new section.
+ * `frontend-profit-target-display`) sits next to Stop for the same reason
+ * the Signal column above sits next to it too: a held position's suggested
+ * target/reward:risk ratio is shown alongside its existing stop/risk
+ * figures, not as a disconnected new section.
  */
 export default function RiskPanel({ positions }: RiskPanelProps) {
   const theme = useTheme()
@@ -99,11 +106,35 @@ export default function RiskPanel({ positions }: RiskPanelProps) {
       render: (row) => <TickerLink ticker={row.ticker} />,
     },
     {
-      key: 'protective_stop',
-      header: 'Protective Stop',
+      // Shows `trailing_stop` (the hard-ratcheted figure) as the primary
+      // value, not the raw `protective_stop` this column showed before --
+      // see this task's (frontend-trailing-stop-display) `decisions` entry
+      // and `stopHelp`'s own doc comment for why, and why the raw figure is
+      // demoted to this cell's MetricHelp popover rather than kept as a
+      // second, permanently-separate column. Sorts by `trailing_stop`
+      // (the value actually shown), not `protective_stop`.
+      key: 'trailing_stop',
+      header: 'Stop',
       align: 'right',
       sortable: true,
-      render: (row) => formatCurrency(row.protective_stop),
+      render: (row) => (
+        <Stack
+          direction="row"
+          spacing={0.5}
+          sx={{ alignItems: 'center', justifyContent: 'flex-end' }}
+        >
+          <Typography variant="body2">{formatCurrency(row.trailing_stop)}</Typography>
+          <MetricHelp
+            metricLabel={stopHelp.metricLabel}
+            definition={stopHelp.definition}
+            elderContext={stopHelp.elderContext}
+            valueInterpretation={stopHelp.interpretValue(
+              row.trailing_stop,
+              row.protective_stop,
+            )}
+          />
+        </Stack>
+      ),
     },
     {
       key: 'position_risk_pct',
