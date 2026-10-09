@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { HistoryResponse } from '../../../api/stocks'
+import type { AnalysisResponse, DivergenceOut, HistoryResponse } from '../../../api/stocks'
 import { server } from '../../../../tests/mocks/server'
 import { renderWithProviders } from '../../../../tests/renderWithProviders'
 import StockCharts from './StockCharts'
@@ -21,6 +21,77 @@ const formingBar = {
   close: null,
   volume: 12345,
 } as unknown as HistoryResponse['bars'][number]
+
+// A hand-computed bullish MACD-Histogram divergence fixture, same shape as
+// PriceChart.test.tsx's own `bullishDivergence` (two price swing lows 20
+// trading days apart, the second shallower on MACD-Histogram than the
+// first, centerline crossed between them, not yet aborted) -- used below
+// purely to make both PriceChart's and OscillatorChart's own separate
+// Divergence legend rows render simultaneously (both gate on
+// `analysisQuery.data?.divergence` being non-null), not to exercise the
+// divergence-overlay drawing itself.
+const bullishDivergence: DivergenceOut = {
+  indicator: 'macd_histogram',
+  kind: 'bullish',
+  first_extreme_date: '2026-08-03',
+  first_extreme_price: 210.5,
+  first_extreme_indicator_value: -6.0,
+  second_extreme_date: '2026-08-31',
+  second_extreme_price: 205.2,
+  second_extreme_indicator_value: -1.5,
+  bars_apart: 20,
+  centerline_crossed: true,
+  beyond_reference_line: null,
+  aborted: false,
+}
+
+// A minimal-but-complete `AnalysisResponse`, same convention as PriceChart.
+// test.tsx's own `baseAnalysis` -- only `divergence` varies per test below,
+// every other field is filled with a plausible, unexercised value.
+const baseAnalysisForDivergence: AnalysisResponse = {
+  ticker: 'AAPL',
+  as_of: '2026-09-02',
+  trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
+  signal: 'HOLD',
+  confidence: 50,
+  confidence_band: 'Medium',
+  screens: {
+    tide: { trend: 'NEUTRAL', weekly_macd_histogram_slope: 'flat' },
+    impulse: 'BLUE',
+    wave: {
+      stochastic_k: 50,
+      force_index_2ema: 0,
+      state: 'NONE',
+      showed_pullback_in_lookback: false,
+      showed_rally_in_lookback: false,
+    },
+    trigger: { fired: false, reference: 'not_applicable' },
+  },
+  confidence_breakdown: [],
+  divergence: bullishDivergence,
+  kangaroo_tail: null,
+  indicators: {
+    ema_13: 226.4,
+    ema_26: 221.7,
+    macd_histogram: 1.82,
+    bull_power: 3.1,
+    bear_power: -1.4,
+    trend_strength: { atr: 4.2, plus_di: 28.5, minus_di: 15.3, adx: 22.1 },
+  },
+  support_resistance_zones: [],
+  extended_data: {
+    earnings_date: null,
+    earnings_within_warning_days: false,
+    ex_dividend_date: null,
+    shares_short: null,
+    short_ratio: null,
+    short_percent_of_float: null,
+    float_shares: null,
+    insider_transactions: [],
+    unavailable_reason: null,
+  },
+  insider_clusters: [],
+}
 
 // jsdom mock, same approach as PriceChart.test.tsx/OscillatorChart.test.tsx
 // — this file cares about the range/interval wiring *between* PriceChart
@@ -492,5 +563,49 @@ describe('StockCharts', () => {
     // instead of being buried underneath them (the reported bug).
     expect(finalOrder.indexOf(candlestickSeries)).toBe(finalOrder.length - 1)
     expect(finalOrder.indexOf(zoneBandSeries)).toBe(finalOrder.length - 2)
+  })
+
+  // Regression test (PR #391 review, blocking finding): PriceChart's and
+  // OscillatorChart's own separate Divergence legend rows both derive from
+  // the exact same `analysisQuery.data?.divergence` value and are always
+  // mounted together on this page, so with a real divergence present (the
+  // ordinary case, not an edge case) both toggle buttons are on-screen
+  // simultaneously. Before the fix, both used the bare label "Divergence",
+  // giving both buttons the identical accessible name "Hide Divergence on
+  // the chart" -- a `getByRole` strict-mode collision that only a test
+  // mounting both components together (as this file already does for the
+  // page-composition regressions above) can catch; each component's own
+  // standalone test file mounts only one of the two in isolation.
+  it('gives PriceChart\'s and OscillatorChart\'s own separate Divergence legend toggles distinct accessible names when both are visible together', async () => {
+    server.use(
+      http.get('/api/stocks/:ticker/analysis', () =>
+        HttpResponse.json(baseAnalysisForDivergence),
+      ),
+    )
+
+    renderWithProviders(<StockCharts ticker="AAPL" />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument(),
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('oscillator-chart-canvas')).toBeInTheDocument(),
+    )
+
+    // Each query below throws its own strict-mode error if it matches more
+    // than one element -- that's the failure mode this test exists to catch.
+    const priceDivergenceToggle = await screen.findByRole('button', {
+      name: 'Hide Price Divergence on the chart',
+    })
+    const oscillatorDivergenceToggle = await screen.findByRole('button', {
+      name: 'Hide Oscillator Divergence on the chart',
+    })
+
+    expect(priceDivergenceToggle).toBeInTheDocument()
+    expect(oscillatorDivergenceToggle).toBeInTheDocument()
+    expect(priceDivergenceToggle).not.toBe(oscillatorDivergenceToggle)
+    expect(
+      priceDivergenceToggle.getAttribute('aria-label'),
+    ).not.toBe(oscillatorDivergenceToggle.getAttribute('aria-label'))
   })
 })

@@ -340,8 +340,10 @@ export default function OscillatorChart({
   // pattern/rationale. Stochastic/Force Index/MACD Histogram have no legend
   // row of their own on this chart (only RSI does -- see this component's
   // own doc comment on why), so there is nothing else here to toggle this
-  // pass; Divergence (below) is deferred, same as on every other chart pane
-  // (this task's `decisions` entry).
+  // pass; Divergence (below) gets its own toggle too, folded directly into
+  // its own effect's gate rather than this ref + `useSeriesVisibilityToggle`
+  // pattern -- see that effect's own doc comment
+  // (frontend-chart-legend-toggle-not-working).
   const rsiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const [rsiVisible, setRsiVisible] = useState(true)
 
@@ -365,6 +367,14 @@ export default function OscillatorChart({
     top: number
     left: number
   } | null>(null)
+  // Legend click-to-toggle (frontend-chart-legend-toggle-not-working): see
+  // the divergence-overlay effect's own doc comment below for why this folds
+  // directly into that effect's gate/deps (the Fibonacci/False-Breakout/
+  // Kangaroo-Tail "skip creation while hidden" pattern) rather than a ref +
+  // `useSeriesVisibilityToggle` -- both the line series AND the markers
+  // plugin this overlay draws are skipped together here, deliberately not
+  // split into two different toggle mechanisms for one single overlay.
+  const [divergenceVisible, setDivergenceVisible] = useState(true)
 
   // Post-review fix (PR #158): whether `divergence` (if any) is actually
   // drawn on this pane this render -- the same `isDivergenceInRange` check
@@ -519,7 +529,7 @@ export default function OscillatorChart({
     if (!chart || !enabled || !data || data.points.length === 0) {
       return
     }
-    if (!divergence) {
+    if (!divergence || !divergenceVisible) {
       return
     }
     const divergenceInRange = isDivergenceInRange(
@@ -579,7 +589,7 @@ export default function OscillatorChart({
       chart.removeSeries(divergenceSeries)
       divergenceMarkersPlugin.detach()
     }
-  }, [indicatorsQuery.data, divergence, theme, enabled])
+  }, [indicatorsQuery.data, divergence, theme, enabled, divergenceVisible])
 
   // `/indicators` is daily-cadence only (see the `enabled` prop's own doc
   // comment) — while a weekly interval is selected upstream, this pane has
@@ -660,24 +670,37 @@ export default function OscillatorChart({
         even when the current range excludes it from the chart, with
         `divergenceHelp.interpretValue`'s own `inVisibleRange` clause
         explaining why nothing is drawn right now.
+
+        `LegendToggle`'s `label` is "Oscillator Divergence" (not the bare
+        "Divergence" the visible caption below still uses) -- PR #391 review
+        fix: see `PriceChart.tsx`'s own identical Divergence row's comment
+        for why -- both panes are always mounted together on the Stock
+        Detail page and both toggles were colliding into an identical
+        `aria-label` before this fix.
       */}
           {indicatorsQuery.isSuccess &&
             hasPoints &&
             analysisQuery.isSuccess &&
             divergence && (
               <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                <Box
-                  sx={{
-                    width: 12,
-                    height: 12,
-                    borderRadius: '50%',
-                    bgcolor: 'divergence.main',
-                    opacity: divergenceInVisibleRange ? 1 : LEGEND_DIM_OPACITY,
-                  }}
-                />
-                <Typography variant="caption" color="text.secondary">
-                  Divergence{!divergenceInVisibleRange && ' (not in current range)'}
-                </Typography>
+                <LegendToggle
+                  active={divergenceVisible}
+                  label="Oscillator Divergence"
+                  onToggle={() => setDivergenceVisible((visible) => !visible)}
+                >
+                  <Box
+                    sx={{
+                      width: 12,
+                      height: 12,
+                      borderRadius: '50%',
+                      bgcolor: 'divergence.main',
+                      opacity: divergenceInVisibleRange ? 1 : LEGEND_DIM_OPACITY,
+                    }}
+                  />
+                  <Typography variant="caption" color="text.secondary">
+                    Divergence{!divergenceInVisibleRange && ' (not in current range)'}
+                  </Typography>
+                </LegendToggle>
                 <MetricHelp
                   metricLabel={divergenceHelp.metricLabel}
                   definition={divergenceHelp.definition}

@@ -1,0 +1,36 @@
+{
+  "id": "frontend-chart-legend-toggle-not-working-followups",
+  "title": "Non-blocking follow-ups from frontend-chart-legend-toggle-not-working's PR #391 review",
+  "area": "frontend/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-chart-legend-toggle-not-working"],
+  "references": [
+    "docs/tasks/done/frontend-chart-legend-toggle-not-working.json",
+    "https://github.com/rainoko/fintrade/pull/391",
+    "frontend/tests/e2e/stock-analysis.spec.ts",
+    "frontend/src/features/stocks/components/PriceChart.tsx",
+    "frontend/src/features/stocks/components/OscillatorChart.tsx"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #391 (frontend-chart-legend-toggle-not-working), recorded here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "No persisted/versioned e2e spec (frontend/tests/e2e/*.spec.ts) exercises the chart legend click-to-toggle feature at all -- not for any of the 11 original toggle targets from frontend-chart-legend-toggle-overlay (PR #374/#376/#378) nor the 4 added by this task (PR #391). Every verification of this feature across all four PRs has relied on mocked-series vitest assertions plus an ad hoc, non-persisted Playwright MCP/script walkthrough performed fresh each review round -- exactly the gap that let this task's own user-reported 'not working' bug (actually: 4 legend rows with zero toggle affordance at all) go undetected through 3 prior rounds of review each claiming extensive verification. Add at least one `make e2e` spec (likely extending `stock-analysis.spec.ts`) that clicks a representative legend toggle button and asserts a durable, visible change (at minimum `aria-pressed` flipping; ideally also a chart-visible side effect such as a price-line/marker/series disappearing, matching the rigor pr-reviewer's own independent walkthrough used for PR #391) -- so a future regression of this specific feature is caught by the persisted regression suite without requiring a fresh manual/ad hoc browser pass every time.",
+      "done": false
+    },
+    {
+      "step": "PR #391's own description states the frontend vitest suite passed '1037/1037'; pr-reviewer independently re-ran `yarn vitest run` twice against the same commit and got 1035/1035 passing both times (coverage percentages matched the PR description exactly, so this isn't a correctness concern -- just a miscounted number in the PR's self-reported test count). Non-blocking, but worth a quick note/correction for anyone cross-checking test counts against this PR later.",
+      "done": false
+    },
+    {
+      "step": "Non-blocking, carried forward from the first review round (needs_work pass): the False Breakout effect extracted in PriceChart.tsx (around line 1725, the dedicated effect added to give False Breakout its own click-to-toggle gate) calls `buildZoneRenderData(...)` purely to read `zone.false_breakout` off its returned `.zone` field, discarding the `fillColor`/`lineColor`/`lineStyle` it also computes -- `displayedZones` already carries `false_breakout` directly, so the extra mapping (building unused color/line-style strings on every render of this effect, including every toggle click) is pure waste reintroduced by the extraction. A plain `for (const zone of displayedZones)` would do the same job without it. (Note: the first review round's own notes claimed this had already been filed here alongside the e2e-spec-gap and test-count items above, but it was never actually added to this checklist -- filed now, on the re-review pass that caught the gap.)",
+      "done": false
+    },
+    {
+      "step": "Non-blocking, found during the re-review pass that confirmed PR #391's duplicate-accessible-name fix (code-review skill, medium effort): `PriceChart.tsx`'s divergence click-to-explain balloon (`divergenceBalloonAnchor` state, `AnchoredInfoBalloon` around line 2734) is not reset when the new 'Price Divergence' legend toggle turns the divergence overlay off while the balloon is open -- the overlay-removal effect's cleanup (around line 1901) only unsubscribes the click handler and tears down the series/markers, never calls `setDivergenceBalloonAnchor(null)`. Verified this is NOT reachable via an ordinary mouse click or Tab/keyboard interaction in a real browser: MUI `Popover`'s backdrop is `invisible` (CSS-transparent only, confirmed via `node_modules/@mui/material/Backdrop/Backdrop.js` -- `invisible` does not set `pointer-events: none`) so it still captures and closes the popover on any click outside its Paper before that click could reach the toggle underneath, and `Popover`'s `disableEnforceFocus` defaults to `false` so Tab is focus-trapped inside the open popover too. Still worth a defensive `setDivergenceBalloonAnchor(null)` in that effect's cleanup (or folded into the toggle handler) so the invariant doesn't silently rely on `AnchoredInfoBalloon`'s own backdrop/focus-trap configuration never changing.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

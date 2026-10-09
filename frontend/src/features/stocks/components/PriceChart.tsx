@@ -963,11 +963,14 @@ export default function PriceChart({
   // never the zone bands.
   const zoneSeriesRef = useRef<ISeriesApi<'Baseline'>[]>([])
   // Legend click-to-toggle overlay visibility (frontend-chart-legend-toggle-
-  // overlay): refs onto the currently-drawn series for each IN-SCOPE
-  // overlay (Channel, Value Zone, Tide Background, Support/Resistance
-  // Zones -- see this task's `decisions` entry for the full in/out-of-scope
-  // list and why False Breakout/Divergence/Kangaroo Tail are deferred), kept
-  // separately from `zoneSeriesRef` above even though that ref ALSO already
+  // overlay): refs onto the currently-drawn series for each series-backed
+  // overlay (Channel, Value Zone, Tide Background, Support/Resistance Zones
+  // -- see this task's `decisions` entry for the original in/out-of-scope
+  // split; False Breakout/Divergence/Kangaroo Tail were deferred there but
+  // given their own "skip creation while hidden" toggle in
+  // frontend-chart-legend-toggle-not-working, per that task's own `decisions`
+  // entry), kept separately from `zoneSeriesRef` above even though that ref
+  // ALSO already
   // tracks the zone bands -- `zoneSeriesRef` exists for a different purpose
   // (z-order reassertion between independently-resolving effects) and
   // reusing it here would conflate "what z-order needs reasserting" with
@@ -1003,6 +1006,27 @@ export default function PriceChart({
   // self-contained (no sibling overlay sharing it, unlike channel/value
   // zone) and cheap to re-run in full.
   const [fibonacciVisible, setFibonacciVisible] = useState(true)
+  // False Breakout / Divergence / Kangaroo Tail click-to-toggle
+  // (frontend-chart-legend-toggle-not-working): these three rows were
+  // deliberately left OUT of `frontend-chart-legend-toggle-overlay`'s own
+  // scope (see that task's `decisions` entry) because each is drawn via
+  // `createSeriesMarkers` (a marker array, not a series with a `visible`
+  // option) plus, for two of them, a `createPriceLine` stop/extreme marker --
+  // a materially different toggle mechanism than `applyOptions({ visible })`
+  // -- and a follow-up task to give them the same affordance was never filed.
+  // Left genuinely untoggleable (not even `cursor: pointer`), these three
+  // rows are visually indistinguishable from the 11 rows that ARE
+  // click-to-toggle (same swatch + label + `MetricHelp` shape, in the same
+  // legend `Stack`), so a user clicking one reasonably perceives the whole
+  // "click a legend label to toggle" feature as broken -- this is the actual,
+  // reproducible root cause behind this task's bug report (see this task's
+  // `decisions` entry for the full investigation: all 11 originally-built
+  // toggles were re-verified working correctly, live, with no regression
+  // found anywhere in them). Same `useState(true)`-per-overlay,
+  // reset-on-remount convention as every other overlay toggle on this chart.
+  const [falseBreakoutVisible, setFalseBreakoutVisible] = useState(true)
+  const [divergenceVisible, setDivergenceVisible] = useState(true)
+  const [kangarooTailVisible, setKangarooTailVisible] = useState(true)
   // Divergence-marker click-to-explain (frontend-divergence-markers): page
   // coordinates of the last divergence-marker click, or `null` before any
   // click / once the balloon is closed -- fed into `AnchoredInfoBalloon`
@@ -1608,6 +1632,106 @@ export default function PriceChart({
     // oscillators) `decisions` entry for the z-order bug this fixes.
     zoneSeriesRef.current = zoneSeriesList
 
+    // Keep the candlestick series painting on top of every fill series in
+    // this pane -- both these zone bands and the value-zone AreaSeries pair
+    // from the effect above, whichever effect happens to run/re-run last
+    // (see `bringSeriesToFront`'s own doc comment for why a dynamic call is
+    // required once two independent effects both add fill series here).
+    bringSeriesToFront(chart, series)
+
+    return () => {
+      // See the signal-overlay effect's own cleanup guard above: skip if
+      // the candlestick effect already disposed this chart/series.
+      if (chartRef.current !== chart || seriesRef.current !== series) {
+        return
+      }
+      zoneSeriesList.forEach((zoneSeries) => chart.removeSeries(zoneSeries))
+      // Only clear the ref if it still points at THIS exact zoneSeriesList
+      // -- a subsequent run of this same effect (e.g. a fresh
+      // `analysisQuery.data`) may already have published its own newer list
+      // into `zoneSeriesRef` by the time this stale cleanup runs (same
+      // "don't clobber a newer value" guard convention `chartRef`/
+      // `seriesRef` use elsewhere in this component).
+      if (zoneSeriesRef.current === zoneSeriesList) {
+        zoneSeriesRef.current = []
+      }
+    }
+  }, [historyQuery.data, analysisQuery.data, theme])
+
+  // Legend click-to-toggle (frontend-chart-legend-toggle-overlay): applies
+  // the current Support/Resistance Zones toggle state onto whichever zone
+  // band series `zoneSeriesRef` currently holds -- via the shared
+  // `useSeriesVisibilityToggle` hook (frontend-chart-legend-toggle-overlay-
+  // followups), reusing that existing ref (populated above) purely as a read
+  // source here; see this component's own `channelSeriesRef`/etc. doc comment
+  // for why toggling these bands is a separate small effect rather than added
+  // to the (also z-order-sensitive) effect above.
+  useSeriesVisibilityToggle(() => zoneSeriesRef.current, zonesVisible, [
+    historyQuery.data,
+    analysisQuery.data,
+    theme,
+  ])
+
+  // False Breakout overlay (frontend-support-resistance-overlay): a marker at
+  // each windowed false-breakout episode plus a dashed stop price line at its
+  // own `extreme_price` -- previously created inline inside the zone-bands
+  // effect above, sharing its lifecycle (frontend-chart-legend-toggle-
+  // overlay's own `decisions` entry deliberately left this overlay OUT of
+  // that task's click-to-toggle scope specifically because of that: a
+  // materially different toggle mechanism than `applyOptions({ visible })`,
+  // undecided how it should compose with this row's own pre-existing
+  // "not in current range" dimming). Extracted here into its OWN effect
+  // (frontend-chart-legend-toggle-not-working) so toggling it doesn't tear
+  // down and recreate the zone bands it used to share an effect with -- same
+  // "ref + small dedicated piece, not a shared effect's own dependency array"
+  // principle `channelSeriesRef`/etc.'s doc comment documents, except here
+  // (like Divergence/Kangaroo Tail below) the mechanism is "skip creation
+  // while hidden" rather than a visibility ref, since `ISeriesMarkersPluginApi`/
+  // `IPriceLine` both lack a `visible` option to toggle (same gap Fibonacci's
+  // own effect documents).
+  //
+  // Recomputes `finiteBars`/`displayedZones`/`zoneRenderData` itself,
+  // redundantly against the zone-bands effect above -- a deliberate, cheap
+  // duplication of pure computation (no shared mutable state, no side
+  // effect), the same convention this component's own legend-text `const
+  // displayedZones = ...` below already uses to stay in sync with what the
+  // zone-bands effect actually draws, extended here to a second consumer.
+  useEffect(() => {
+    const chart = chartRef.current
+    const series = seriesRef.current
+    const data = historyQuery.data
+    if (!chart || !series || !data || !falseBreakoutVisible) {
+      return
+    }
+    const finiteBars = data.bars.filter(hasFiniteOhlc)
+    if (finiteBars.length < 2) {
+      return
+    }
+    const zones = analysisQuery.data?.support_resistance_zones ?? []
+    if (zones.length === 0) {
+      return
+    }
+    const firstDate = finiteBars[0].date
+    const lastDate = finiteBars[finiteBars.length - 1].date
+    const referencePrice = finiteBars[finiteBars.length - 1].close
+    const displayedZones = selectDisplayedZones(
+      zones,
+      referencePrice,
+      visibleBarPriceSpan(finiteBars),
+    )
+    if (displayedZones.length === 0) {
+      return
+    }
+    const zoneRenderData = buildZoneRenderData(
+      displayedZones,
+      firstDate as Time,
+      lastDate as Time,
+      {
+        support: theme.palette.signal.buy,
+        resistance: theme.palette.signal.sell,
+      },
+    )
+
     const falseBreakoutMarkers = buildFalseBreakoutMarkers(
       displayedZones,
       firstDate,
@@ -1643,51 +1767,16 @@ export default function PriceChart({
       )
     }
 
-    // Keep the candlestick series painting on top of every fill series in
-    // this pane -- both these zone bands and the value-zone AreaSeries pair
-    // from the effect above, whichever effect happens to run/re-run last
-    // (see `bringSeriesToFront`'s own doc comment for why a dynamic call is
-    // required once two independent effects both add fill series here).
-    bringSeriesToFront(chart, series)
-
     return () => {
       // See the signal-overlay effect's own cleanup guard above: skip if
       // the candlestick effect already disposed this chart/series.
       if (chartRef.current !== chart || seriesRef.current !== series) {
         return
       }
-      zoneSeriesList.forEach((zoneSeries) => chart.removeSeries(zoneSeries))
       falseBreakoutPriceLines.forEach((priceLine) => series.removePriceLine(priceLine))
       falseBreakoutMarkersPlugin?.detach()
-      // Only clear the ref if it still points at THIS exact zoneSeriesList
-      // -- a subsequent run of this same effect (e.g. a fresh
-      // `analysisQuery.data`) may already have published its own newer list
-      // into `zoneSeriesRef` by the time this stale cleanup runs (same
-      // "don't clobber a newer value" guard convention `chartRef`/
-      // `seriesRef` use elsewhere in this component).
-      if (zoneSeriesRef.current === zoneSeriesList) {
-        zoneSeriesRef.current = []
-      }
     }
-  }, [historyQuery.data, analysisQuery.data, theme])
-
-  // Legend click-to-toggle (frontend-chart-legend-toggle-overlay): applies
-  // the current Support/Resistance Zones toggle state onto whichever zone
-  // band series `zoneSeriesRef` currently holds -- via the shared
-  // `useSeriesVisibilityToggle` hook (frontend-chart-legend-toggle-overlay-
-  // followups), reusing that existing ref (populated above) purely as a read
-  // source here; see this component's own `channelSeriesRef`/etc. doc comment
-  // for why toggling these bands is a separate small effect rather than added
-  // to the (also z-order-sensitive) effect above. Deliberately does NOT also
-  // hide the False Breakout markers/price line sharing this same effect --
-  // that overlay is out of scope for this pass (this task's `decisions`
-  // entry: event/marker overlays are deferred), so it stays visible
-  // regardless of this toggle.
-  useSeriesVisibilityToggle(() => zoneSeriesRef.current, zonesVisible, [
-    historyQuery.data,
-    analysisQuery.data,
-    theme,
-  ])
+  }, [historyQuery.data, analysisQuery.data, theme, falseBreakoutVisible])
 
   // Divergence overlay (frontend-divergence-markers): the single currently-
   // qualifying divergence (`AnalysisResponse.divergence`, or nothing when
@@ -1718,6 +1807,17 @@ export default function PriceChart({
   // legend below still surfaces the divergence via `divergenceHelp`'s own
   // `inVisibleRange` clause (see this task's `decisions` entry for why the
   // legend stays visible rather than also hiding).
+  //
+  // Legend click-to-toggle (frontend-chart-legend-toggle-not-working):
+  // `divergenceVisible` folded directly into this effect's own gate (and its
+  // dependency array below) -- the same "skip creation while hidden" pattern
+  // the Fibonacci-levels effect already uses, not a ref + secondary effect --
+  // since, like Fibonacci, this effect is already fully self-contained (no
+  // sibling overlay sharing it) and cheap to re-run in full on a toggle
+  // click. `ISeriesMarkersPluginApi` has no `visible` option either (same gap
+  // `IPriceLine` has, confirmed by reading the library's own type
+  // definitions -- see this task's `decisions` entry), so skip-on-create is
+  // the only mechanism available here regardless.
   useEffect(() => {
     const chart = chartRef.current
     const series = seriesRef.current
@@ -1726,7 +1826,7 @@ export default function PriceChart({
       return
     }
     const divergence = analysisQuery.data?.divergence
-    if (!divergence) {
+    if (!divergence || !divergenceVisible) {
       return
     }
     // No separate "finiteBars.length === 0" guard needed here (unlike the
@@ -1802,7 +1902,7 @@ export default function PriceChart({
       chart.removeSeries(divergenceLineSeries)
       divergenceMarkersPlugin.detach()
     }
-  }, [historyQuery.data, analysisQuery.data, theme])
+  }, [historyQuery.data, analysisQuery.data, theme, divergenceVisible])
 
   // Kangaroo Tail overlay (frontend-kangaroo-tail-markers): the single most
   // recently confirmed Kangaroo Tail (`AnalysisResponse.kangaroo_tail`, or
@@ -1824,6 +1924,13 @@ export default function PriceChart({
   // has nothing sensible to plot, and an out-of-range price line specifically
   // would still render at its own price level even with no visible bar at
   // its date, which is confusing rather than merely absent.
+  //
+  // Legend click-to-toggle (frontend-chart-legend-toggle-not-working):
+  // `kangarooTailVisible` folded directly into this effect's own gate (and
+  // its dependency array below) -- same "skip creation while hidden"
+  // rationale as the divergence effect's own comment above (self-contained
+  // effect, no sibling overlay, `ISeriesMarkersPluginApi`/`IPriceLine` both
+  // lack a `visible` option to toggle instead).
   useEffect(() => {
     const chart = chartRef.current
     const series = seriesRef.current
@@ -1832,7 +1939,7 @@ export default function PriceChart({
       return
     }
     const kangarooTail = analysisQuery.data?.kangaroo_tail
-    if (!kangarooTail) {
+    if (!kangarooTail || !kangarooTailVisible) {
       return
     }
     // Same "no separate finiteBars.length === 0 guard needed" reasoning as
@@ -1869,7 +1976,7 @@ export default function PriceChart({
       kangarooTailMarkersPlugin.detach()
       series.removePriceLine(kangarooTailStopLine)
     }
-  }, [historyQuery.data, analysisQuery.data, theme])
+  }, [historyQuery.data, analysisQuery.data, theme, kangarooTailVisible])
 
   // Fibonacci auto-retracement levels (frontend-fibonacci-auto-levels): 7
   // dashed price lines (see `FIBONACCI_RATIOS`) at levels computed from the
@@ -2358,21 +2465,27 @@ export default function PriceChart({
                   />
                 </Stack>
                 <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                  <Box
-                    sx={{
-                      width: 14,
-                      height: 0,
-                      borderTop: '2px dashed',
-                      borderColor: 'warning.main',
-                      opacity: falseBreakoutInVisibleRange ? 1 : LEGEND_DIM_OPACITY,
-                    }}
-                  />
-                  <Typography variant="caption" color="text.secondary">
-                    False Breakout
-                    {mostRecentBreakoutZone != null &&
-                      !falseBreakoutInVisibleRange &&
-                      ' (not in current range)'}
-                  </Typography>
+                  <LegendToggle
+                    active={falseBreakoutVisible}
+                    label="False Breakout"
+                    onToggle={() => setFalseBreakoutVisible((visible) => !visible)}
+                  >
+                    <Box
+                      sx={{
+                        width: 14,
+                        height: 0,
+                        borderTop: '2px dashed',
+                        borderColor: 'warning.main',
+                        opacity: falseBreakoutInVisibleRange ? 1 : LEGEND_DIM_OPACITY,
+                      }}
+                    />
+                    <Typography variant="caption" color="text.secondary">
+                      False Breakout
+                      {mostRecentBreakoutZone != null &&
+                        !falseBreakoutInVisibleRange &&
+                        ' (not in current range)'}
+                    </Typography>
+                  </LegendToggle>
                   <MetricHelp
                     metricLabel={falseBreakoutHelp.metricLabel}
                     definition={falseBreakoutHelp.definition}
@@ -2407,21 +2520,41 @@ export default function PriceChart({
         signal, not a permanent exclusion the way a zone failing the
         relevance filter is; hiding it here would read as "no divergence
         exists" rather than "not shown at this range".
+
+        `LegendToggle`'s `label` is "Price Divergence" (not the bare
+        "Divergence" the visible caption below still uses) -- PR #391 review
+        fix: this pane and `OscillatorChart.tsx`'s own separate Divergence
+        row are always mounted together on the Stock Detail page and both
+        derive from the exact same `analysisQuery.data.divergence` value, so
+        both toggles are on-screen simultaneously whenever a divergence
+        exists; a bare "Divergence" label collided into an identical
+        `aria-label` ("Hide/Show Divergence on the chart") for both buttons,
+        a real `getByRole` strict-mode violation. The visible `Typography`
+        caption stays "Divergence" -- it's unambiguous in context since
+        each row only ever appears inside its own pane -- only the
+        accessible name (built from this `label` prop alone, see
+        `LegendToggle`'s own `aria-label`) needed disambiguating.
       */}
           {historyQuery.isSuccess && hasBars && analysisQuery.isSuccess && divergence && (
             <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-              <Box
-                sx={{
-                  width: 12,
-                  height: 12,
-                  borderRadius: '50%',
-                  bgcolor: 'divergence.main',
-                  opacity: divergenceInVisibleRange ? 1 : LEGEND_DIM_OPACITY,
-                }}
-              />
-              <Typography variant="caption" color="text.secondary">
-                Divergence{!divergenceInVisibleRange && ' (not in current range)'}
-              </Typography>
+              <LegendToggle
+                active={divergenceVisible}
+                label="Price Divergence"
+                onToggle={() => setDivergenceVisible((visible) => !visible)}
+              >
+                <Box
+                  sx={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: '50%',
+                    bgcolor: 'divergence.main',
+                    opacity: divergenceInVisibleRange ? 1 : LEGEND_DIM_OPACITY,
+                  }}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  Divergence{!divergenceInVisibleRange && ' (not in current range)'}
+                </Typography>
+              </LegendToggle>
               <MetricHelp
                 metricLabel={divergenceHelp.metricLabel}
                 definition={divergenceHelp.definition}
@@ -2449,17 +2582,23 @@ export default function PriceChart({
             analysisQuery.isSuccess &&
             kangarooTail && (
               <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                <Box
-                  sx={{
-                    width: 12,
-                    height: 12,
-                    bgcolor: 'kangarooTail.main',
-                    opacity: kangarooTailInVisibleRange ? 1 : LEGEND_DIM_OPACITY,
-                  }}
-                />
-                <Typography variant="caption" color="text.secondary">
-                  Kangaroo Tail{!kangarooTailInVisibleRange && ' (not in current range)'}
-                </Typography>
+                <LegendToggle
+                  active={kangarooTailVisible}
+                  label="Kangaroo Tail"
+                  onToggle={() => setKangarooTailVisible((visible) => !visible)}
+                >
+                  <Box
+                    sx={{
+                      width: 12,
+                      height: 12,
+                      bgcolor: 'kangarooTail.main',
+                      opacity: kangarooTailInVisibleRange ? 1 : LEGEND_DIM_OPACITY,
+                    }}
+                  />
+                  <Typography variant="caption" color="text.secondary">
+                    Kangaroo Tail{!kangarooTailInVisibleRange && ' (not in current range)'}
+                  </Typography>
+                </LegendToggle>
                 <MetricHelp
                   metricLabel={kangarooTailHelp.metricLabel}
                   definition={kangarooTailHelp.definition}
