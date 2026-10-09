@@ -3,7 +3,7 @@
   "title": "Stock Detail page: show the ticker's current price prominently near the top",
   "area": "frontend/stocks",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "frontend/src/pages/StockDetailPage.tsx",
@@ -55,5 +55,11 @@
       "rationale": "Keeping `PageHeader` itself domain-agnostic (it currently only knows `title: string` + an arbitrary trailing `action` slot, reused across Dashboard/Portfolio/Watchlist/Scanner/Settings/Methodology/Daily-Homework) outweighed the marginal visual benefit of literally inlining the price next to the ticker text -- widening its contract (e.g. a new `subtitle`/`titleSuffix` prop) for one page's need isn't worth it when 'directly below the header' is already the task's own alternative suggestion and achieves the same 'visible without scrolling' goal (confirmed via an actual Playwright screenshot against the real dev server at a 1280x800 viewport -- the price renders at ~170px from the top, well above the fold). Gated on `analysisQuery.data` (nothing to show while loading/erroring), the same convention the existing Trade Apgar button already uses in this same page for data-dependent elements."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-stock-detail-current-price-prominent",
+    "pr_number": 394,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/394",
+    "pushed_at": "2026-10-09T19:30:08Z"
+  }
 }
