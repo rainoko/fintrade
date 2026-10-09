@@ -1690,12 +1690,20 @@ export default function PriceChart({
   // `IPriceLine` both lack a `visible` option to toggle (same gap Fibonacci's
   // own effect documents).
   //
-  // Recomputes `finiteBars`/`displayedZones`/`zoneRenderData` itself,
-  // redundantly against the zone-bands effect above -- a deliberate, cheap
-  // duplication of pure computation (no shared mutable state, no side
-  // effect), the same convention this component's own legend-text `const
-  // displayedZones = ...` below already uses to stay in sync with what the
-  // zone-bands effect actually draws, extended here to a second consumer.
+  // Recomputes `finiteBars`/`displayedZones` itself, redundantly against the
+  // zone-bands effect above -- a deliberate, cheap duplication of pure
+  // computation (no shared mutable state, no side effect), the same
+  // convention this component's own legend-text `const displayedZones = ...`
+  // below already uses to stay in sync with what the zone-bands effect
+  // actually draws, extended here to a second consumer. Reads `zone.
+  // false_breakout` directly off `displayedZones` below rather than routing
+  // through `buildZoneRenderData` (the zone-bands effect's own helper, which
+  // also computes `fillColor`/`lineColor`/`lineStyle` for a `BaselineSeries`
+  // this effect doesn't draw) -- frontend-chart-legend-toggle-not-working-
+  // followups' own `decisions` entry: that extra mapping was pure waste
+  // reintroduced by this effect's own extraction, recomputed on every render
+  // of this effect including every toggle click, for fields nothing here
+  // ever reads.
   useEffect(() => {
     const chart = chartRef.current
     const series = seriesRef.current
@@ -1722,16 +1730,6 @@ export default function PriceChart({
     if (displayedZones.length === 0) {
       return
     }
-    const zoneRenderData = buildZoneRenderData(
-      displayedZones,
-      firstDate as Time,
-      lastDate as Time,
-      {
-        support: theme.palette.signal.buy,
-        resistance: theme.palette.signal.sell,
-      },
-    )
-
     const falseBreakoutMarkers = buildFalseBreakoutMarkers(
       displayedZones,
       firstDate,
@@ -1750,7 +1748,7 @@ export default function PriceChart({
     // windowing) so a price line never appears for an episode with no
     // corresponding visible marker.
     const falseBreakoutPriceLines: IPriceLine[] = []
-    for (const { zone } of zoneRenderData) {
+    for (const zone of displayedZones) {
       const breakout = zone.false_breakout
       if (!isFalseBreakoutInRange(breakout, firstDate, lastDate)) {
         continue
@@ -1901,6 +1899,20 @@ export default function PriceChart({
       chart.unsubscribeClick(handleClick)
       chart.removeSeries(divergenceLineSeries)
       divergenceMarkersPlugin.detach()
+      // Defensive reset (frontend-chart-legend-toggle-not-working-followups):
+      // this overlay's click-to-explain balloon has no series/marker of its
+      // own left to anchor to once this cleanup runs (whether torn down by
+      // the "Price Divergence" legend toggle switching off, or by a data/
+      // theme change about to rebuild it fresh) -- closing it here keeps
+      // that invariant explicit rather than relying on `AnchoredInfoBalloon`'s
+      // own MUI `Popover` backdrop/focus-trap configuration to make an
+      // already-open balloon unreachable by an ordinary user in the one case
+      // (toggling off while open) that would otherwise leave it stale. Not
+      // currently reachable via mouse or keyboard today (confirmed against
+      // `Popover`'s own `Backdrop`/focus-trap source, see this task's
+      // `decisions` entry) -- this is a safety net against that MUI
+      // configuration ever changing, not a fix for an observed bug.
+      setDivergenceBalloonAnchor(null)
     }
   }, [historyQuery.data, analysisQuery.data, theme, divergenceVisible])
 

@@ -247,6 +247,74 @@ test.describe('stock analysis page', () => {
     await expect(page.getByTestId('price-chart-canvas')).toBeVisible()
   })
 
+  test('clicking a price chart legend toggle hides and re-shows its overlay on the chart (frontend-chart-legend-toggle-not-working-followups)', async ({
+    page,
+  }) => {
+    // This feature (common/LegendToggle + each chart component's own
+    // useSeriesVisibilityToggle/skip-while-hidden wiring) had zero persisted
+    // e2e coverage across 4 PRs (#374/#376/#378 building/refining it,
+    // #391 fixing a real "doesn't actually work" regression) -- every prior
+    // verification was either a mocked-series vitest assertion or an ad hoc,
+    // non-persisted Playwright MCP/script walkthrough redone fresh each
+    // review round. This is the regression test that gap called for.
+    //
+    // Channel (Autoenvelope) is the representative toggle target: it's
+    // always rendered for AAPL's fixture series at the default daily
+    // interval (gated only on `showOverlaySection && indicatorsQuery.
+    // isSuccess`, both already true once `/indicators` resolves), unlike
+    // e.g. Support/Resistance Zones or Divergence, which depend on the
+    // fixture series actually producing a qualifying zone/divergence.
+    await page.goto('/stocks/AAPL')
+    await expect(page.getByTestId('price-chart-canvas')).toBeVisible()
+
+    const hideToggle = page.getByRole('button', {
+      name: 'Hide Channel (Autoenvelope) on the chart',
+    })
+    await expect(hideToggle).toBeVisible()
+    await expect(hideToggle).toHaveAttribute('aria-pressed', 'true')
+
+    // Lightweight Charts renders the whole pane (candlesticks + every
+    // series-backed overlay sharing it, Channel included) onto one <canvas>
+    // -- no DOM representation of the overlay line itself to assert on, so
+    // this diffs a real screenshot of that canvas before/after the toggle as
+    // the "a price-line/series disappearing" chart-visible side effect this
+    // task calls for, on top of the `aria-pressed` flip. Comparing two
+    // captures within the same run/browser (not a stored golden-image
+    // baseline) avoids the font/OS-rendering flakiness a snapshot-matching
+    // approach would otherwise carry.
+    const canvas = page.getByTestId('price-chart-canvas').locator('canvas').first()
+    await expect(canvas).toBeVisible()
+    const beforeScreenshot = await canvas.screenshot()
+
+    await hideToggle.click()
+
+    const showToggle = page.getByRole('button', {
+      name: 'Show Channel (Autoenvelope) on the chart',
+    })
+    await expect(showToggle).toHaveAttribute('aria-pressed', 'false')
+
+    // `expect.poll` (not a single immediate screenshot) absorbs Lightweight
+    // Charts' own next-frame redraw latency without an arbitrary sleep.
+    await expect
+      .poll(async () => (await canvas.screenshot()).equals(beforeScreenshot), {
+        timeout: 5_000,
+      })
+      .toBe(false)
+
+    // Toggling back on restores both the aria-pressed state and the
+    // originally-rendered pixels -- confirms the overlay actually redraws
+    // rather than merely having been torn down.
+    await showToggle.click()
+    await expect(
+      page.getByRole('button', { name: 'Hide Channel (Autoenvelope) on the chart' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    await expect
+      .poll(async () => (await canvas.screenshot()).equals(beforeScreenshot), {
+        timeout: 5_000,
+      })
+      .toBe(true)
+  })
+
   test('looking up an unknown ticker shows a not-found error state', async ({ page }) => {
     await page.goto('/')
     await page.getByLabel('Look up a ticker').fill('ZZZZINVALID')
