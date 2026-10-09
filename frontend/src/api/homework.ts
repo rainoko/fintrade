@@ -7,6 +7,7 @@ import type { components } from './types'
 
 export type DailyHomeworkIn = components['schemas']['DailyHomeworkIn']
 export type DailyHomeworkOut = components['schemas']['DailyHomeworkOut']
+export type DailyHomeworkListResponse = components['schemas']['DailyHomeworkListResponse']
 export type DailyHomeworkTodayResponse = components['schemas']['DailyHomeworkTodayResponse']
 export type YesterdayTradingSuggestionOut = components['schemas']['YesterdayTradingSuggestionOut']
 export type HomeworkBand = DailyHomeworkOut['band']
@@ -30,6 +31,15 @@ export function recordDailyHomework(payload: DailyHomeworkIn): Promise<DailyHome
     method: 'POST',
     body: payload,
   })
+}
+
+/**
+ * `GET /api/daily-homework` — every recorded self-test entry, most recent
+ * `date` first (`operation_id: list_daily_homework`) — the history/trend
+ * view of how "ready to trade" scores have looked over time.
+ */
+export function listDailyHomework(): Promise<DailyHomeworkListResponse> {
+  return request<DailyHomeworkListResponse>('/api/daily-homework')
 }
 
 /**

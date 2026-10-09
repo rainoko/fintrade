@@ -1,0 +1,106 @@
+{
+  "id": "frontend-daily-homework-history",
+  "title": "Show a history/trend view of past daily self-test entries -- GET /api/daily-homework (list) has zero frontend consumer",
+  "area": "frontend/pages",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": [],
+  "references": [
+    "backend/app/api/routers/homework.py",
+    "backend/app/api/schemas.py",
+    "frontend/src/api/homework.ts",
+    "docs/tasks/done/backend-daily-homework-self-test.json",
+    "docs/tasks/done/frontend-daily-homework-page.json",
+    "frontend/src/features/homework/components/HomeworkScoreBanner.tsx",
+    "docs/tasks/frontend-backend-feature-gap-audit.json"
+  ],
+  "description": "Filed by the frontend-backend-feature-gap-audit task. `GET /api/daily-homework` (`operation_id: list_daily_homework`, `backend/app/api/routers/homework.py`) returns `DailyHomeworkListResponse` -- 'Every recorded self-test entry, most recent date first', the router's own docstring calling it 'a history/trend view of how \"ready to trade\" scores have looked over time' -- but grep confirms `frontend/src/api/homework.ts` has no caller for it at all (only `GET /today`, `POST /api/daily-homework`, and `GET /yesterday-trading-suggestion` are wired up), and `frontend/src/features/homework/` has no history/list component or hook of any kind. `DailyHomeworkPage` (`frontend-daily-homework-page`) only ever shows today's single entry via `DailyHomeworkForm`/`HomeworkScoreBanner` (today's recorded scores, or today's suggested defaults if not yet recorded) -- a user can dutifully record a self-test every single day but can never see how their own readiness score has trended over the past weeks or months, despite the backend already fully supporting exactly that view with no further backend work needed. Neither `frontend-daily-homework-page` nor either of its two followup tasks mentions deferring a history view as a conscious decision -- this was simply never built.",
+  "checklist": [
+    {
+      "step": "Add a `listDailyHomework()`/`getDailyHomeworkHistory()` function to frontend/src/api/homework.ts (GET /api/daily-homework) plus a TanStack Query hook and MSW mock.",
+      "done": true
+    },
+    {
+      "step": "Decide presentation: a plain table (date, the 5 component scores, total_score, band) vs. a trend chart of total_score/band over time, or both -- record the decision and rationale.",
+      "done": true
+    },
+    {
+      "step": "Add the history view to DailyHomeworkPage (a new section, or its own sub-route reached from there) -- reuse HomeworkScoreBanner's existing red/yellow/green band-coloring convention rather than inventing a new color scheme.",
+      "done": true
+    },
+    {
+      "step": "Tests + a Storybook story for the new component(s); confirm the 90% coverage gate still holds.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-10-09T23:00:53Z",
+      "recorded_by": "task-worker",
+      "decision": "Presentation: a plain table only (date, the 5 component scores, total_score, a band chip), via the existing common/DataTable, with no lightweight-charts trend chart -- no dataviz-skill chart work needed for this task.",
+      "rationale": "This self-test is answered at most once per calendar day, so the series is inherently low-cardinality -- nothing like the hundreds-of-bars OHLC/indicator history features/stocks/components/ plots with Lightweight Charts (utils/chart.ts's createBaseChart etc.), which exists specifically for that denser, zoomable, multi-pane use case. A single total_score trend line would also discard the per-question breakdown (which of the 5 answers actually drove a particularly low/high day), which is exactly the kind of diagnostic detail Elder's self-test is meant to surface -- a table row showing all 5 components plus the total reads as more useful at a glance than a sparkline would, for the data density this feature actually has. Rejected: (a) a lightweight-charts trend line of total_score, which would have required loading the dataviz skill and pulling in the same charting machinery used for price/indicator panes, for a feature whose data is sparse by construction (one point per day the user manually visits) and whose most valuable information (the per-question breakdown) a single scalar line can't show anyway; (b) both table and chart together, rejected for the same reason -- the chart would have added UI surface and maintenance cost without adding information the table doesn't already convey more completely."
+    },
+    {
+      "timestamp": "2026-10-09T23:00:53Z",
+      "recorded_by": "task-worker",
+      "decision": "New DailyHomeworkHistoryTable component lives under features/homework/components/ (not components/common/), added as a new section on the existing DailyHomeworkPage (not a separate sub-route), and the red/yellow/green band-coloring convention is shared by extracting HomeworkScoreBanner's SEVERITY_BY_BAND map and isTooPerfectBand predicate into a new plain (non-component) features/homework/components/band.ts module that both HomeworkScoreBanner.tsx and DailyHomeworkHistoryTable.tsx import, rather than inventing a second mapping or exporting those two consts directly from HomeworkScoreBanner.tsx.",
+      "rationale": "Placement: every column DailyHomeworkHistoryTable renders (physical_state_score, band, etc.) is a homework self-test domain concept -- Frontend.md \u00a73's placement test puts this under features/homework/components/, matching HomeworkScoreBanner's own placement rationale, not components/common/ (which would need a domain-agnostic, generic-props component instead). Page layout: a same-page section (below DailyHomeworkForm) rather than a dedicated /homework/history sub-route -- the history view is a small, read-only complement to the one daily action this page exists for, not a separate workflow a user navigates to deliberately; keeping it on one page also means NavDrawer needs no new entry and a user sees their trend immediately after recording today's entry, with no extra navigation. Shared band convention: an initial attempt exported SEVERITY_BY_BAND/isTooPerfectBand directly from HomeworkScoreBanner.tsx, but that tripped the repo's (previously zero-warning) eslint react-refresh/only-export-components rule the moment a second component (DailyHomeworkHistoryTable) imported them, since that rule flags any .tsx file whose exports aren't all components. Moving both into a new plain band.ts file (mirroring the existing metricHelpContent.ts precedent elsewhere in features/*/components/ for a domain-specific, non-component helper shared by more than one component in a folder) keeps eslint clean while still giving both components the exact same mapping/predicate, satisfying the checklist's 'reuse HomeworkScoreBanner's existing ... convention rather than inventing a new color scheme' requirement precisely."
+    },
+    {
+      "timestamp": "2026-10-09T23:00:53Z",
+      "recorded_by": "task-worker",
+      "decision": "useRecordDailyHomework's onSuccess now also invalidates homeworkKeys.history (not just homeworkKeys.today).",
+      "rationale": "Not originally in the checklist, but add-frontend-feature's own step 3 treats an omitted invalidation as a stale-UI bug, not a style nit: a successful POST /api/daily-homework always changes GET /api/daily-homework's list too (either adding today's row or overwriting its existing one), so leaving the history query un-invalidated would have shown a stale history table immediately after a successful submission until some unrelated refetch happened to occur. Confirmed end to end via a live browser walkthrough (submitting today's entry updates the History table's row immediately, no manual reload) -- see this task's report."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-daily-homework-history",
+    "pr_number": 402,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/402",
+    "pushed_at": "2026-10-09T23:02:09Z"
+  },
+  "questions": [],
+  "review": {
+    "reviewed_at": "2026-10-09T23:13:18Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/402",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified the `band.ts` extraction is behaviorally identical to the original inline `SEVERITY_BY_BAND`/`isTooPerfectBand` in HomeworkScoreBanner.tsx (diffed to confirm no value drift), and independently reproduced the eslint `react-refresh/only-export-components` finding by exporting those two consts directly from a copy of HomeworkScoreBanner.tsx -- the rule genuinely fires (2 warnings), so the extraction rationale is real, not a rationalization.",
+        "file": "frontend/src/features/homework/components/band.ts",
+        "line": 0
+      },
+      {
+        "summary": "Live browser walkthrough confirmed the history table's band chip reuses the exact HomeworkScoreBanner convention for all practical states, including the 9-10 'too perfect' yellow case: submitted a 10/10 entry and saw both the banner ('10/10 -- YELLOW (too perfect)', warning/amber Alert with the SelfImprovement icon) and the new History row ('YELLOW (TOO PERFECT)' chip, warning color) update in place via the added query invalidation, with no console errors and no manual reload needed.",
+        "file": "frontend/src/features/homework/components/DailyHomeworkHistoryTable.tsx",
+        "line": 0
+      },
+      {
+        "summary": "useRecordDailyHomework's added invalidation of homeworkKeys.history (not in the original checklist) is correct -- right query key (object identity with useDailyHomeworkHistory's queryKey), and the live walkthrough confirmed the History table actually refetches and re-renders immediately after a successful POST. Appropriately included per add-frontend-feature's own 'an omitted invalidation is a stale-UI bug, not a style nit' framing.",
+        "file": "frontend/src/features/homework/hooks/useRecordDailyHomework.ts",
+        "line": 24
+      },
+      {
+        "summary": "Component placement correct: DailyHomeworkHistoryTable and band.ts both live under features/homework/components/ (domain-specific -- scores, bands), reusing common/DataTable rather than duplicating table chrome. No Storybook story was added, which is actually correct per Frontend.md §4 ('Feature-specific components ... do not get stories') since this is not a components/common/ component -- but the task's checklist item literally asked for one and neither the checklist nor decisions explicitly records the Frontend.md §4 exemption as the reason it was skipped. Non-blocking; tracked as a follow-up.",
+        "file": "frontend/src/features/homework/components/DailyHomeworkHistoryTable.tsx",
+        "line": 0
+      },
+      {
+        "summary": "frontend/tests/e2e/daily-homework.spec.ts (the persisted Playwright spec) was not extended to cover the new History section -- it still only exercises the form+banner flow. This page already needed a dedicated e2e-coverage follow-up once before for exactly this reason (see that spec's own docstring, from PR #271's review). Non-blocking since `make e2e` still passes in full (28/28) and the feature is covered by component tests plus this review's own live walkthrough; tracked as a follow-up.",
+        "file": "frontend/tests/e2e/daily-homework.spec.ts",
+        "line": 0
+      },
+      {
+        "summary": "DailyHomeworkHistoryTable.test.tsx's band-chip test covers red, green, and the 9-10 'too perfect' yellow case, but never a plain yellow (5-6) row -- the fourth practically distinct band state. Coverage numbers are unaffected (the same isTooPerfectBand-false branch is already exercised by red/green), but it's a minor gap in direct test fidelity to all four real states. Non-blocking; tracked as a follow-up.",
+        "file": "frontend/src/features/homework/components/DailyHomeworkHistoryTable.test.tsx",
+        "line": 0
+      }
+    ],
+    "notes": "Full review: backend pytest (1618 passed, 99.94% coverage) and frontend vitest (1054 passed, 99.78%+ across all 4 dimensions) both comfortably clear the 90% gate; ruff, mypy, eslint, tsc -b, and the profit-target wording guard are all clean; `yarn build` and `yarn build-storybook` both succeed, matching the task-worker's claims. `python3 scripts/validate_tasks.py` reports no violations (383 files, including this task's new followups entry). No backend/API changes in this PR, so no openapi.json regeneration was needed (confirmed via `git diff --stat main...HEAD -- backend/`, empty). Ran a real-browser Playwright walkthrough against a freshly started backend+frontend (golden path: loaded /homework, confirmed the pre-existing history row rendered correctly; submitted a new 10/10 'too perfect' entry and confirmed the History table updated in place with the correct band chip and no console errors; edge case: clicked the Date column header and confirmed ascending/descending sort toggles correctly) -- inserted one test row into the shared dev sqlite db (backend/fintrade.db) for this and deleted it afterward, leaving the pre-existing 2026-09-27 row untouched. Also ran the full persisted e2e suite (`make e2e`): 28/28 specs passed, including daily-homework.spec.ts's existing form/banner flow (which already exercises GET /api/daily-homework as a side effect of the invalidation, though it asserts nothing about the History table itself -- see follow-up). Cross-checked every checklist item phrased as a judgment call against the `decisions` array: all three (presentation table-vs-chart, placement/band-sharing, and the added invalidation) have corresponding, well-reasoned entries. No stale `pr_decision` existed to clear. Three non-blocking findings filed as docs/tasks/frontend-daily-homework-history-followups.json per CLAUDE.md's tracked-follow-up convention."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-10-09T23:21:01Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran both suites (backend: 1618 passed, 99.94% coverage; frontend: 1054 passed, 99.78%/99.05%/99.84%/99.81% across statements/branches/functions/lines -- all comfortably clear the 90% gate, though note branches is 99.05%, not >=99.78% as the review's notes phrase it, a minor imprecision in wording that doesn't affect the pass/fail outcome). Ran ruff/mypy/eslint and `yarn build` clean, and `scripts/validate_tasks.py` clean. Skimmed the full diff myself: confirmed band.ts's SEVERITY_BY_BAND/isTooPerfectBand are a byte-identical extraction of the original inline logic in HomeworkScoreBanner.tsx (only comments reworded), and useRecordDailyHomework's added invalidateQueries(homeworkKeys.history) uses the exact query key object useDailyHomeworkHistory's queryKey also uses. Did my own live-browser walkthrough (Playwright against a freshly started backend+frontend, not reused from the review): submitted a 10/10 entry via the real form and confirmed both the banner ('10/10 -- YELLOW (too perfect)') and the History table (new row, 'YELLOW (TOO PERFECT)' chip, Total 10) updated in place with zero console errors, no manual reload -- screenshotted before/after. Deleted the inserted 2026-10-09 test row afterward; backend/fintrade.db now holds only the pre-existing 2026-09-27 row. Independently verified Frontend.md §4's text ('Feature-specific components ... do not get stories') myself -- the missing DailyHomeworkHistoryTable.stories.tsx is correctly exempt, and the gap is that the checklist item isn't annotated to say so, which is exactly what frontend-daily-homework-history-followups.json's third checklist entry already tracks. No new blocking issues found; the accept holds."
+  }
+}

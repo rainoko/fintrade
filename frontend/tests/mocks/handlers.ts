@@ -1225,6 +1225,15 @@ export const handlers: HttpHandler[] = [
     return HttpResponse.json({ entry })
   }),
 
+  // Most recent `date` first, matching the real backend's own ordering
+  // (`list_daily_homework`, docs/architecture/API.md).
+  http.get('/api/daily-homework', () => {
+    const items = [...dailyHomeworkEntries.values()].sort((a, b) =>
+      b.date.localeCompare(a.date),
+    )
+    return HttpResponse.json({ items })
+  }),
+
   http.post('/api/daily-homework', async ({ request }) => {
     const body = (await request.json()) as DailyHomeworkIn
     const date = body.date ?? todayIsoDate()

@@ -1,0 +1,32 @@
+{
+  "id": "frontend-daily-homework-history-followups",
+  "title": "Non-blocking findings from frontend-daily-homework-history's PR review (#402)",
+  "area": "frontend/pages",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-daily-homework-history"],
+  "references": [
+    "docs/tasks/done/frontend-daily-homework-history.json",
+    "https://github.com/rainoko/fintrade/pull/402",
+    "frontend/tests/e2e/daily-homework.spec.ts",
+    "frontend/src/features/homework/components/DailyHomeworkHistoryTable.test.tsx",
+    "frontend/src/features/homework/components/DailyHomeworkHistoryTable.tsx"
+  ],
+  "description": "pr-reviewer's full review of PR #402 (frontend-daily-homework-history) accepted it -- tests/coverage, static analysis, build/build-storybook, a live browser walkthrough, and the persisted e2e suite all passed, and the `band.ts` extraction / eslint react-refresh justification / query-invalidation rationale were all independently verified as genuine, not rationalized. Three non-blocking findings surfaced during that review that shouldn't disappear once PR #402 merges.",
+  "checklist": [
+    {
+      "step": "`frontend/tests/e2e/daily-homework.spec.ts` (the persisted Playwright e2e spec for this page) still only covers the form+banner flow -- it was not extended to cover the new History section/table this PR added (no navigation to/assertion on the history rows, sort, or the band-chip coloring in the persisted suite). This page already needed a dedicated `-followups` task once before precisely because a UI flow shipped without e2e coverage (see this spec's own docstring, filed from PR #271's review) -- the same gap now exists for the History table specifically. Add a case (either a new `test()` in this spec, or an extension of the existing one) that submits an entry and asserts it appears as a row in the History table with the correct band chip.",
+      "done": false
+    },
+    {
+      "step": "`DailyHomeworkHistoryTable.test.tsx`'s band-chip test exercises red, green, and the 9-10 'too perfect' yellow case, but never a plain yellow (5-6, 'trade cautiously') row -- the fourth practically distinct band state. Coverage numbers aren't affected (the `isTooPerfectBand`-false branch is already exercised by the red/green rows), but the test doesn't directly confirm a plain-yellow row renders `YELLOW` (no '(too perfect)' suffix) with the warning color. Add a 4th seeded entry (e.g. total_score 6) to that test.",
+      "done": false
+    },
+    {
+      "step": "This task's checklist item 4 ('Tests + a Storybook story for the new component(s)') was marked done without a `.stories.tsx` for `DailyHomeworkHistoryTable`. This is actually correct per Frontend.md §4 ('Feature-specific components ... do not get stories') -- `DailyHomeworkHistoryTable` is correctly placed under `features/homework/components/`, not `components/common/` -- but neither the task's `decisions` array nor the checklist item itself records that reasoning explicitly; a future reader scanning the checklist sees 'done' next to a literal ask for a story that doesn't exist. If this task's checklist/decisions is ever revisited, add a short note (or amend the checklist item's own wording) making the Frontend.md §4 exemption explicit rather than leaving it implicit in the placement decision.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

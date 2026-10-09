@@ -2,4 +2,5 @@
 export const homeworkKeys = {
   today: ['daily-homework', 'today'] as const,
   yesterdaySuggestion: ['daily-homework', 'yesterday-suggestion'] as const,
+  history: ['daily-homework', 'history'] as const,
 }

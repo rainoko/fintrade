@@ -2672,8 +2672,15 @@
       "id": "frontend-daily-homework-history",
       "area": "frontend/pages",
       "skill": "add-frontend-feature",
+      "state": "done",
+      "path": "docs/tasks/done/frontend-daily-homework-history.json"
+    },
+    {
+      "id": "frontend-daily-homework-history-followups",
+      "area": "frontend/pages",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/frontend-daily-homework-history.json"
+      "path": "docs/tasks/frontend-daily-homework-history-followups.json"
     },
     {
       "id": "frontend-backend-feature-gap-audit-followups",

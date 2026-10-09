@@ -18,7 +18,7 @@ describe('DailyHomeworkPage', () => {
     resetDailyHomeworkStore()
   })
 
-  it('renders the page title and the self-test form', async () => {
+  it('renders the page title, the self-test form, and the history section', async () => {
     renderPage()
 
     expect(screen.getByRole('heading', { name: 'Daily Homework', level: 1 })).toBeInTheDocument()
@@ -26,6 +26,12 @@ describe('DailyHomeworkPage', () => {
       expect(
         screen.getByRole('heading', { name: 'Am I ready to trade today?' }),
       ).toBeInTheDocument(),
+    )
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'History' })).toBeInTheDocument(),
+    )
+    await waitFor(() =>
+      expect(screen.getByText('No self-test entries recorded yet.')).toBeInTheDocument(),
     )
   })
 })
