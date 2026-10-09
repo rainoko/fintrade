@@ -2597,6 +2597,41 @@
       "skill": null,
       "state": "done",
       "path": "docs/tasks/done/frontend-chart-legend-toggle-not-working-followups.json"
+    },
+    {
+      "id": "frontend-backend-feature-gap-audit",
+      "area": "frontend",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-backend-feature-gap-audit.json"
+    },
+    {
+      "id": "frontend-trailing-stop-display",
+      "area": "frontend/portfolio",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-trailing-stop-display.json"
+    },
+    {
+      "id": "frontend-stock-detail-insider-transactions-last",
+      "area": "frontend/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-stock-detail-insider-transactions-last.json"
+    },
+    {
+      "id": "frontend-stock-detail-current-price-prominent",
+      "area": "frontend/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-stock-detail-current-price-prominent.json"
+    },
+    {
+      "id": "backend-ibkr-import-entry-date-from-trades",
+      "area": "backend/data",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-ibkr-import-entry-date-from-trades.json"
     }
   ]
 }

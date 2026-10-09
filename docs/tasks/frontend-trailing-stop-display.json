@@ -1,0 +1,45 @@
+{
+  "id": "frontend-trailing-stop-display",
+  "title": "Show the real ratcheted trailing/profit-protecting stop, not just the raw protective stop, in the Portfolio positions list and Stock Detail page",
+  "area": "frontend/portfolio",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "backend/app/portfolio/risk.py",
+    "backend/app/api/schemas.py",
+    "frontend/src/features/portfolio/components/PositionsTable.tsx",
+    "frontend/src/features/portfolio/components/RiskPanel.tsx",
+    "frontend/src/features/portfolio/components/HeldPositionBanner.tsx",
+    "frontend/src/features/portfolio/components/metricHelpContent.ts"
+  ],
+  "description": "User-requested gap: `GET /api/portfolio/risk`'s `RiskPosition.trailing_stop` (`app.portfolio.risk.ratchet_trailing_profit_stop`, Elder ch. 54 'Don't Let a Winning Trade Turn into a Loss') is computed by the backend for every open position, but confirmed via grep this session that NO frontend component currently reads `trailing_stop`/`trailingStop` -- only `frontend/src/api/types.ts` (the generated type definitions) even mentions the field. Every place the UI shows a stop today reads only the raw, un-ratcheted `protective_stop`: `PositionsTable.tsx`'s 'Protective Stop' column (~line 186, the Portfolio page's positions list -- the 'tickers list' in the user's own phrasing), `RiskPanel.tsx`'s `protective_stop` column (~line 102), and `HeldPositionBanner.tsx`'s 'Current Stop' field (~line 157, the Stock Detail page -- the 'ticker details' in the user's own phrasing).\n\nWhy this matters, read directly from `risk.py`'s own docstrings: `trailing_stop` is a hard ratchet -- per `GET /api/portfolio/risk`'s own documented guarantee, it can never be lower than any value already reported for that position before, even if today's raw price-action formula would suggest a lower number (ch. 54's 'move your stop only in the direction of your trade' rule). `protective_stop` has no such guarantee; it's a pure point-in-time recomputation that CAN go down. Before the breakeven-profit trigger first fires, `trailing_stop` simply equals `protective_stop` (read `ratchet_trailing_profit_stop`'s docstring, risk.py ~line 290 onward) -- the two numbers only diverge once a position has earned enough unrealized profit (10% of entry price) for the ratchet to start protecting it. So a user watching only `protective_stop` today is seeing a number that can visibly drop even though the real, governing stop the backend has already computed never did -- and for a position that HAS earned that profit, they're simply not shown the higher, more protective number at all.\n\nThis is a genuine design decision, not a mechanical add-a-field change: because the two values coincide most of the time (before the ratchet first triggers), showing both as two permanently-separate, usually-identical columns would be redundant most of the time for most positions. Decide and record (don't silently pick without justifying) whether to: (a) promote `trailing_stop` to be the primary 'stop' figure shown in the existing column/field (since it's the one that's actually governing and never loosens -- closer to what a trader should trust), with the raw `protective_stop` demoted to a secondary detail (e.g. inside the existing `MetricHelp` popover, or a small inline note only when the two values actually differ), or (b) add a wholly separate, always-visible second column/field for `trailing_stop` alongside the existing `protective_stop` one in both locations. Check whether an existing `MetricHelp` entry already explains the protective-stop-vs-trailing-stop distinction (`metricHelpContent.ts` in both `features/portfolio/` and `features/stocks/`) before writing a new one.",
+  "checklist": [
+    {
+      "step": "Read `risk.py`'s `trailing_profit_stop`/`ratchet_trailing_profit_stop` docstrings in full, and `RiskPosition.trailing_stop`'s own schema description in schemas.py, to confirm the exact current semantics before changing any UI (source may have shifted since this task was written).",
+      "done": false
+    },
+    {
+      "step": "Decide and record (as a `decisions` entry) how `trailing_stop` is surfaced relative to the existing `protective_stop` display in both locations -- promoted-primary-value-with-raw-as-detail vs. a separate adjacent column/field -- and why.",
+      "done": false
+    },
+    {
+      "step": "Implement in `PositionsTable.tsx` (Portfolio page's positions list).",
+      "done": false
+    },
+    {
+      "step": "Implement in `HeldPositionBanner.tsx` (Stock Detail page).",
+      "done": false
+    },
+    {
+      "step": "Add or extend `MetricHelp` content explaining the protective-stop-vs-trailing-stop distinction if not already adequately covered by an existing entry, consistent with this app's existing `metricHelpContent.ts` conventions.",
+      "done": false
+    },
+    {
+      "step": "Tests for both changed components confirming `trailing_stop` is actually read and rendered (not just that the component still renders at all), covering both the pre-ratchet (trailing_stop == protective_stop) and post-ratchet (trailing_stop > protective_stop) cases.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

@@ -1,0 +1,40 @@
+{
+  "id": "frontend-stock-detail-current-price-prominent",
+  "title": "Stock Detail page: show the ticker's current price prominently near the top",
+  "area": "frontend/stocks",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "frontend/src/pages/StockDetailPage.tsx",
+    "frontend/src/features/stocks/components/SignalSummary.tsx",
+    "backend/app/api/schemas.py",
+    "backend/app/portfolio/profit_target.py",
+    "docs/architecture/API.md"
+  ],
+  "description": "User-requested gap, confirmed via reading the current code before writing this task: `StockDetailPage.tsx`'s top region (`PageHeader` with the ticker name, the methodology link + Trade Apgar button row, `HeldPositionBanner` when held, an 'As of {date}' line, then `SignalSummary`) never shows the ticker's current price as its own element anywhere. This isn't just a placement gap -- confirmed by reading `backend/app/api/schemas.py`'s `AnalysisResponse` and `Indicators` models in full: `GET /api/stocks/{ticker}/analysis` (what `StockDetailPage`/`SignalSummary` actually consume) has NO raw current-price/last-close field at all today. The only place a user can currently see this ticker's latest price is by scrolling down to `StockCharts`' own candlestick pane (reading it off the chart itself, a hover tooltip, or the price-scale axis label) -- there is nothing available to the page header area without pulling from a chart component that renders independently, further down the page, from its own separate `history`/`indicators` queries.\n\nImplementation implication worth deciding up front rather than discovering mid-task: the cleanest fix is almost certainly to expose a `current_price` field directly on `AnalysisResponse` (the latest daily bar's close) rather than threading `StockCharts`' own chart data up into the page header -- this is NOT a new computation, just exposing a value the backend already computes internally: `app.portfolio.profit_target.suggest_profit_target` already does `current_price = float(daily_ohlcv[\"close\"].iloc[-1])` (profit_target.py ~line 307) for its own target-price math, using the same daily OHLCV `app.signals.engine.analyse` already has in hand while building the rest of this exact response. If a schema field is added, follow CLAUDE.md's API documentation standard: a `description` on the new field (the existing `response_model`/docstring on this route already satisfies the rest), then `python scripts/export_openapi.py` from `backend/` and commit the updated `backend/openapi.json` before the frontend consumes it (and update `docs/architecture/API.md` if its own response-shape listing needs it).\n\n'Prominent' is a design judgment call, not a prescribed layout -- decide and record (as a `decisions` entry) exactly where (e.g. inside `PageHeader`'s own title area beside the ticker name/symbol, or a new large stat element directly below the header and above `HeldPositionBanner`) and the visual treatment (a large, bold number; whether to also show a day-over-day change indicator -- check whether that's cheaply derivable from the same `daily_ohlcv` the new field is sourced from, and whether it's worth including or clearly out of this task's own scope).",
+  "checklist": [
+    {
+      "step": "Confirm (don't assume) current price is genuinely absent from both `AnalysisResponse` and anywhere on `StockDetailPage` today, with a fresh grep/read -- source may have moved since this task was written.",
+      "done": false
+    },
+    {
+      "step": "Decide and record the data-sourcing approach: a new `AnalysisResponse.current_price` field (the reasoning above favors this) vs. reusing `StockCharts`' own already-fetched data. If adding a schema field, follow the API documentation standard (field `description`, `scripts/export_openapi.py`, commit the regenerated `backend/openapi.json`, regenerate the frontend's generated types per the project's usual `add-api-endpoint` process).",
+      "done": false
+    },
+    {
+      "step": "Decide and record the exact placement and visual treatment for 'prominent' on the page.",
+      "done": false
+    },
+    {
+      "step": "Implement (backend field addition if chosen, plus the frontend display).",
+      "done": false
+    },
+    {
+      "step": "Tests (backend schema/route test if a new field was added; frontend component test for the new prominent display) and a real-browser screenshot check confirming the price is visible without scrolling on a typical viewport.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

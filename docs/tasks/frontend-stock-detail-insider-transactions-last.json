@@ -1,0 +1,46 @@
+{
+  "id": "frontend-stock-detail-insider-transactions-last",
+  "title": "Stock Detail page: move the Insider Transactions block to the bottom of the page",
+  "area": "frontend/stocks",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "frontend/src/pages/StockDetailPage.tsx",
+    "frontend/src/features/stocks/components/FundamentalDataPanel.tsx",
+    "frontend/src/features/stocks/components/StockCharts.tsx"
+  ],
+  "description": "User-requested layout change, confirmed via reading the current code before writing this task: `StockDetailPage.tsx` renders `FundamentalDataPanel` (earnings/dividend dates, short interest, and -- as its own last `Card`, FundamentalDataPanel.tsx lines ~385-433 -- Insider Transactions + detected clusters) directly below `SignalSummary`, near the top of the page, ahead of `ScreensPanel`/`IndicatorsPanel`/`StockCharts`. `FundamentalDataPanel.tsx`'s own doc comment (lines ~200-209) explains this placement is deliberate specifically because of the earnings-date warning banner rendered inside the SAME panel -- 'the highest-value piece per this task's own description ... immediately visible near the top of the page rather than buried below several other panels and the price chart.' That rationale is about the earnings banner, NOT about the Insider Transactions card, which is simply the last thing rendered inside that panel today as an implementation detail of how the panel happens to be composed -- nothing in the doc comment or the task history says Insider Transactions itself needs to be near the top.\n\nThe user wants the Insider Transactions block specifically moved to the LAST block on the page (i.e. after `StockCharts`), while the earnings-warning-banner rationale for the REST of `FundamentalDataPanel` (the banner itself, Earnings Date / Ex-Dividend Date / Short Interest) must NOT be disturbed -- it stays near the top for the reason already documented.\n\nThis requires extracting the Insider Transactions card (the `InsiderClusterCallouts` component, the `insiderColumns`/`InsiderRow` table, and the surrounding `Card`/`CardContent` markup at the end of `FundamentalDataPanel.tsx`) into its own component -- e.g. a new `InsiderTransactionsPanel.tsx` alongside `FundamentalDataPanel.tsx` in `features/stocks/components/` -- rendered by `StockDetailPage.tsx` as the LAST element in its `Stack`, after `StockCharts`. `FundamentalDataPanel` keeps the warning banner plus the Earnings Date/Ex-Dividend Date/Short Interest stat cards, and drops its `insiderClusters` prop and the Insider Transactions `Card` entirely.\n\nOne edge case to handle deliberately, not silently: `FundamentalDataPanel`'s `unavailable_reason === 'fallback_provider_active'` early-return branch (lines ~232-263) currently covers insider-transactions unavailability too -- its message literally says '...and insider transactions aren't available...'. Once Insider Transactions becomes its own component, decide and record whether the new component needs its own equivalent 'fallback provider active, no insider data' empty state (consulting the same `extendedData.unavailable_reason` it's already passed), or some other treatment -- don't let that messaging silently disappear.",
+  "checklist": [
+    {
+      "step": "Re-read `FundamentalDataPanel.tsx` and `StockDetailPage.tsx` in full to confirm the current structure matches this task's description (source may have moved since this task was written).",
+      "done": false
+    },
+    {
+      "step": "Extract the Insider Transactions card (`InsiderClusterCallouts`, `insiderColumns`/`InsiderRow`, the trailing `Card`/`CardContent` block) into a new sibling component, preserving its existing `MetricHelp` content (`insiderClustersHelp`/`insiderTransactionsHelp`) and behavior exactly.",
+      "done": false
+    },
+    {
+      "step": "Decide and record how the new component handles `extendedData.unavailable_reason === 'fallback_provider_active'` (its own empty/unavailable state vs. some other treatment) so that messaging isn't silently dropped.",
+      "done": false
+    },
+    {
+      "step": "Wire the new component into `StockDetailPage.tsx` as the last block on the page (after `StockCharts`), passing `extendedData`/`insiderClusters` the same way `FundamentalDataPanel` currently receives them.",
+      "done": false
+    },
+    {
+      "step": "Update `FundamentalDataPanel.tsx`'s own prop types and doc comment (drop the `insiderClusters` prop and the now-inaccurate 'same card, stay visually grouped' rationale) and its unavailable-provider branch's copy (no longer needs to mention insider transactions in the same sentence).",
+      "done": false
+    },
+    {
+      "step": "Move/update existing tests: `FundamentalDataPanel.test.tsx`'s insider-related cases move to the new component's own test file; `StockDetailPage.test.tsx`'s assertions about block order are updated to match the new bottom placement.",
+      "done": false
+    },
+    {
+      "step": "Real-browser check confirming the Insider Transactions block visually renders last on the page, below the chart panes, with no change to the earnings-warning banner's own top-of-page prominence.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
