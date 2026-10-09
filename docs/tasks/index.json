@@ -2679,7 +2679,7 @@
       "id": "frontend-backend-feature-gap-audit-followups",
       "area": "frontend",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-backend-feature-gap-audit-followups.json"
     }
   ]

@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from frontend-backend-feature-gap-audit's PR review (#400)",
   "area": "frontend",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-backend-feature-gap-audit"],
   "references": [
     "docs/tasks/done/frontend-backend-feature-gap-audit.json",
@@ -17,13 +17,26 @@
   "checklist": [
     {
       "step": "The audit's `decisions` entry on frontend-backend-feature-gap-audit.json cites `git log -S\"abortedClause\" ` as `commit 5018850f (PR #151-era)` to support that the divergence.aborted tooltip wiring predates the audit. The commit hash and date are correct, but the actual PR is #158, not '#151-era' (`git log --oneline` for 5018850f shows '(#158)'). Doesn't affect the conclusion (the wiring genuinely predates the audit either way), but the citation itself is wrong and should be corrected if that decisions entry is ever revisited.",
-      "done": false
+      "done": true
     },
     {
       "step": "An independent re-grep of every response-schema field (not just the ones the audit's own decisions entry listed) found 4 additional fields with zero production-component usage that the audit's exhaustive-sounding 'every other field checked... confirmed to have at least one real production consumer' claim missed entirely -- not listed in either its genuine-gap bucket or its deliberately-ruled-out-minor bucket: (1) `DivergenceOut.centerline_crossed` -- `metricHelpContent.ts`'s `divergenceHelp.interpretValue` branches on `divergence.indicator === 'macd_histogram'` instead of reading this field directly, even though the field's own docstring says it's always true exactly when indicator is 'macd_histogram' -- so the information is surfaced, just not by reading this exact field; (2) `InsiderTransactionOut.ownership` (yfinance's raw direct/indirect flag) -- `InsiderTransactionsPanel.tsx`'s table columns are date/insider/position/shares/value/transaction_text, no ownership column; (3) `YesterdayTradingSuggestionOut.as_of_date` and (4) `net_realized_pnl` -- `DailyHomeworkForm.tsx` reads `suggested_score` from this response but never surfaces the dollar amount or date behind it, so a user sees a prefilled 0/1/2 score with no visible reasoning. All four are judged minor/cosmetic -- the same class of finding the audit itself correctly bucketed elsewhere (SupportResistanceZone secondary metadata, IBKRBreadthSnapshotResponse.snapshot_date) -- not warranting their own feature task, but worth a UI-polish pass if someone is already touching these components: showing `net_realized_pnl` as supporting context for the suggested yesterday-trading score is the most plausibly worthwhile of the four.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-09T22:27:12Z",
+      "recorded_by": "task-worker",
+      "decision": "For checklist item 1: appended a brand-new `decisions` entry to the already-done `docs/tasks/done/frontend-backend-feature-gap-audit.json` correcting the PR citation (commit 5018850f is PR #158, not '#151-era'), rather than amending the original entry's text in place.",
+      "rationale": "Re-read this task's own checklist item wording closely: it describes the error and says it 'should be corrected if that decisions entry is ever revisited' -- a conditional/descriptive note, not an explicit directive naming the existing entry's own text as the thing to fix. CLAUDE.md's 'Decision memory' section makes append-only the default for exactly this situation, with the in-place-amendment carve-out reserved for when 'the checklist item or task explicitly calls out the existing entry's own text as the thing to fix' (as backend-cftc-cot-data-followups's checklist literally asked for a 'decisions-text update'). This task's checklist item doesn't rise to that explicitness, so the default applies: append, don't amend."
+    },
+    {
+      "timestamp": "2026-10-09T22:27:12Z",
+      "recorded_by": "task-worker",
+      "decision": "For checklist item 2: no code or UI change made. Re-confirmed via fresh grep (centerline_crossed, ownership, as_of_date/asOfDate, net_realized_pnl/netRealizedPnl across frontend/src, excluding tests/types.ts) that all four fields still have zero production consumers, matching pr-reviewer's PR #400 finding exactly. No further follow-up task filed for these four fields.",
+      "rationale": "The checklist item's own framing already judges all four fields 'minor/cosmetic... not warranting their own feature task' and only suggests a UI-polish pass 'if someone is already touching these components' -- i.e. opportunistic, not a standalone deliverable. Filing a dedicated feature task for a change this task's own source finding explicitly says doesn't warrant one would contradict the finding rather than act on it; the useful action here is confirming the finding still holds (preserving it as searchable context for whoever next touches InsiderTransactionsPanel.tsx or DailyHomeworkForm.tsx), not inventing scope. This task is itself the CLAUDE.md-mandated '<id>-followups' tracked record of pr-reviewer's non-blocking PR #400 findings, so no further `-followups-followups` task is needed for a finding this task's own checklist already judges sub-task-worthy."
+    }
+  ],
   "questions": []
 }
