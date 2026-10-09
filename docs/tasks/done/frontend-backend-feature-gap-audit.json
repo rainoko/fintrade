@@ -85,5 +85,10 @@
       }
     ],
     "notes": "Accepted. Verified all claims independently rather than trusting the audit: CFTC/strategy/daily-homework gaps confirmed via my own grep, the aborted-field override confirmed correct and non-circular (wiring predates the audit by weeks), and the ruled-out minor fields agreed with. Two non-blocking findings (a citation inaccuracy, and 4 more zero-usage fields my own broader sweep turned up) filed on frontend-backend-feature-gap-audit-followups.json rather than reopening this PR -- none of them changes the audit's three core conclusions or rises to blocking severity."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-10-09T22:22:35Z",
+    "verdict": "merge",
+    "notes": "Re-ran backend (1618 passed, 99.94% coverage) and frontend (1051 passed; 99.77%/99.05%/99.84%/99.81%) suites -- both match pr-reviewer's reported numbers exactly. Re-validated the board (`python3 scripts/validate_tasks.py`: 382 files, no violations) and confirmed index.json mirrors all 4 touched/added entries. Independently re-ran the audit's own greps: GET /api/cftc/cot and `.strategy` have zero production frontend consumers (confirmed empty outside types.ts/methodologyContent.ts), and frontend/src/api/homework.ts has no caller for the GET /api/daily-homework list endpoint -- all three filed gaps hold. Independently confirmed the divergence.aborted override: `divergenceHelp.interpretValue` is called from production code in both PriceChart.tsx and OscillatorChart.tsx, and `git log -S\"abortedClause\"` shows the wiring landed in commit 5018850f, which `git log --oneline` confirms is PR #158 (not '#151-era' as the decisions entry states) -- the citation error pr-reviewer flagged is real but non-blocking and already tracked on the followups task; the override's substance (wiring predates this audit) is correct. Skimmed the full diff (7 files, task-board JSON only, no application code) -- the 3 new follow-up tasks and the followups task are concretely grounded, not placeholders."
   }
 }
