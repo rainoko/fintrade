@@ -1,0 +1,28 @@
+{
+  "id": "frontend-cftc-cot-display",
+  "title": "Surface the CFTC Commitments of Traders (COT) data somewhere in the UI -- GET /api/cftc/cot has zero frontend consumer",
+  "area": "frontend/pages",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "backend/app/api/routers/cftc.py",
+    "backend/app/api/schemas.py",
+    "backend/openapi.json",
+    "docs/tasks/done/backend-cftc-cot-data.json",
+    "docs/ideas.md",
+    "docs/Analyse.md",
+    "frontend/src/features/ibkr/components/MarketBreadthCard.tsx",
+    "docs/tasks/frontend-backend-feature-gap-audit.json"
+  ],
+  "description": "Filed by the frontend-backend-feature-gap-audit task. `GET /api/cftc/cot` (`CFTCCOTResponse`, 5 fixed futures markets -- Euro, Yen, Oil, Gold, Bonds -- each with commercial/large-speculator/small-speculator long/short/net positions and a 52-week Williams COT Index, `backend/app/api/routers/cftc.py`) has been live since PR #270, but grep confirms `frontend/src/api/` has no `cftc.ts` (or any file) calling it, and no production component anywhere in `frontend/src` references any of its fields -- zero frontend consumption of any kind, not even a schema-field-level partial gap. This isn't data quietly feeding some other internal computation either: grep across `backend/app` confirms no caller of `CFTCCOTProvider`/`CFTCCOTCache` outside `app/api/routers/cftc.py` and its own dependency wiring -- `app.signals`/`app.portfolio` never reference it. `backend-cftc-cot-data`'s own `decisions` entry explains this was deliberately NOT wired into any per-stock-ticker signal ('informational context... not something that plugs into any per-stock-ticker signal the way insider clusters or short interest do') and was built anticipating future use 'alongside the ch. 57 daily-homework idea's gold/oil/currency-futures lines' (docs/ideas.md) -- but that's a signal-wiring decision, not a decision that the data should never be shown in the UI at all. No task or decision anywhere says the UI should skip it; the ch. 57 'daily homework spreadsheet' (overseas markets, economic calendar, currencies/commodities with weekly+daily Impulse color, etc.) it was meant to feed was never itself built -- only the separate ch. 57 'Am I ready to trade?' self-test (`frontend-daily-homework-page`) exists today, which is a different, narrower feature (grading the trader, not displaying market context). This is a genuine, previously-untracked UI gap: real, already-computed data with no path to a user at all.",
+  "checklist": [
+    { "step": "Add `frontend/src/api/cftc.ts` (a typed `getCftcCot()` caller mirroring `frontend/src/api/homework.ts`'s shape) plus a TanStack Query hook, and the matching MSW mock for tests.", "done": false },
+    { "step": "Decide placement: a new standalone page/section vs. a card on an existing page (e.g. `WatchlistPage`, which already hosts the IBKR-scanner-backed `MarketBreadthCard` 'whole market' context card) -- record the decision and rationale.", "done": false },
+    { "step": "Display the 5 markets' commercial/large-speculator/small-speculator net positions and each market's 52-week COT Index (0-100, null-safe), with a `MetricHelp` entry explaining Elder's ch. 37 'follow commercials, fade small speculators, read current positioning against historical norms' framing (docs/Analyse.md / docs/ideas.md).", "done": false },
+    { "step": "Tests (including the gateway-unavailable/5xx case) + a Storybook story for the new component(s); confirm the 90% coverage gate still holds.", "done": false },
+    { "step": "Regenerate backend/openapi.json only if any backend contract needs touching (not expected -- this task is a pure frontend consumer of an already-existing, already-documented endpoint).", "done": false }
+  ],
+  "decisions": [],
+  "questions": []
+}
