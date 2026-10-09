@@ -3,7 +3,7 @@
   "title": "Stock Detail page: show the ticker's current price prominently near the top",
   "area": "frontend/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "frontend/src/pages/StockDetailPage.tsx",
@@ -61,5 +61,37 @@
     "pr_number": 394,
     "pr_url": "https://github.com/rainoko/fintrade/pull/394",
     "pushed_at": "2026-10-09T19:30:08Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-09T19:40:09Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/394",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "BLOCKING: `yarn tsc -b --noEmit` fails on this branch with 3 TS2739 errors -- `frontend/src/features/stocks/components/OscillatorChart.test.tsx` (line 90), `PriceChart.test.tsx` (line 256), and `StockCharts.test.tsx` (line 51) each build a locally-defined `baseAnalysis`/`baseAnalysisForDivergence` object typed as `AnalysisResponse` that was never updated with the two new required fields (`current_price`, `current_price_change_pct`). This directly contradicts the PR description's claim of a clean `tsc`. `yarn vitest run` still passes 1040/1040 because vitest's esbuild transform does no type-checking, which is exactly why this slipped through undetected -- `frontend/tests/mocks/handlers.ts`'s shared MSW fixture and `StockDetailPage.test.tsx`'s inline `HttpResponse.json({...})` literals (not type-annotated as `AnalysisResponse`) were correctly updated, but these three component-test-local typed literals were missed. Independently reproduced via a live `tsc -b --noEmit` run and corroborated by a separate code-review pass that found the identical three locations.",
+        "file": "frontend/src/features/stocks/components/PriceChart.test.tsx",
+        "line": 256
+      },
+      {
+        "summary": "Same finding as above, same file class.",
+        "file": "frontend/src/features/stocks/components/OscillatorChart.test.tsx",
+        "line": 90
+      },
+      {
+        "summary": "Same finding as above, same file class.",
+        "file": "frontend/src/features/stocks/components/StockCharts.test.tsx",
+        "line": 51
+      },
+      {
+        "summary": "Non-blocking: docs/architecture/API.md's `GET /api/stocks/{ticker}/analysis` section (JSON example + per-field prose) wasn't updated for the new fields, despite the task's own description calling for this. Filed as a checklist item on frontend-stock-detail-current-price-prominent-followups.",
+        "file": "docs/architecture/API.md"
+      },
+      {
+        "summary": "Non-blocking: get_analysis's own docstring in backend/app/api/routers/stocks.py lists the fields that stay swing-data-derived regardless of trading_mode (support_resistance_zones/profit_target/extended_data/insider_clusters/as_of) but doesn't add current_price/current_price_change_pct to that list, even though they follow the same rule (confirmed correct and tested). Filed as a checklist item on frontend-stock-detail-current-price-prominent-followups.",
+        "file": "backend/app/api/routers/stocks.py",
+        "line": 505
+      }
+    ],
+    "notes": "needs_work -- blocking: tsc fails (3 stale AnalysisResponse-typed test fixtures not updated for the new required fields). Everything else checked out clean and correct: backend pytest 1618 passed/99.94% coverage (ran myself), frontend vitest 1040 passed/99.77%/99.05% (ran myself), ruff+mypy clean, eslint clean, backend/openapi.json genuinely regenerated and matches the schema (current_price/current_price_change_pct present with real descriptions). current_price_change_pct's null-handling is genuinely tested for the single-daily-bar edge case (TestCurrentPriceField.test_single_daily_bar_has_null_change_pct), not just happy-path. current_price is computed identically to app.portfolio.profit_target.suggest_profit_target's own current_price = daily_ohlcv['close'].iloc[-1] (same read, no discrepancy) and is deliberately swing-data-derived regardless of day-trader trading_mode, matching the as_of/extended_data/profit_target precedent and covered by TestDayTraderMode.test_fully_intraday_triple_with_all_legs_available_computes_a_real_signal. CurrentPriceDisplay is correctly placed under features/stocks/components/ (it's a specific AnalysisResponse-field pairing, not domain-agnostic) and correctly reuses common/PercentChange rather than duplicating it. Did an independent real-browser check (frontend/node_modules/playwright driving headless chromium against the already-running dev server, since no Playwright MCP tool was available in this session) against the golden path (AAPL: $338.37, -0.60% rendered at y~154px, well above the fold on a 1280x800 viewport) and an edge case (unknown ticker: current-price element correctly absent, only the expected 404s in the network log, no other console errors). Also ran the persisted e2e suite (make e2e): 28/28 passed. code-review skill (medium effort) independently found the same three tsc-failure locations and nothing else. Two non-blocking documentation gaps (docs/architecture/API.md and the backend docstring's trading-mode-independence field list both omitting the two new fields) filed on frontend-stock-detail-current-price-prominent-followups rather than blocking this PR. Cleared no stale pr_decision (none existed yet -- this is this task's first review pass)."
   }
 }

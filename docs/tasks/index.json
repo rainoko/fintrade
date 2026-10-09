@@ -2623,8 +2623,15 @@
       "id": "frontend-stock-detail-current-price-prominent",
       "area": "frontend/stocks",
       "skill": "add-frontend-feature",
-      "state": "testing",
+      "state": "implementing",
       "path": "docs/tasks/frontend-stock-detail-current-price-prominent.json"
+    },
+    {
+      "id": "frontend-stock-detail-current-price-prominent-followups",
+      "area": "frontend/stocks",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-stock-detail-current-price-prominent-followups.json"
     },
     {
       "id": "backend-ibkr-import-entry-date-from-trades",
