@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from frontend-daily-homework-history's PR review (#402)",
   "area": "frontend/pages",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-daily-homework-history"],
   "references": [
     "docs/tasks/done/frontend-daily-homework-history.json",
@@ -41,5 +41,33 @@
     "pr_number": 403,
     "pr_url": "https://github.com/rainoko/fintrade/pull/403",
     "pushed_at": "2026-10-09T23:32:35Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-09T23:42:25Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/403",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Ran the new e2e assertions and mutation-tested them: temporarily removed useRecordDailyHomework's invalidateQueries(homeworkKeys.history) call and re-ran tests/e2e/daily-homework.spec.ts in isolation -- the new 'History table picks up the just-submitted entry' assertion genuinely failed (table never appeared, since the cached empty-list query was never invalidated), confirming the new coverage would actually catch the regression PR #402's review flagged as silently passable. Restored the hook afterward (git status clean, no diff left).",
+        "file": "frontend/tests/e2e/daily-homework.spec.ts",
+        "line": 90
+      },
+      {
+        "summary": "Confirmed the new plain-yellow (total_score 6) test row is correct, not a copy-paste of another band: physical(1)+yesterday(1)+planning(1)+mood(2)+schedule(1)=6, backend's band_for_total_score (backend/app/portfolio/homework.py) maps 5-6 to 'yellow' (not green's 7-8 or the 9-10 too-perfect yellow), and isTooPerfectBand (band.ts) returns false for totalScore<9 -- matching the test's assertion of a bare 'YELLOW' chip with no '(TOO PERFECT)' suffix.",
+        "file": "frontend/src/features/homework/components/DailyHomeworkHistoryTable.test.tsx",
+        "line": 88
+      },
+      {
+        "summary": "Verified the append-vs-amend decision is consistent with CLAUDE.md's Decision memory section: diffed docs/tasks/done/frontend-daily-homework-history.json and confirmed the new decisions entry is a pure addition (no deletions in that file's diff) -- the original placement decisions entry's text is byte-for-byte unchanged. The checklist item offered either option and didn't call out the existing entry's own text as wrong, so appending (rather than amending) was the correct default per CLAUDE.md.",
+        "file": "docs/tasks/done/frontend-daily-homework-history.json",
+        "line": 56
+      },
+      {
+        "summary": "Confirmed backend/fintrade.db is genuinely untouched: git status reports no diff on the file, and its daily_homework_entries table holds exactly the one pre-existing 2026-09-27 row. The e2e run's own data (the new History assertions) lives entirely in Playwright's dedicated e2e.db, consistent with the task-worker's claim.",
+        "file": "backend/fintrade.db",
+        "line": 0
+      }
+    ],
+    "notes": "Full independent re-verification: backend pytest (1618 passed, 99.94% coverage, unaffected since no backend files changed) and frontend vitest --coverage (1054 passed, 99.78%/99.05%/99.84%/99.81% across statements/branches/functions/lines) both comfortably clear the 90% gate, matching the task-worker's claimed numbers exactly. ruff, mypy, eslint, tsc -b, and the profit-target stale-wording guard are all clean. Ran `make e2e` twice (28/28 both times, including the extended daily-homework.spec.ts) and once more with a deliberately reintroduced regression (see comments) to confirm the new History-section assertions are load-bearing, not decorative. `python3 scripts/validate_tasks.py` reports no violations (383 files). No API/schema changes in this PR (diff is test files + task JSON only), so no openapi.json regeneration was needed. This PR touches only test files and task-board JSON, not application/component source -- no new or changed UI component, so the step-7a placement check and a fresh interactive browser walkthrough don't apply beyond what the persisted e2e run (driving a real browser against a real backend) and the mutation test above already exercised; said so explicitly rather than silently skipping. All three checklist items are now done with corresponding verified work, and the task's own `decisions` entry about the append-vs-amend choice is itself accurate and justified. No `pr_decision` existed to clear (first review pass for this task). No non-blocking findings to track as a further follow-up task."
   }
 }
