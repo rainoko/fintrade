@@ -670,6 +670,13 @@ export default function OscillatorChart({
         even when the current range excludes it from the chart, with
         `divergenceHelp.interpretValue`'s own `inVisibleRange` clause
         explaining why nothing is drawn right now.
+
+        `LegendToggle`'s `label` is "Oscillator Divergence" (not the bare
+        "Divergence" the visible caption below still uses) -- PR #391 review
+        fix: see `PriceChart.tsx`'s own identical Divergence row's comment
+        for why -- both panes are always mounted together on the Stock
+        Detail page and both toggles were colliding into an identical
+        `aria-label` before this fix.
       */}
           {indicatorsQuery.isSuccess &&
             hasPoints &&
@@ -678,7 +685,7 @@ export default function OscillatorChart({
               <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
                 <LegendToggle
                   active={divergenceVisible}
-                  label="Divergence"
+                  label="Oscillator Divergence"
                   onToggle={() => setDivergenceVisible((visible) => !visible)}
                 >
                   <Box

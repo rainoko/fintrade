@@ -930,7 +930,7 @@ describe('OscillatorChart', () => {
       subscribeClickMock.mockClear()
       setDataMock.mockClear()
 
-      const toggle = screen.getByRole('button', { name: 'Hide Divergence on the chart' })
+      const toggle = screen.getByRole('button', { name: 'Hide Oscillator Divergence on the chart' })
       expect(toggle).toHaveAttribute('aria-pressed', 'true')
 
       await user.click(toggle)
@@ -941,10 +941,10 @@ describe('OscillatorChart', () => {
       expect(createSeriesMarkersMock).not.toHaveBeenCalled()
       expect(subscribeClickMock).not.toHaveBeenCalled()
       expect(
-        screen.getByRole('button', { name: 'Show Divergence on the chart' }),
+        screen.getByRole('button', { name: 'Show Oscillator Divergence on the chart' }),
       ).toHaveAttribute('aria-pressed', 'false')
 
-      await user.click(screen.getByRole('button', { name: 'Show Divergence on the chart' }))
+      await user.click(screen.getByRole('button', { name: 'Show Oscillator Divergence on the chart' }))
 
       await waitFor(() =>
         expect(setDataMock).toHaveBeenCalledWith(

@@ -2520,12 +2520,26 @@ export default function PriceChart({
         signal, not a permanent exclusion the way a zone failing the
         relevance filter is; hiding it here would read as "no divergence
         exists" rather than "not shown at this range".
+
+        `LegendToggle`'s `label` is "Price Divergence" (not the bare
+        "Divergence" the visible caption below still uses) -- PR #391 review
+        fix: this pane and `OscillatorChart.tsx`'s own separate Divergence
+        row are always mounted together on the Stock Detail page and both
+        derive from the exact same `analysisQuery.data.divergence` value, so
+        both toggles are on-screen simultaneously whenever a divergence
+        exists; a bare "Divergence" label collided into an identical
+        `aria-label` ("Hide/Show Divergence on the chart") for both buttons,
+        a real `getByRole` strict-mode violation. The visible `Typography`
+        caption stays "Divergence" -- it's unambiguous in context since
+        each row only ever appears inside its own pane -- only the
+        accessible name (built from this `label` prop alone, see
+        `LegendToggle`'s own `aria-label`) needed disambiguating.
       */}
           {historyQuery.isSuccess && hasBars && analysisQuery.isSuccess && divergence && (
             <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
               <LegendToggle
                 active={divergenceVisible}
-                label="Divergence"
+                label="Price Divergence"
                 onToggle={() => setDivergenceVisible((visible) => !visible)}
               >
                 <Box
