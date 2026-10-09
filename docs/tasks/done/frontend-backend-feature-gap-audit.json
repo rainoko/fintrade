@@ -3,7 +3,7 @@
   "title": "Audit: which backend-computed data has no UI consumer at all",
   "area": "frontend",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/app/api/routers/",
@@ -57,5 +57,33 @@
     "pr_number": 400,
     "pr_url": "https://github.com/rainoko/fintrade/pull/400",
     "pushed_at": "2026-10-09T22:09:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-09T22:17:34Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/400",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Independently re-verified the three filed gaps (frontend-cftc-cot-display, frontend-trade-strategy-tagging, frontend-daily-homework-history) via my own grep against frontend/src/api/*.ts and frontend/src/features/**: all three genuinely have zero frontend consumer. Also independently confirmed, via a repo-wide backend grep for CFTCCOTProvider/CFTCCOTCache callers, that GET /api/cftc/cot's data isn't quietly feeding any internal computation beyond its own router/cache-refresh loop -- the audit's 'not deliberate backend-only infrastructure' claim holds.",
+        "file": "docs/tasks/frontend-cftc-cot-display.json"
+      },
+      {
+        "summary": "Independently verified the divergence.aborted override: divergenceHelp.interpretValue in metricHelpContent.ts does read divergence.aborted and append the 'Hound of the Baskervilles' clause, and is called from production code in both PriceChart.tsx and OscillatorChart.tsx (passed into MetricHelp's valueInterpretation prop). git log -S\"abortedClause\" confirms this wiring landed 2026-09-19, well before this audit (2026-10-09) -- not something this PR itself introduced, so the override isn't circular. One trivial inaccuracy in the citation: the decisions entry says 'commit 5018850f (PR #151-era)' but git log shows that commit actually belongs to PR #158 (date/hash themselves are correct). Doesn't affect the conclusion; tracked as a non-blocking finding.",
+        "file": "docs/tasks/frontend-backend-feature-gap-audit.json",
+        "line": 44
+      },
+      {
+        "summary": "Spot-checked the 'deliberately not escalated' minor fields (SupportResistanceZone secondary metadata, IBKRBreadthSnapshotResponse.snapshot_date, DailyHomeworkOut.recorded_at) and agree they're genuinely minor -- nothing there looks more significant than the audit judged.",
+        "file": "docs/tasks/frontend-backend-feature-gap-audit.json"
+      },
+      {
+        "summary": "Ran my own independent AST-based sweep of every *Out/*Response field in backend/app/api/schemas.py against frontend production code (not just the audit's own hand-picked field list) and found 4 additional zero-production-consumer fields the audit's 'every other field checked... confirmed' claim missed: DivergenceOut.centerline_crossed, InsiderTransactionOut.ownership, YesterdayTradingSuggestionOut.as_of_date, and YesterdayTradingSuggestionOut.net_realized_pnl. All four are judged minor/cosmetic on inspection (the same class the audit itself correctly bucketed elsewhere) and don't warrant their own feature task, but they show the audit's field-level sweep wasn't fully exhaustive despite its claim. Tracked as a non-blocking finding rather than reopening the audit, since none of the four rises above the minor-field bar the audit itself already established.",
+        "file": "docs/tasks/frontend-backend-feature-gap-audit.json"
+      },
+      {
+        "summary": "Confirmed structural validity (python3 scripts/validate_tasks.py: 381 files, no violations), index.json mirroring for all 4 touched/added entries, and that all 3 new follow-up task files have concrete code references rather than generic placeholders. Backend coverage 99.94% (1618 passed), frontend coverage 99.77%/99.05%/99.84%/99.81% (1051 passed), ruff/mypy/eslint/tsc/profit-target-wording-guard all clean. No application code in this diff (task-board JSON only), so no browser walkthrough or e2e run applies -- noted explicitly rather than silently skipped. A medium-effort code-review pass over the diff found nothing reportable."
+      }
+    ],
+    "notes": "Accepted. Verified all claims independently rather than trusting the audit: CFTC/strategy/daily-homework gaps confirmed via my own grep, the aborted-field override confirmed correct and non-circular (wiring predates the audit by weeks), and the ruled-out minor fields agreed with. Two non-blocking findings (a citation inaccuracy, and 4 more zero-usage fields my own broader sweep turned up) filed on frontend-backend-feature-gap-audit-followups.json rather than reopening this PR -- none of them changes the audit's three core conclusions or rises to blocking severity."
   }
 }

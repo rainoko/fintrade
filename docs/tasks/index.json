@@ -2602,8 +2602,8 @@
       "id": "frontend-backend-feature-gap-audit",
       "area": "frontend",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/frontend-backend-feature-gap-audit.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-backend-feature-gap-audit.json"
     },
     {
       "id": "frontend-trailing-stop-display",
@@ -2674,6 +2674,13 @@
       "skill": "add-frontend-feature",
       "state": "planned",
       "path": "docs/tasks/frontend-daily-homework-history.json"
+    },
+    {
+      "id": "frontend-backend-feature-gap-audit-followups",
+      "area": "frontend",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-backend-feature-gap-audit-followups.json"
     }
   ]
 }
