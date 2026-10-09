@@ -96,6 +96,8 @@ const analysisFixture: AnalysisResponse = {
   ticker: 'AAPL',
   as_of: '2026-09-11',
   trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
+  current_price: 228.9,
+  current_price_change_pct: 1.4,
   signal: 'BUY',
   confidence: 72,
   confidence_band: 'High',

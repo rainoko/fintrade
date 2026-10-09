@@ -10,6 +10,7 @@ import LoadingState from '../components/common/LoadingState/LoadingState'
 import PageHeader from '../components/common/PageHeader/PageHeader'
 import HeldPositionBanner from '../features/portfolio/components/HeldPositionBanner'
 import TradeApgarDialog from '../features/portfolio/components/TradeApgarDialog'
+import CurrentPriceDisplay from '../features/stocks/components/CurrentPriceDisplay'
 import FundamentalDataPanel from '../features/stocks/components/FundamentalDataPanel'
 import IndicatorsPanel from '../features/stocks/components/IndicatorsPanel'
 import ScreensPanel from '../features/stocks/components/ScreensPanel'
@@ -69,6 +70,15 @@ import { useStockAnalysis } from '../features/stocks/hooks/useStockAnalysis'
  * an analysis failure shouldn't also hide "you hold this, here's your
  * stop/target". It renders nothing itself when the ticker isn't held. See
  * that task's `decisions` entry.
+ *
+ * `CurrentPriceDisplay` (frontend-stock-detail-current-price-prominent) sits
+ * directly below `PageHeader`, ahead of even the methodology/Trade-Apgar
+ * action row -- the single most prominent position available short of
+ * `PageHeader`'s own title text, so the ticker's latest price is visible
+ * immediately rather than only by scrolling down to `StockCharts`' own
+ * candlestick pane. Gated on `analysisQuery.data` (there's no price to show
+ * while loading/erroring), same convention as the Trade Apgar button. See
+ * that task's `decisions` entry for the placement/scope rationale.
  */
 export default function StockDetailPage() {
   const { ticker: rawTicker = '' } = useParams<{ ticker: string }>()
@@ -87,6 +97,13 @@ export default function StockDetailPage() {
   return (
     <>
       <PageHeader title={displayTicker || 'Stock Detail'} action={<TickerSearchBox />} />
+
+      {analysisQuery.data && (
+        <CurrentPriceDisplay
+          currentPrice={analysisQuery.data.current_price}
+          changePct={analysisQuery.data.current_price_change_pct}
+        />
+      )}
 
       <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 3 }}>
         <Link

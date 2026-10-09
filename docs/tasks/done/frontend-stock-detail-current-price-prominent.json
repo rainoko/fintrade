@@ -1,0 +1,98 @@
+{
+  "id": "frontend-stock-detail-current-price-prominent",
+  "title": "Stock Detail page: show the ticker's current price prominently near the top",
+  "area": "frontend/stocks",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": [],
+  "references": [
+    "frontend/src/pages/StockDetailPage.tsx",
+    "frontend/src/features/stocks/components/SignalSummary.tsx",
+    "backend/app/api/schemas.py",
+    "backend/app/portfolio/profit_target.py",
+    "docs/architecture/API.md"
+  ],
+  "description": "User-requested gap, confirmed via reading the current code before writing this task: `StockDetailPage.tsx`'s top region (`PageHeader` with the ticker name, the methodology link + Trade Apgar button row, `HeldPositionBanner` when held, an 'As of {date}' line, then `SignalSummary`) never shows the ticker's current price as its own element anywhere. This isn't just a placement gap -- confirmed by reading `backend/app/api/schemas.py`'s `AnalysisResponse` and `Indicators` models in full: `GET /api/stocks/{ticker}/analysis` (what `StockDetailPage`/`SignalSummary` actually consume) has NO raw current-price/last-close field at all today. The only place a user can currently see this ticker's latest price is by scrolling down to `StockCharts`' own candlestick pane (reading it off the chart itself, a hover tooltip, or the price-scale axis label) -- there is nothing available to the page header area without pulling from a chart component that renders independently, further down the page, from its own separate `history`/`indicators` queries.\n\nImplementation implication worth deciding up front rather than discovering mid-task: the cleanest fix is almost certainly to expose a `current_price` field directly on `AnalysisResponse` (the latest daily bar's close) rather than threading `StockCharts`' own chart data up into the page header -- this is NOT a new computation, just exposing a value the backend already computes internally: `app.portfolio.profit_target.suggest_profit_target` already does `current_price = float(daily_ohlcv[\"close\"].iloc[-1])` (profit_target.py ~line 307) for its own target-price math, using the same daily OHLCV `app.signals.engine.analyse` already has in hand while building the rest of this exact response. If a schema field is added, follow CLAUDE.md's API documentation standard: a `description` on the new field (the existing `response_model`/docstring on this route already satisfies the rest), then `python scripts/export_openapi.py` from `backend/` and commit the updated `backend/openapi.json` before the frontend consumes it (and update `docs/architecture/API.md` if its own response-shape listing needs it).\n\n'Prominent' is a design judgment call, not a prescribed layout -- decide and record (as a `decisions` entry) exactly where (e.g. inside `PageHeader`'s own title area beside the ticker name/symbol, or a new large stat element directly below the header and above `HeldPositionBanner`) and the visual treatment (a large, bold number; whether to also show a day-over-day change indicator -- check whether that's cheaply derivable from the same `daily_ohlcv` the new field is sourced from, and whether it's worth including or clearly out of this task's own scope).",
+  "checklist": [
+    {
+      "step": "Confirm (don't assume) current price is genuinely absent from both `AnalysisResponse` and anywhere on `StockDetailPage` today, with a fresh grep/read -- source may have moved since this task was written.",
+      "done": true
+    },
+    {
+      "step": "Decide and record the data-sourcing approach: a new `AnalysisResponse.current_price` field (the reasoning above favors this) vs. reusing `StockCharts`' own already-fetched data. If adding a schema field, follow the API documentation standard (field `description`, `scripts/export_openapi.py`, commit the regenerated `backend/openapi.json`, regenerate the frontend's generated types per the project's usual `add-api-endpoint` process).",
+      "done": true
+    },
+    {
+      "step": "Decide and record the exact placement and visual treatment for 'prominent' on the page.",
+      "done": true
+    },
+    {
+      "step": "Implement (backend field addition if chosen, plus the frontend display).",
+      "done": true
+    },
+    {
+      "step": "Tests (backend schema/route test if a new field was added; frontend component test for the new prominent display) and a real-browser screenshot check confirming the price is visible without scrolling on a typical viewport.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-10-09T19:28:47Z",
+      "recorded_by": "task-worker",
+      "decision": "Re-confirmed the gap before touching anything: a fresh read of `backend/app/api/schemas.py`'s `AnalysisResponse` (no current-price/close field) and `frontend/src/pages/StockDetailPage.tsx` (PageHeader -> methodology/Trade-Apgar row -> TradeApgarDialog -> HeldPositionBanner -> loading/error -> SignalSummary/FundamentalDataPanel/ScreensPanel/IndicatorsPanel/StockCharts) showed the gap is unchanged from the task's own description -- no other task landed in the meantime that would have closed it.",
+      "rationale": "The task explicitly calls for confirming rather than assuming, since the gap was 'confirmed via reading the current code before writing this task' and source may have moved since."
+    },
+    {
+      "timestamp": "2026-10-09T19:28:47Z",
+      "recorded_by": "task-worker",
+      "decision": "Added `AnalysisResponse.current_price` (required float) and `AnalysisResponse.current_price_change_pct` (nullable float, percentage convention e.g. 2.5 for +2.5%, matching `unrealized_pnl_pct`'s existing percentage convention elsewhere in this API -- not a 0-1 fraction) rather than threading `StockCharts`' own `history`/`indicators` queries up into the page header. Computed in `app.api.routers.stocks.get_analysis` directly from the `daily_ohlcv` it already has in hand (`daily_ohlcv[\"close\"].iloc[-1]` for `current_price`, day-over-day diff against `.iloc[-2]` for the change -- null only when fewer than 2 daily bars are available), mirroring the exact value `app.portfolio.profit_target.suggest_profit_target` already computes internally and falling back to the latest weekly close (no change_pct) under the same on-paper empty-`daily_ohlcv` condition `as_of` already guards against. Regenerated `backend/openapi.json` (`python scripts/export_openapi.py`) and the frontend's generated `src/api/types.ts` (`yarn generate:api-types`) from it.",
+      "rationale": "Reusing `StockCharts`' own data would mean either duplicating a `GET /.../history` fetch at the page level (extra network round-trip, and a second source of truth for 'the latest close') or lifting `StockCharts`' internal query state up through props -- both more invasive than exposing one already-computed value already sitting in the exact response `StockDetailPage` already fetches via `useStockAnalysis`. The day-over-day change was included (not scoped out) because it's genuinely cheap -- the same `daily_ohlcv` frame, one more `.iloc[-2]` read -- and a reusable common component (`common/PercentChange`) already existed for exactly this percentage-with-color display, so the marginal implementation cost was minimal versus the value of an at-a-glance 'up or down today' signal next to the price. Used the percentage (not fraction) convention to match this codebase's own existing `unrealized_pnl_pct`/`PercentChange` precedent rather than the 0-1 fraction convention `confidence_breakdown.weight/score` use elsewhere -- `PercentChange` already expects a raw percentage number, so matching that convention meant the component could be reused directly with no extra scaling logic at the call site."
+    },
+    {
+      "timestamp": "2026-10-09T19:28:47Z",
+      "recorded_by": "task-worker",
+      "decision": "Placed the new price display as its own element directly below `PageHeader` (ahead of even the methodology-reference/Trade-Apgar action row), via a new feature component `features/stocks/components/CurrentPriceDisplay.tsx` -- a large bold price (`formatCurrency`, MUI `variant=\"h4\"`) plus the day-over-day change via the existing `common/PercentChange` component when non-null. Not placed inside `PageHeader`'s own `title` prop/area.",
+      "rationale": "Keeping `PageHeader` itself domain-agnostic (it currently only knows `title: string` + an arbitrary trailing `action` slot, reused across Dashboard/Portfolio/Watchlist/Scanner/Settings/Methodology/Daily-Homework) outweighed the marginal visual benefit of literally inlining the price next to the ticker text -- widening its contract (e.g. a new `subtitle`/`titleSuffix` prop) for one page's need isn't worth it when 'directly below the header' is already the task's own alternative suggestion and achieves the same 'visible without scrolling' goal (confirmed via an actual Playwright screenshot against the real dev server at a 1280x800 viewport -- the price renders at ~170px from the top, well above the fold). Gated on `analysisQuery.data` (nothing to show while loading/erroring), the same convention the existing Trade Apgar button already uses in this same page for data-dependent elements."
+    },
+    {
+      "timestamp": "2026-10-09T19:43:33Z",
+      "recorded_by": "task-worker",
+      "decision": "Addressed pr-reviewer's blocking needs_work finding on PR #394: added `current_price: 228.9` and `current_price_change_pct: 1.4` (matching `tests/mocks/handlers.ts`'s own `analysisFixture` values) to the three locally-defined `AnalysisResponse`-typed test fixtures that were missed in the original round -- `PriceChart.test.tsx`'s `baseAnalysis`, `OscillatorChart.test.tsx`'s `baseAnalysis`, and `StockCharts.test.tsx`'s `baseAnalysisForDivergence`. Verified with a live `yarn tsc -b --noEmit` run (clean, no errors) rather than trusting `yarn vitest run` alone, since the reviewer's finding was specifically that vitest's esbuild transform doesn't type-check and so couldn't have caught this. Also re-ran the full frontend suite (`yarn vitest run`: 1040/1040 passed) and `yarn eslint .` (clean) before pushing. Did not touch the two non-blocking findings (API.md and the routers/stocks.py docstring) -- those are correctly scoped to the separate `frontend-stock-detail-current-price-prominent-followups` task per the reviewer's own filing.",
+      "rationale": "The task instruction was explicit that only the tsc-blocking issue should be fixed on this round, and that tsc itself (not vitest) must be the thing actually verified before pushing, since that's exactly the gap that let the bug through the first time."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-stock-detail-current-price-prominent",
+    "pr_number": 394,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/394",
+    "pushed_at": "2026-10-09T19:30:08Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-09T19:51:06Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/394",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "RESOLVED (was blocking in the prior review round): `yarn tsc -b --noEmit` was failing with 3 TS2739 errors from stale `AnalysisResponse`-typed test fixtures missing `current_price`/`current_price_change_pct`. Commit ccc0dcc0 added `current_price: 228.9`/`current_price_change_pct: 1.4` to all three (`PriceChart.test.tsx`, `OscillatorChart.test.tsx`, `StockCharts.test.tsx`), matching `tests/mocks/handlers.ts`'s shared fixture. Independently reproduced a clean `yarn tsc -b --noEmit` run on this branch (previously failing, now zero errors) -- confirmed resolved, not just trusted from the PR description.",
+        "file": "frontend/src/features/stocks/components/PriceChart.test.tsx",
+        "line": 256
+      },
+      {
+        "summary": "Non-blocking, still correctly out of scope for this round and tracked on frontend-stock-detail-current-price-prominent-followups (unchanged): docs/architecture/API.md's `GET /api/stocks/{ticker}/analysis` section (JSON example + per-field prose) wasn't updated for the new fields.",
+        "file": "docs/architecture/API.md"
+      },
+      {
+        "summary": "Non-blocking, still correctly out of scope for this round and tracked on frontend-stock-detail-current-price-prominent-followups (unchanged): get_analysis's own docstring in backend/app/api/routers/stocks.py lists the fields that stay swing-data-derived regardless of trading_mode but doesn't add current_price/current_price_change_pct to that list.",
+        "file": "backend/app/api/routers/stocks.py",
+        "line": 505
+      }
+    ],
+    "notes": "accepted -- re-review of PR #394 after the prior needs_work round's tsc-fix commit (ccc0dcc0). Independently reproduced the original failure scenario and confirmed it's resolved: `yarn tsc -b --noEmit` is now clean (ran myself, zero errors; was 3 TS2739 errors before the fix). Re-ran everything else fresh rather than trusting the prior pass: backend pytest 1618 passed/99.94% coverage, frontend vitest 1040 passed/99.77% statements/99.05% branches, backend ruff+mypy clean, frontend eslint clean, repo-wide profit-target stale-wording guard clean, scripts/validate_tasks.py clean. Regenerated backend/openapi.json locally and diffed against the committed snapshot -- no diff, genuinely up to date (current_price/current_price_change_pct present with real descriptions). code-review skill (medium effort) launched against the diff; independently cross-checked the full PR diff myself (schema/router/component/test files) and found no correctness, reuse, or simplification issues beyond what was already resolved. Did my own independent live-browser walkthrough (frontend/node_modules/playwright driving headless chromium, since no Playwright MCP tool was available in this session, against a freshly-started dev server/backend on ports 5173/8000): golden path (AAPL: $274.86, +0.09%, current-price element at boundingBox.y~154px on a 1280x800 viewport, well above the fold, no console/network errors) and an edge case (unknown ticker ZZZZINVALID: current-price element correctly absent, only the expected two 404s in network/console, no other errors) -- screenshot visually confirmed the price renders prominently below PageHeader and above the methodology/Trade-Apgar row, matching the task's placement decision. Also ran the persisted e2e suite (make e2e): 28/28 specs passed. Confirmed the two non-blocking findings from the prior round (API.md not updated, get_analysis docstring's trading-mode-invariant field list not updated) were correctly left untouched this round and remain tracked as open checklist items on frontend-stock-detail-current-price-prominent-followups (still state: planned) -- no new follow-up task needed since that one already exists and already captures both findings. No stale pr_decision existed on this task to clear (this task never reached a pr-decision pass before this needs_work round)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-10-09T19:59:49Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend pytest (1618 passed, 99.94% coverage) and frontend tsc -b --noEmit (clean) + vitest (1040/1040 passed, 99.77%/99.05% stmt/branch) + eslint (clean) + backend ruff/mypy (clean) -- all match pr-reviewer's reported numbers. Regenerated backend/openapi.json myself and diffed against committed snapshot: no diff. Read the full diff (schemas.py/stocks.py/openapi.json/CurrentPriceDisplay.tsx+test/StockDetailPage.tsx+test/the three previously-stale PriceChart/OscillatorChart/StockCharts fixtures/handlers.ts/test_stocks_analysis.py) and confirmed current_price's route computation (daily_ohlcv['close'].iloc[-1]) matches app.portfolio.profit_target.suggest_profit_target's own internal computation verbatim. Did my own live-browser spot-check against a freshly-started backend (port 8000) and the already-running dev frontend (port 5173): AAPL renders '$338.37 -0.60%' via [data-testid=current-price] at boundingBox.y~154px (above the fold), and an unknown ticker correctly shows no current-price element -- screenshot confirmed visually. Noted one minor, pre-existing-pattern-consistent coverage gap not called out by pr-reviewer (stocks.py lines 677-678, the on-paper empty-daily_ohlcv weekly-fallback branch for current_price, mirrors the already-untested equivalent fallback on the pre-existing `as_of` ternary one line above it) -- too minor and precedented to overturn the accept on its own; overall coverage remains 99.94%, well above the 90% gate. Both non-blocking findings correctly filed to frontend-stock-detail-current-price-prominent-followups (state: planned) rather than left unaddressed anywhere. Accept holds."
+  }
+}

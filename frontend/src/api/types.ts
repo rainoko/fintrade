@@ -1202,6 +1202,16 @@ export interface components {
              * @description Per-component scores behind `confidence`, so the signal is auditable rather than a bare number.
              */
             confidence_breakdown: components["schemas"]["ConfidenceBreakdownItem"][];
+            /**
+             * Current Price
+             * @description The ticker's latest daily closing price -- `daily_ohlcv["close"].iloc[-1]` after `drop_malformed_daily_bars`, the exact same value/row `app.portfolio.profit_target.suggest_profit_target` already uses internally as its own `current_price` for target-price math (this field just exposes it, rather than computing anything new). Always derived from the ordinary daily chart regardless of `trading_mode` (see `trading_mode`'s own description for which fields *do* vary by mode) -- falls back to the latest *weekly* close only in the on-paper case `daily_ohlcv` itself comes back empty while `weekly_ohlcv` doesn't (mirrors `as_of`'s own fallback). Informational display only -- not itself wired into `signal`/`confidence`.
+             */
+            current_price: number;
+            /**
+             * Current Price Change Pct
+             * @description Day-over-day change in `current_price` versus the prior daily bar's close, as a percentage (e.g. 2.5 for +2.5%, matching `unrealized_pnl_pct`'s own percentage convention elsewhere in this API -- not a 0-1 fraction). Null whenever fewer than 2 daily bars are available to compare (e.g. the `current_price` weekly-fallback case above, or a brand-new ticker).
+             */
+            current_price_change_pct: number | null;
             /** @description The most recent qualifying MACD-Histogram/Stochastic/RSI divergence detected between price's own swing points and each indicator's value at those dates (docs/ideas.md, Elder ch. 15/23/26/27) -- null if none currently qualifies. When more than one indicator qualifies with the same second_extreme_date (common, since all three are checked against the same price swing points), MACD-Histogram wins, then Stochastic, then RSI. Detection + exposure only -- not wired into signal/confidence_breakdown (see the backend-divergence-detection task's decisions). */
             divergence: components["schemas"]["DivergenceOut"] | null;
             /** @description Earnings/dividend dates, short interest, and recent insider transactions (docs/ideas.md; Elder ch. 37/53/58) -- confirmed-live-in-yfinance data this app didn't previously expose. Always a present object; see `ExtendedDataOut.unavailable_reason` for when the fallback (Stooq) provider means every field inside it is null/empty rather than a real 'checked, nothing found' result. See the backend-market-data-extra-fields task's `decisions` entry. */

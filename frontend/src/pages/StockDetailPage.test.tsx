@@ -95,6 +95,11 @@ describe('StockDetailPage', () => {
     )
 
     expect(screen.getByRole('heading', { name: 'AAPL' })).toBeInTheDocument()
+    // current_price/current_price_change_pct (frontend-stock-detail-current-price-
+    // prominent), rendered via CurrentPriceDisplay directly below the page header --
+    // see CurrentPriceDisplay.test.tsx for dedicated formatting/null-change coverage.
+    expect(screen.getByTestId('current-price')).toHaveTextContent('$228.90')
+    expect(screen.getByText('+1.40%')).toBeInTheDocument()
     expect(screen.getByText('As of 2026-09-11')).toBeInTheDocument()
     expect(screen.getByText('72% · High')).toBeInTheDocument()
     expect(
@@ -128,6 +133,11 @@ describe('StockDetailPage', () => {
         HttpResponse.json({
           ticker: String(params.ticker).toUpperCase(),
           as_of: '2026-09-11',
+          current_price: 210.5,
+          // null (not a flat-market 0) -- exercises CurrentPriceDisplay's "no prior bar to
+          // diff against" case end to end, distinct from CurrentPriceDisplay.test.tsx's own
+          // unit-level coverage of the same branch.
+          current_price_change_pct: null,
           signal: 'SELL',
           confidence: 65,
           confidence_band: 'Medium',
@@ -180,6 +190,10 @@ describe('StockDetailPage', () => {
     )
     expect(screen.getByText('65% · Medium')).toBeInTheDocument()
     expect(screen.getByText('RED')).toBeInTheDocument()
+    // current_price still renders with a null current_price_change_pct -- see
+    // CurrentPriceDisplay.test.tsx for the dedicated "no delta shown" assertion covering
+    // that exact null branch; this just proves the page wires the real value through.
+    expect(screen.getByTestId('current-price')).toHaveTextContent('$210.50')
   })
 
   it('renders a HOLD signal', async () => {
@@ -188,6 +202,8 @@ describe('StockDetailPage', () => {
         HttpResponse.json({
           ticker: String(params.ticker).toUpperCase(),
           as_of: '2026-09-11',
+          current_price: 228.9,
+          current_price_change_pct: 1.4,
           signal: 'HOLD',
           confidence: 35,
           confidence_band: 'Low',
@@ -242,6 +258,8 @@ describe('StockDetailPage', () => {
         HttpResponse.json({
           ticker: String(params.ticker).toUpperCase(),
           as_of: '2026-09-11',
+          current_price: 228.9,
+          current_price_change_pct: 1.4,
           signal: 'BUY',
           confidence: 72,
           confidence_band: 'High',
@@ -299,6 +317,8 @@ describe('StockDetailPage', () => {
         HttpResponse.json({
           ticker: String(params.ticker).toUpperCase(),
           as_of: '2026-09-11',
+          current_price: 228.9,
+          current_price_change_pct: 1.4,
           signal: 'BUY',
           confidence: 72,
           confidence_band: 'High',
@@ -357,6 +377,8 @@ describe('StockDetailPage', () => {
         HttpResponse.json({
           ticker: String(params.ticker).toUpperCase(),
           as_of: '2026-09-11',
+          current_price: 228.9,
+          current_price_change_pct: 1.4,
           signal: 'BUY',
           confidence: 72,
           confidence_band: 'High',
@@ -484,6 +506,8 @@ describe('StockDetailPage', () => {
         return HttpResponse.json({
           ticker: String(params.ticker).toUpperCase(),
           as_of: '2026-09-11',
+          current_price: 228.9,
+          current_price_change_pct: 1.4,
           signal: 'BUY',
           confidence: 72,
           confidence_band: 'High',

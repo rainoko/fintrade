@@ -91,6 +91,8 @@ const baseAnalysis: AnalysisResponse = {
   ticker: 'AAPL',
   as_of: '2026-09-02',
   trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
+  current_price: 228.9,
+  current_price_change_pct: 1.4,
   signal: 'HOLD',
   confidence: 50,
   confidence_band: 'Medium',
