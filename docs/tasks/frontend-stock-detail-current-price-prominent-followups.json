@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from frontend-stock-detail-current-price-prominent's PR review",
   "area": "frontend/stocks",
   "skill": null,
-  "state": "testing",
+  "state": "implementing",
   "depends_on": ["frontend-stock-detail-current-price-prominent"],
   "references": [
     "docs/tasks/frontend-stock-detail-current-price-prominent.json",
@@ -29,5 +29,18 @@
     "pr_number": 395,
     "pr_url": "https://github.com/rainoko/fintrade/pull/395",
     "pushed_at": "2026-10-09T20:06:12Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-09T20:10:21Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/395",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "backend/openapi.json was not regenerated. The get_analysis docstring change (adding current_price/current_price_change_pct to the trading_mode-unaffected enumeration) is embedded verbatim as this operation's OpenAPI `description` (FastAPI uses the docstring as `description`, per CLAUDE.md's API documentation standard). Running `python scripts/export_openapi.py` from backend/ on this branch produces a real 1-line diff in the committed snapshot at the /api/stocks/{ticker}/analysis GET operation's description -- it still has the pre-this-PR text missing the two new field names. Needs to be regenerated and committed.",
+        "file": "backend/openapi.json",
+        "line": 4190
+      }
+    ],
+    "notes": "Diff independently confirmed docs/docstring-only (git diff --stat), no copy-paste drift between the new API.md prose and schemas.py's existing Field descriptions / actual get_analysis behavior (lines 665-691). Backend ruff/mypy/pytest (1618 passed) and scripts/validate_tasks.py all clean; frontend lint/tsc clean (no frontend files touched). No UI surface -- browser walkthrough and e2e suite correctly skipped. code-review (medium effort) returned no findings. Sole blocking issue is the stale backend/openapi.json snapshot; see review.comments."
   }
 }
