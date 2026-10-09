@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from frontend-stock-detail-current-price-prominent's PR review",
   "area": "frontend/stocks",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["frontend-stock-detail-current-price-prominent"],
   "references": [
     "docs/tasks/frontend-stock-detail-current-price-prominent.json",
@@ -22,7 +22,14 @@
       "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-09T20:12:02Z",
+      "recorded_by": "task-worker",
+      "decision": "Addressed pr-reviewer's needs_work finding on PR #395 by running `python scripts/export_openapi.py` from backend/ on this branch and committing the resulting backend/openapi.json diff.",
+      "rationale": "The diff was exactly the single-line description-field update at the /api/stocks/{ticker}/analysis GET operation that pr-reviewer predicted (git diff --stat confirmed no other change) -- the docstring edit from this task's earlier commit (f225d431) is embedded verbatim as that operation's OpenAPI description per CLAUDE.md's API documentation standard, so regenerating the committed snapshot was the correct and only fix; no alternative was considered since the finding was unambiguous and mechanical."
+    }
+  ],
   "questions": [],
   "git": {
     "branch": "task/frontend-stock-detail-current-price-prominent-followups",
