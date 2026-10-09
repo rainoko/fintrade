@@ -33,5 +33,10 @@
     "verdict": "accepted",
     "comments": [],
     "notes": "Verified independently (per the explicit scrutiny this task called for, after PR #395's needs_work round for a stale openapi.json): diff is exactly docs/architecture/API.md + backend/app/api/schemas.py's Field description + backend/openapi.json + task-board bookkeeping (5 files, confirmed via `git diff --stat main...HEAD`) -- no change to backend/app/api/routers/stocks.py or any other production code. The route's `previous_close != 0` guard (stocks.py:676-682) matches the new wording exactly. Re-ran `python scripts/export_openapi.py` from backend/ myself and diffed the regenerated file against the committed snapshot -- zero diff, so openapi.json is genuinely in sync, not just claimed to be. ruff check (backend, repo-wide convention) and mypy both clean. Full backend pytest suite: 1618 passed, 99.94% coverage (well above the 90% gate), no regression. scripts/validate_tasks.py: no violations. scripts/check_profit_target_wording.py: no stale wording. code-review skill (medium effort) over the diff: no findings. No frontend files touched (confirmed via git diff --stat), so no UI surface -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) are explicitly skipped as inapplicable, not silently omitted. No checklist item phrased as 'decide X' here, so no decisions-entry gap. Zero findings overall, so no follow-up task was created."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-10-09T20:35:08Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the checks pr-reviewer reported: `python scripts/export_openapi.py` produced a zero-diff openapi.json (git status clean after), ruff check and mypy both clean, full backend pytest suite reproduced 1618 passed / 99.94% coverage, scripts/validate_tasks.py found no violations. Skimmed the full diff myself (`git diff origin/main...HEAD`): exactly the API.md prose + schemas.py Field description + openapi.json + task-board bookkeeping, no production code touched; confirmed stocks.py:676-682's `previous_close != 0` guard matches the added wording. Accept holds up."
   }
 }
