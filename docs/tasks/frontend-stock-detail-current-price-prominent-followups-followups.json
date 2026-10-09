@@ -1,0 +1,24 @@
+{
+  "id": "frontend-stock-detail-current-price-prominent-followups-followups",
+  "title": "Non-blocking follow-up from frontend-stock-detail-current-price-prominent-followups's PR #395 review",
+  "area": "frontend/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-stock-detail-current-price-prominent-followups"],
+  "references": [
+    "docs/tasks/done/frontend-stock-detail-current-price-prominent-followups.json",
+    "https://github.com/rainoko/fintrade/pull/395",
+    "docs/architecture/API.md",
+    "backend/app/api/schemas.py",
+    "backend/app/api/routers/stocks.py"
+  ],
+  "description": "Tracked, non-blocking finding from pr-reviewer's code-review pass on PR #395 (frontend-stock-detail-current-price-prominent-followups). See that PR's review comment and docs/tasks/done/frontend-stock-detail-current-price-prominent-followups.json's review.comments for full context.",
+  "checklist": [
+    {
+      "step": "docs/architecture/API.md's `current_price_change_pct` prose (added by PR #395, in the `GET /api/stocks/{ticker}/analysis` section) says the field is null only 'whenever fewer than 2 daily bars are available to compare', but `backend/app/api/routers/stocks.py`'s `get_analysis` also returns null when the prior daily bar's close is exactly 0.0 (the `previous_close != 0` guard, since dividing by a zero previous close is undefined) -- a case with >=2 bars that the current sentence doesn't cover, which could mislead a reader into assuming null is impossible once 2+ bars exist. The identical omission already exists in `backend/app/api/schemas.py`'s `current_price_change_pct` Field description (pre-existing, not introduced by PR #395). Update both the API.md prose and the schemas.py Field description to also name the zero-previous-close case as a null trigger.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

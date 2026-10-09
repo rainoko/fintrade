@@ -516,10 +516,11 @@ def get_analysis(
     ever returning `AnalysisResponse` with a `signal`/`confidence`/`screens`/`indicators` that
     don't reflect real market data -- this endpoint's `signal`/`confidence`/etc. fields are
     non-nullable specifically so a `200` always means a real, fully-computed result, in either
-    mode. `support_resistance_zones`/`profit_target`/`extended_data`/`insider_clusters`/`as_of`
-    are unaffected either way -- always derived from `daily_ohlcv`/`weekly_ohlcv` regardless of
-    trading mode, per this task's own decision to defer the portfolio/profit-target layer's
-    hard-coded weekly/daily split to a follow-up (docs/architecture/Backend.md §10)."""
+    mode. `support_resistance_zones`/`profit_target`/`extended_data`/`insider_clusters`/`as_of`/
+    `current_price`/`current_price_change_pct` are unaffected either way -- always derived from
+    `daily_ohlcv`/`weekly_ohlcv` regardless of trading mode, per this task's own decision to
+    defer the portfolio/profit-target layer's hard-coded weekly/daily split to a follow-up
+    (docs/architecture/Backend.md §10)."""
     ticker = ticker.upper()
     try:
         # Fetched concurrently (daily, weekly, extended data each cost their own request

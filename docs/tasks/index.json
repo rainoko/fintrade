@@ -2630,8 +2630,15 @@
       "id": "frontend-stock-detail-current-price-prominent-followups",
       "area": "frontend/stocks",
       "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-stock-detail-current-price-prominent-followups.json"
+    },
+    {
+      "id": "frontend-stock-detail-current-price-prominent-followups-followups",
+      "area": "frontend/stocks",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/frontend-stock-detail-current-price-prominent-followups.json"
+      "path": "docs/tasks/frontend-stock-detail-current-price-prominent-followups-followups.json"
     },
     {
       "id": "backend-ibkr-import-entry-date-from-trades",
