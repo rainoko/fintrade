@@ -2583,6 +2583,13 @@
       "skill": null,
       "state": "done",
       "path": "docs/tasks/done/backend-position-watchlist-race-condition-followups-followups-followups.json"
+    },
+    {
+      "id": "frontend-chart-legend-toggle-not-working",
+      "area": "frontend/stocks",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-chart-legend-toggle-not-working.json"
     }
   ]
 }
