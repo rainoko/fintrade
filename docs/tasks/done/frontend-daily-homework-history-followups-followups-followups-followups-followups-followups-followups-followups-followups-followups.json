@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #419's review (frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups-followups-followups)",
   "area": "frontend/pages",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups-followups-followups"
   ],
@@ -37,5 +37,12 @@
       "rationale": "The task description itself distinguishes the two blocks (isBlockedSrcSource-table vs. wiring-test), so keeping that split in the doc keeps the paragraph's useful information intact rather than just softening the overstated claim into vague language. Considered only trimming the 'real exported types of both modules' phrase to 'a real exported type' without explaining why the wiring-test block differs, but that would lose the precise mechanism (cast-at-import-boundary swaps the checked type) that makes the original claim inaccurate in the first place."
     }
   ],
-  "questions": []
+  "questions": [],
+  "review": {
+    "reviewed_at": "2026-10-10T13:32:13Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/420",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Independently re-verified both closed findings. (1) Cast narrowing: reproduced the TS2352 proof (added `const __probe = 42 as Linter.Config[]`, got TS2352; the old `as unknown as` form would not have caught it), confirmed `yarn tsc -b --noEmit --force` clean, and mutation-tested the wiring suite by commenting out the rule's registration in the real eslint.config.js (4/21 failures as expected, confirming the narrower cast isn't masking a detection gap), then restored it (21/21 clean). (2) Testing.md reword: read the full paragraph, verified the TSESLint.FlatConfig.ConfigArray = Config[] claim against @typescript-eslint/utils's own .d.ts, and judged the rewrite precisely accurate (not merely softened) -- it correctly distinguishes the isBlockedSrcSource-table block (checked against the real type) from the wiring-test block (checked against the cast's target, Linter.Config, not eslint.config.js's own declared return type) and spells out the residual gap. (3) Parent task's appended decisions entry: read the full array -- the two pre-existing entries are untouched, the new third entry is purely appended (append-only convention honored), and its characterization of what the original entry did/didn't claim is accurate. (4) make e2e skip is correct: diff touches only Testing.md, 3 task-board JSON files, and one test-file cast/comment -- no application code, no UI surface. Full matrix re-run independently: backend pytest 1655 passed/99.95% coverage, ruff/mypy clean; frontend yarn lint clean, tsc -b --noEmit --force clean, vitest run --coverage 105 files/1104 tests passed (99.78-99.84%); scripts/validate_tasks.py 399 files clean; CLAUDE.md/.claude confirmed untouched via diff. A backgrounded code-review pass (medium effort) over the same diff independently returned zero findings. area/skill mean verify-elder-signal and architecture-review don't apply; no frontend component touched so the common/-vs-feature placement check doesn't apply; no API route/schema touched so no OpenAPI concern. No blocking findings, and no new non-blocking findings -- this chain has converged; no further follow-up task filed, as instructed."
+  }
 }
