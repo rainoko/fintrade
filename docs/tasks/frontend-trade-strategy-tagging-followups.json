@@ -36,5 +36,11 @@
       "rationale": "This closes the real (if narrow) behavior gap checklist item 2 and frontend-trade-strategy-tagging's own decisions entry both flagged: a strategy used only on a now-closed trade was previously never suggested. It's safe to ship now that checklist item 1's fix makes the previously timing-dependent tests deterministic -- confirmed by running the full frontend suite (104 files / 1077 tests, including the new test) green with the union in place, immediately after already having confirmed the suite green with only the determinism fix and no union (per CLAUDE.md's instructed ordering), so the union is demonstrably not papering over any remaining fragility. No alternative (e.g. lazily fetching closed-trades only once AddPositionDialog opens) was pursued: that would add complexity (prop-drilling a fetch trigger down into AddPositionDialog, or lifting the Autocomplete's data dependency into the dialog itself) for no benefit beyond what sharing TradeJournalPanel's already-fetched query key already gives for free, now that the query-key-sharing approach's only real cost (the test fragility) is fixed."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-trade-strategy-tagging-followups",
+    "pr_number": 409,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/409",
+    "pushed_at": "2026-10-10T03:33:45Z"
+  }
 }
