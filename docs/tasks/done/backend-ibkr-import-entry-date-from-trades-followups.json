@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from backend-ibkr-import-entry-date-from-trades's PR review (#408)",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-ibkr-import-entry-date-from-trades"],
   "references": [
     "docs/tasks/backend-ibkr-import-entry-date-from-trades.json",
@@ -48,5 +48,28 @@
     "pr_number": 410,
     "pr_url": "https://github.com/rainoko/fintrade/pull/410",
     "pushed_at": "2026-10-10T04:03:26Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-10T04:11:58Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/410",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Item 1 (fail-closed timezone fix) assessed against IBKR's live swagger: the `trade` schema has NO `required` list at all -- not for `trade_time_r`, and not for `conid`/`side`/`size`/`account` either, which the function already treats the same fail-closed way across two prior accepted review rounds. So `trade_time_r` isn't singled out as less reliable than any other field this function depends on; the worst-case 'every row drops forever' scenario would require `trade_time_r` to be essentially never populated in real payloads, which nothing in the spec supports and which contradicts the swagger's own field descriptions (`trade_time`/`trade_time_r` both describe 'Time of status update' -- two formats of the same underlying event, strongly implying co-presence). Mutation-tested the three updated tests (`test_trade_time_string_without_epoch_drops_row`, `test_trade_time_string_with_seconds_without_epoch_also_drops_row`, `test_absurd_epoch_drops_row_instead_of_falling_back_to_trade_time_string`) by temporarily reintroducing the old `trade_time` string-parsing fallback: all three failed as expected, confirming they're load-bearing, not just updated assertions on unchanged code. Also independently noted (not a finding, a confirming detail): the removed fallback's format string (`%Y%m%d%H%M%S`, no separators) never actually matched IBKR's documented `trade_time` wire format (`YYYYMMDD-hh:mm:ss`, with a dash) in the first place -- so removing it outright loses nothing that was ever working correctly.",
+        "file": "backend/app/data/ibkr_provider.py",
+        "line": 1441
+      },
+      {
+        "summary": "Direction-of-safety check on item 1's drop condition: dropping a BUY row (unparseable `trade_time_r`) only ever decreases `_derive_entry_date`'s computed net, pushing toward the safe `today()` fallback -- confirmed correct. Dropping a SELL row, however, removes its quantity from the net subtraction entirely, which pushes net *upward* rather than toward the fallback -- in a specific numeric coincidence (a dropped sell's quantity equal to the position's true pre-window quantity) this could in principle produce a false-positive exact match. This is the same risk category (coincidental cancellation) the function's own docstring already accepts as negligible for the untracked-corporate-action case, and real-world exposure is very low given `trade_time_r`/`trade_time` appear to always be populated together per IBKR's swagger descriptions -- so this is non-blocking, but filed as a tracked follow-up finding (not just this comment) since it's a real, if narrow, gap in the 'never manufacture a false positive' invariant that's easy to lose track of.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 604
+      },
+      {
+        "summary": "Item 2 (PA-entitlement citation) and item 3 (new account-field sub-case tests) both checked out: the decisions entry is honest about finding no citable source rather than inventing one, the append-vs-in-place choice (recording research on this follow-up task rather than editing the already-merged parent task's entry) matches CLAUDE.md's Decision memory default (the checklist item didn't call out that entry's own text as the thing to fix, so the narrower in-place carve-out doesn't apply), and the two new tests (`test_row_with_empty_string_account_is_dropped`, `test_row_with_non_string_account_is_dropped`) use `_trade_row`'s default `trade_time_r` so they isolate the account-drop condition cleanly and assert exactly what their docstrings claim.",
+        "file": "backend/tests/unit/data/test_ibkr_provider.py",
+        "line": 2269
+      }
+    ],
+    "notes": "Backend suite: 1646 passed, 99.95% coverage (gate 90%), ruff/mypy clean, scripts/check_profit_target_wording.py clean, scripts/validate_tasks.py clean (re-ran all of these myself rather than trusting the PR description). backend/openapi.json confirmed byte-identical after a fresh `python scripts/export_openapi.py` re-export (no route/schema touched this round, correctly not re-committed). code-review skill (medium effort) found no bugs. No frontend change in this PR (diff touches only backend/app/data/ibkr_provider.py, its tests, and task-board JSON) -- frontend lint/tsc and the browser walkthrough/e2e suite are not applicable; said so explicitly rather than silently skipping. area is backend/data, not backend/signals or backend/portfolio, and skill is null, so verify-elder-signal doesn't apply; no new module/dependency/layer added, so architecture-review doesn't apply either. One non-blocking finding (the SELL-row false-positive-risk asymmetry above) filed as docs/tasks/backend-ibkr-import-entry-date-from-trades-followups-followups.json rather than left only in this comment."
   }
 }

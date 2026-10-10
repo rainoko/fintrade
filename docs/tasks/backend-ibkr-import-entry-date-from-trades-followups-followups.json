@@ -1,0 +1,21 @@
+{
+  "id": "backend-ibkr-import-entry-date-from-trades-followups-followups",
+  "title": "Non-blocking finding from backend-ibkr-import-entry-date-from-trades-followups's PR review (#410)",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-ibkr-import-entry-date-from-trades-followups"],
+  "references": [
+    "docs/tasks/backend-ibkr-import-entry-date-from-trades-followups.json",
+    "https://github.com/rainoko/fintrade/pull/410"
+  ],
+  "description": "pr-reviewer's review of PR #410 (backend-ibkr-import-entry-date-from-trades-followups) accepted the PR outright -- this one genuinely non-blocking finding surfaced during that review is tracked here so it isn't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "PR #410 review: `_parse_trade_date` now returns `None` (row dropped by `_parse_account_trades`) whenever `trade_time_r` is missing/unparseable, instead of ever falling back to the timezone-ambiguous `trade_time` string -- this review confirmed that change is sound for BUY rows (dropping one only ever decreases the computed net-buy quantity in `_derive_entry_date`, pushing toward the conservative `today()` fallback, never toward a false-positive match). But the same drop applies uniformly to SELL rows too, and dropping a SELL row removes its quantity from the net calculation entirely (`net = sum(buys) - sum(sells)` in `app/api/routers/ibkr.py::_derive_entry_date`) rather than just leaving its date unknown -- so a dropped SELL row's quantity is NOT subtracted from `net`, pushing `net` *upward* rather than toward the fallback. In the specific numeric coincidence where a dropped SELL row's quantity happens to equal the position's true pre-window quantity, this could produce a false-positive exact match (and therefore a wrong derived `entry_date`) in exactly the one way `_derive_entry_date`'s own docstring says this feature's soundness argument depends on never happening. Assessed as very low real-world risk (not blocking) because: (a) this exact risk category -- a coincidental cancellation producing a false-positive match -- already exists and is explicitly accepted as negligible in the same docstring for the analogous untracked-corporate-action case; (b) IBKR's live swagger describes `trade_time`/`trade_time_r` as two formats of literally the same event ('Time of status update'), strongly suggesting they're always populated together in practice, so the missing-`trade_time_r`-but-present-`trade_time` precondition this depends on is itself rare. Worth, when someone's next in this file: (1) adding a dedicated unit test that exercises this specific SELL-row-dropped-near-a-false-positive-match scenario through `_derive_entry_date` directly (not just `_parse_account_trades`'s row-count, which the existing tests already cover), and (2) a one-line acknowledgment of this BUY-vs-SELL directional asymmetry in `_derive_entry_date`'s or `_parse_trade_date`'s own docstring, so a future reader doesn't have to re-derive it from scratch.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
