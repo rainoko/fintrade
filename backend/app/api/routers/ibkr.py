@@ -71,6 +71,7 @@ from app.config import Settings, get_settings
 from app.data.ibkr_provider import (
     GatewayStatus,
     IBKRAccountPosition,
+    IBKRAccountTrades,
     IBKRProvider,
     IBKRRateLimitedError,
     IBKRTrade,
@@ -565,7 +566,10 @@ def _valid_import_candidates(positions: list[IBKRAccountPosition]) -> list[IBKRA
 
 
 def _derive_entry_date(
-    position: IBKRAccountPosition, trades: list[IBKRTrade], fallback: date
+    position: IBKRAccountPosition,
+    trades: list[IBKRTrade],
+    poisoned_conids: frozenset[int],
+    fallback: date,
 ) -> tuple[date, bool]:
     """Decides `entry_date` for one position about to be imported by `POST
     /api/ibkr/portfolio-preload` (`backend-ibkr-import-entry-date-from-trades`'s
@@ -613,7 +617,20 @@ def _derive_entry_date(
     merely leaving its date unknown -- pushing `net` *upward* rather than toward the safe
     `fallback` branch, which can manufacture an exact false-positive match in the same way
     a coincidental corporate action can (see `backend-ibkr-import-entry-date-from-trades-
-    followups`'s `pr-decision` round 2 override for the full numeric counterexample)."""
+    followups`'s `pr-decision` round 2 override for the full numeric counterexample).
+
+    `poisoned_conids` (`backend-ibkr-import-entry-date-from-trades-followups-followups-
+    followups`'s checklist item 1) short-circuits straight to `fallback` for a conid that
+    had at least one trade row `_parse_account_trades` couldn't safely interpret as
+    either a known-safe-to-drop BUY or a safely-bucketed SELL -- see
+    `IBKRAccountTrades`'s own docstring for exactly which rows poison a conid and why
+    skipping the quantity match entirely (rather than computing it against the trades
+    that DID parse) is the only sound option once that's happened: the discarded row's
+    true, unobservable quantity could have been exactly the value that turns an
+    otherwise-correct mismatch into a false-positive exact match, the same risk this
+    whole function exists to rule out."""
+    if position.conid in poisoned_conids:
+        return fallback, False
     matching = [t for t in trades if t.conid == position.conid]
     buys = [t for t in matching if t.side == "BUY"]
     if not buys:
@@ -622,9 +639,13 @@ def _derive_entry_date(
     net = sum(t.quantity for t in buys) - sells_quantity
     if not math.isclose(net, position.quantity, rel_tol=1e-9, abs_tol=1e-6):
         return fallback, False
-    # Every BUY row reaching here has a real `trade_date` (see docstring above and
-    # `_parse_account_trades`'s invariant) -- the `is not None` filter is for mypy's
-    # benefit given `IBKRTrade.trade_date`'s `date | None` type, not a runtime guard.
+    # Every BUY row reaching here has a real `trade_date` -- guaranteed both by
+    # `_parse_account_trades` being this app's only `IBKRTrade` construction site (see
+    # docstring above) AND, now, by `IBKRTrade.__post_init__` itself raising if a `"BUY"`
+    # row is ever constructed with `trade_date=None` (`backend-ibkr-import-entry-date-
+    # from-trades-followups-followups-followups`'s checklist item 2) -- so the `is not
+    # None` filter below is for mypy's benefit given `IBKRTrade.trade_date`'s `date |
+    # None` type, not the only thing standing between this and a wrong `min(...)`.
     return min(t.trade_date for t in buys if t.trade_date is not None), True
 
 
@@ -784,7 +805,7 @@ def preload_ibkr_portfolio(
     # this feature's original behavior before trade-history derivation existed. See
     # `_derive_entry_date` and this task's `decisions` entry.
     try:
-        trades = provider.get_account_trades()
+        account_trades = provider.get_account_trades()
     except IBKRUnavailableError as exc:
         logger.info(
             "IBKR trade history unavailable for this portfolio-preload call; entry_date "
@@ -792,7 +813,7 @@ def preload_ibkr_portfolio(
             type(exc).__name__,
             exc,
         )
-        trades = []
+        account_trades = IBKRAccountTrades(trades=[], poisoned_conids=frozenset())
 
     imported: list[IBKRPortfolioPreloadImportedPositionOut] = []
     skipped: list[str] = []
@@ -806,7 +827,9 @@ def preload_ibkr_portfolio(
         # avg_cost -- narrowed explicitly for mypy, matching this codebase's existing
         # assert-narrow convention (e.g. app.api.day_trader_signal).
         assert p.avg_cost is not None
-        entry_date, derived = _derive_entry_date(p, trades, fallback=import_date)
+        entry_date, derived = _derive_entry_date(
+            p, account_trades.trades, account_trades.poisoned_conids, fallback=import_date
+        )
         entry_notes = (
             _IBKR_IMPORT_ENTRY_NOTE_DERIVED_TEMPLATE.format(import_date=import_date, entry_date=entry_date)
             if derived

@@ -23,6 +23,7 @@ from sqlalchemy.pool import StaticPool
 from app.data.ibkr_provider import (
     DEFAULT_BASE_URL,
     IBKRAccountPosition,
+    IBKRAccountTrades,
     IBKRBar,
     IBKRProvider,
     IBKRRateLimitedError,
@@ -2084,6 +2085,26 @@ class TestGetAccountPositions:
         assert len(positions) == _MAX_ACCOUNT_POSITIONS_PAGES
 
 
+class TestIBKRTradePostInit:
+    """`backend-ibkr-import-entry-date-from-trades-followups-followups-followups`'s
+    checklist item 2: `IBKRTrade.__post_init__` is a runtime guard (not just mypy-visible
+    typing, and not just `_parse_account_trades` being this class's sole production
+    construction site) for the invariant `app.api.routers.ibkr._derive_entry_date`'s
+    `min(...)` filter relies on -- a `"BUY"` row must always carry a real `trade_date`."""
+
+    def test_buy_with_none_trade_date_raises(self) -> None:
+        with pytest.raises(ValueError, match="BUY"):
+            IBKRTrade(conid=1, side="BUY", quantity=10.0, trade_date=None)
+
+    def test_buy_with_a_real_trade_date_is_fine(self) -> None:
+        trade = IBKRTrade(conid=1, side="BUY", quantity=10.0, trade_date=datetime(2026, 10, 5).date())
+        assert trade.trade_date == datetime(2026, 10, 5).date()
+
+    def test_sell_with_none_trade_date_is_fine(self) -> None:
+        trade = IBKRTrade(conid=1, side="SELL", quantity=10.0, trade_date=None)
+        assert trade.trade_date is None
+
+
 class TestGetAccountTrades:
     """docs/tasks/backend-ibkr-import-entry-date-from-trades.json -- `GET
     /iserver/account/trades`, mocked per this module's own no-live-gateway testing
@@ -2133,11 +2154,16 @@ class TestGetAccountTrades:
             side_effect=[{"accounts": ["DU1"]}, rows],
         )
 
-        trades = IBKRProvider().get_account_trades()
+        result = IBKRProvider().get_account_trades()
 
-        assert trades == [
-            IBKRTrade(conid=265598, side="BUY", quantity=10.0, trade_date=datetime(2026, 10, 5).date())
-        ]
+        assert result == IBKRAccountTrades(
+            trades=[
+                IBKRTrade(
+                    conid=265598, side="BUY", quantity=10.0, trade_date=datetime(2026, 10, 5).date()
+                )
+            ],
+            poisoned_conids=frozenset(),
+        )
 
     def test_discovers_account_then_fetches_trades(self, mocker) -> None:
         mocker.patch(
@@ -2180,7 +2206,7 @@ class TestGetAccountTrades:
             side_effect=[{"accounts": ["DU1"]}, rows],
         )
 
-        trades = IBKRProvider().get_account_trades()
+        trades = IBKRProvider().get_account_trades().trades
 
         assert [t.side for t in trades] == ["BUY", "SELL"]
         assert all(t.conid == 1 for t in trades)
@@ -2198,39 +2224,102 @@ class TestGetAccountTrades:
             side_effect=[{"accounts": ["DU1"]}, rows],
         )
 
-        trades = IBKRProvider().get_account_trades()
+        trades = IBKRProvider().get_account_trades().trades
 
         assert [t.side for t in trades] == ["BUY", "SELL"]
 
-    def test_unrecognized_side_drops_row(self, mocker) -> None:
+    def test_unrecognized_side_with_a_valid_quantity_is_bucketed_as_sell_not_dropped(
+        self, mocker
+    ) -> None:
+        """`backend-ibkr-import-entry-date-from-trades-followups-followups-followups`'s
+        checklist item 1: an unrecognized `side` no longer unconditionally drops the row
+        -- when `quantity` is otherwise usable, it's bucketed defensively as `"SELL"`
+        instead (provably safe regardless of the row's actual, unknown side -- see
+        `_parse_account_trades`'s own docstring). The row's conid is NOT poisoned
+        either (there's nothing unreconcilable about it once it's been bucketed)."""
         mocker.patch(
             "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
             return_value=mocker.Mock(state="available", detail=None),
         )
-        rows = [self._trade_row(1, "X"), self._trade_row(2, "B")]
+        rows = [self._trade_row(1, "X", quantity=10.0), self._trade_row(2, "B")]
         mocker.patch(
             "app.data.ibkr_provider.IBKRProvider._request",
             side_effect=[{"accounts": ["DU1"]}, rows],
         )
 
-        trades = IBKRProvider().get_account_trades()
+        result = IBKRProvider().get_account_trades()
 
-        assert [t.conid for t in trades] == [2]
+        assert [(t.conid, t.side, t.quantity) for t in result.trades] == [
+            (1, "SELL", 10.0),
+            (2, "BUY", 10.0),
+        ]
+        assert result.poisoned_conids == frozenset()
 
-    def test_non_string_side_drops_row(self, mocker) -> None:
+    def test_non_string_side_with_a_valid_quantity_is_bucketed_as_sell_not_dropped(
+        self, mocker
+    ) -> None:
+        """Same as the test above, for the non-string (rather than unrecognized-string)
+        `side` sub-case."""
         mocker.patch(
             "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
             return_value=mocker.Mock(state="available", detail=None),
         )
-        rows = [self._trade_row(1, side=None), self._trade_row(2, "B")]  # type: ignore[arg-type]
+        rows = [
+            self._trade_row(1, side=None, quantity=10.0),  # type: ignore[arg-type]
+            self._trade_row(2, "B"),
+        ]
         mocker.patch(
             "app.data.ibkr_provider.IBKRProvider._request",
             side_effect=[{"accounts": ["DU1"]}, rows],
         )
 
-        trades = IBKRProvider().get_account_trades()
+        result = IBKRProvider().get_account_trades()
 
-        assert [t.conid for t in trades] == [2]
+        assert [(t.conid, t.side) for t in result.trades] == [(1, "SELL"), (2, "BUY")]
+        assert result.poisoned_conids == frozenset()
+
+    def test_unrecognized_side_with_an_unusable_quantity_poisons_the_conid(self, mocker) -> None:
+        """Checklist item 1's genuinely-unmitigable case: an unrecognized `side` AND an
+        unusable `quantity` leaves nothing to bucket either way -- this can't be ruled
+        out as a SELL whose quantity mattered, so the conid is poisoned rather than the
+        row merely being dropped (see `_parse_account_trades`'s own docstring and
+        `IBKRAccountTrades`)."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        rows = [self._trade_row(1, "X", quantity=0), self._trade_row(2, "B")]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, rows],
+        )
+
+        result = IBKRProvider().get_account_trades()
+
+        assert [t.conid for t in result.trades] == [2]
+        assert result.poisoned_conids == frozenset({1})
+
+    def test_confirmed_sell_with_an_unusable_quantity_poisons_the_conid(self, mocker) -> None:
+        """Checklist item 1's real-world case: a confirmed `"SELL"` row whose quantity
+        couldn't be read -- exactly the same directional risk the already-fixed
+        dateless-SELL case closed (dropping it would remove its quantity from
+        `_derive_entry_date`'s net-of-sells subtraction, which can manufacture a
+        false-positive match), except here there's no quantity at all to keep, so the
+        whole conid is poisoned instead of just this row being dropped."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        rows = [self._trade_row(1, "S", quantity=0), self._trade_row(2, "B")]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, rows],
+        )
+
+        result = IBKRProvider().get_account_trades()
+
+        assert [t.conid for t in result.trades] == [2]
+        assert result.poisoned_conids == frozenset({1})
 
     def test_row_for_a_different_account_is_dropped(self, mocker) -> None:
         mocker.patch(
@@ -2246,7 +2335,7 @@ class TestGetAccountTrades:
             side_effect=[{"accounts": ["DU1"]}, rows],
         )
 
-        trades = IBKRProvider().get_account_trades()
+        trades = IBKRProvider().get_account_trades().trades
 
         assert [t.conid for t in trades] == [2]
 
@@ -2265,7 +2354,7 @@ class TestGetAccountTrades:
             side_effect=[{"accounts": ["DU1"]}, rows],
         )
 
-        trades = IBKRProvider().get_account_trades()
+        trades = IBKRProvider().get_account_trades().trades
 
         assert [t.conid for t in trades] == [2]
 
@@ -2285,7 +2374,7 @@ class TestGetAccountTrades:
             side_effect=[{"accounts": ["DU1"]}, rows],
         )
 
-        trades = IBKRProvider().get_account_trades()
+        trades = IBKRProvider().get_account_trades().trades
 
         assert [t.conid for t in trades] == [2]
 
@@ -2307,11 +2396,15 @@ class TestGetAccountTrades:
             side_effect=[{"accounts": ["DU1"]}, rows],
         )
 
-        trades = IBKRProvider().get_account_trades()
+        trades = IBKRProvider().get_account_trades().trades
 
         assert [t.conid for t in trades] == [2]
 
-    def test_non_positive_quantity_is_dropped(self, mocker) -> None:
+    def test_non_positive_quantity_on_a_confirmed_buy_is_dropped_not_poisoned(self, mocker) -> None:
+        """A confirmed `"BUY"` row with a bad quantity is still just dropped, not
+        poisoned -- dropping a BUY only ever decreases `net`, which is always safe (see
+        `_parse_account_trades`'s own docstring), so poisoning here would needlessly
+        disable derivation for this conid more often than the actual risk requires."""
         mocker.patch(
             "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
             return_value=mocker.Mock(state="available", detail=None),
@@ -2322,9 +2415,9 @@ class TestGetAccountTrades:
             side_effect=[{"accounts": ["DU1"]}, rows],
         )
 
-        trades = IBKRProvider().get_account_trades()
+        result = IBKRProvider().get_account_trades()
 
-        assert trades == []
+        assert result == IBKRAccountTrades(trades=[], poisoned_conids=frozenset())
 
     def test_non_list_payload_returns_empty(self, mocker) -> None:
         mocker.patch(
@@ -2336,7 +2429,7 @@ class TestGetAccountTrades:
             side_effect=[{"accounts": ["DU1"]}, {"not": "a list"}],
         )
 
-        assert IBKRProvider().get_account_trades() == []
+        assert IBKRProvider().get_account_trades() == IBKRAccountTrades(trades=[], poisoned_conids=frozenset())
 
     def test_non_dict_row_is_skipped(self, mocker) -> None:
         mocker.patch(
@@ -2349,7 +2442,7 @@ class TestGetAccountTrades:
             side_effect=[{"accounts": ["DU1"]}, rows],
         )
 
-        trades = IBKRProvider().get_account_trades()
+        trades = IBKRProvider().get_account_trades().trades
 
         assert [t.conid for t in trades] == [1]
 
@@ -2364,7 +2457,7 @@ class TestGetAccountTrades:
             side_effect=[{"accounts": ["DU1"]}, rows],
         )
 
-        assert IBKRProvider().get_account_trades() == []
+        assert IBKRProvider().get_account_trades() == IBKRAccountTrades(trades=[], poisoned_conids=frozenset())
 
     def test_trade_time_r_epoch_ms_parses_to_the_correct_date(self, mocker) -> None:
         mocker.patch(
@@ -2379,7 +2472,7 @@ class TestGetAccountTrades:
             side_effect=[{"accounts": ["DU1"]}, rows],
         )
 
-        trades = IBKRProvider().get_account_trades()
+        trades = IBKRProvider().get_account_trades().trades
 
         assert trades[0].trade_date == datetime(2026, 10, 5).date()
 
@@ -2401,7 +2494,7 @@ class TestGetAccountTrades:
             side_effect=[{"accounts": ["DU1"]}, rows],
         )
 
-        trades = IBKRProvider().get_account_trades()
+        trades = IBKRProvider().get_account_trades().trades
 
         assert [t.conid for t in trades] == [2]
 
@@ -2416,7 +2509,7 @@ class TestGetAccountTrades:
             side_effect=[{"accounts": ["DU1"]}, rows],
         )
 
-        assert IBKRProvider().get_account_trades() == []
+        assert IBKRProvider().get_account_trades() == IBKRAccountTrades(trades=[], poisoned_conids=frozenset())
 
     def test_absurd_epoch_drops_row_instead_of_falling_back_to_trade_time_string(
         self, mocker
@@ -2435,7 +2528,7 @@ class TestGetAccountTrades:
             side_effect=[{"accounts": ["DU1"]}, rows],
         )
 
-        assert IBKRProvider().get_account_trades() == []
+        assert IBKRProvider().get_account_trades() == IBKRAccountTrades(trades=[], poisoned_conids=frozenset())
 
     def test_unparseable_date_drops_row(self, mocker) -> None:
         mocker.patch(
@@ -2448,7 +2541,7 @@ class TestGetAccountTrades:
             side_effect=[{"accounts": ["DU1"]}, rows],
         )
 
-        assert IBKRProvider().get_account_trades() == []
+        assert IBKRProvider().get_account_trades() == IBKRAccountTrades(trades=[], poisoned_conids=frozenset())
 
     def test_no_time_field_at_all_drops_row(self, mocker) -> None:
         mocker.patch(
@@ -2461,7 +2554,7 @@ class TestGetAccountTrades:
             side_effect=[{"accounts": ["DU1"]}, rows],
         )
 
-        assert IBKRProvider().get_account_trades() == []
+        assert IBKRProvider().get_account_trades() == IBKRAccountTrades(trades=[], poisoned_conids=frozenset())
 
     def test_sell_row_with_no_usable_date_is_kept_with_a_null_trade_date(self, mocker) -> None:
         """`backend-ibkr-import-entry-date-from-trades-followups`'s `pr-decision` round 2:
@@ -2480,7 +2573,7 @@ class TestGetAccountTrades:
             side_effect=[{"accounts": ["DU1"]}, rows],
         )
 
-        trades = IBKRProvider().get_account_trades()
+        trades = IBKRProvider().get_account_trades().trades
 
         assert trades == [
             IBKRTrade(conid=1, side="SELL", quantity=7.0, trade_date=None)
@@ -2501,7 +2594,7 @@ class TestGetAccountTrades:
             side_effect=[{"accounts": ["DU1"]}, rows],
         )
 
-        trades = IBKRProvider().get_account_trades()
+        trades = IBKRProvider().get_account_trades().trades
 
         assert [t.conid for t in trades] == [2]
 
