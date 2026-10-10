@@ -34,5 +34,11 @@
       "rationale": "The finding's own framing ('cheap to add... if this module grows another way to build an IBKRTrade') matches reality: this is a genuine invariant of the type's own meaning (a BUY row's date is definitionally knowable, per `_parse_account_trades`'s docstring), not an arbitrary restriction, so the guard costs nothing in the one, already-correct production path and fails loudly at construction time in any future path that doesn't replicate the discipline -- closing exactly the gap PR #410's review identified (coverage.py's own empirically-confirmed blind spot for a genexpr's `if` filter clause meant a regression here wouldn't show up as a coverage drop either). Did not restructure `IBKRTrade` into two separate BUY/SELL subtypes (the type-level alternative the finding also floated) -- rejected as disproportionate: it would ripple through every call site that currently pattern-matches on `.side` (`_derive_entry_date`'s `t.side == \"BUY\"`/`\"SELL\"` filters, every test's `IBKRTrade(side=...)` construction) for a benefit (static enforcement) the `__post_init__` guard already delivers at runtime, for one single, well-isolated, already-correct call site. Added `TestIBKRTradePostInit` (`backend/tests/unit/data/test_ibkr_provider.py`) with three tests (BUY+real date is fine, BUY+None date raises, SELL+None date is fine); mutation-tested by removing `__post_init__` entirely, which fails `test_buy_with_none_trade_date_raises` as expected -- confirming the guard, not merely the test's own assertion, is what's load-bearing."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-ibkr-import-entry-date-from-trades-followups-followups-followups",
+    "pr_number": 413,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/413",
+    "pushed_at": "2026-10-10T06:05:57Z"
+  }
 }
