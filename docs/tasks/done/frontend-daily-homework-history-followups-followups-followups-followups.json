@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #405's review (frontend-daily-homework-history-followups-followups-followups)",
   "area": "frontend/pages",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-daily-homework-history-followups-followups-followups"],
   "references": [
     "docs/tasks/frontend-daily-homework-history-followups-followups-followups.json",
@@ -36,5 +36,23 @@
     "pr_number": 414,
     "pr_url": "https://github.com/rainoko/fintrade/pull/414",
     "pushed_at": "2026-10-10T06:30:27Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-10T06:39:06Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/414",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified independently: backend (pytest, 99.95% cov, 1655 passed), frontend (vitest, 99.78%/99.06% stmt/branch cov, 1083 passed), ruff/mypy/eslint/tsc all clean, profit-target wording guard clean, validate_tasks.py clean, make e2e 28/28. Re-tested the new no-restricted-imports eslint override myself with different violation shapes than task-worker's own check (value imports from src/api/client and src/pages/DailyHomeworkPage, plus a mixed import with an inline `type` qualifier alongside a value specifier from the same blocked path) -- all correctly flagged; a pure all-inline-type import from a blocked path, and the two existing legitimate imports in daily-homework.spec.ts, correctly pass clean. Confirmed no path aliases exist that could bypass the directory-based matching. Confirmed the Testing.md doc correction is factually accurate: no tsconfig.e2e*/playwright-specific tsconfig file exists anywhere in frontend/, playwright.config.ts references none, and tsconfig.app.json's own include (`[\"src\", \"tests\", \".storybook\"]`) is the sole source of static type-checking for tests/e2e/*.spec.ts via `yarn tsc -b --noEmit` (Playwright's own runner only transpiles via esbuild, confirmed by the project's own prior documentation of this and by inspecting playwright.config.ts directly).",
+        "file": "frontend/eslint.config.js",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking: the rule is a directory allowlist (components/features/pages/api/theme/entry-points), not an exhaustive block of everything-but-src/utils. A value import from any src/ directory NOT on that list -- most notably a future src/hooks/ or src/contexts/ (neither exists in the tree today, confirmed) -- would pass the eslint rule silently even though it's exactly the kind of component/hook/context import the underlying Testing.md convention prohibits. Verified this gap empirically: a constructed src/hooks/useFoo.ts (a real React hook, `useState`) imported as a value into a temporary e2e spec produced zero eslint errors. The new Testing.md paragraph documents one real limitation of the mechanized check (a src/utils/ helper that's quietly grown an impure transitive dependency) but doesn't mention this second, more clear-cut one -- a brand-new top-level src/ directory bypasses the check entirely until the allowlist is updated to include it, not just a borderline judgment call. Doesn't block this accept (the rule is explicitly scoped as a partial backstop, and today's tree has no such directory to miss), but worth tracking so the gap doesn't go unmentioned indefinitely.",
+        "file": "docs/architecture/Testing.md",
+        "line": 123
+      }
+    ],
+    "notes": "Full review per pr-reviewer process: checked out PR #414, re-ran backend+frontend coverage, static-verify (ruff/mypy/eslint/tsc + profit-target wording guard), validate_tasks.py, and make e2e (28/28) -- all clean, matching task-worker's claims. No UI-facing change in this PR itself (docs + eslint config + task-board bookkeeping only, no application source touched), so no interactive browser walkthrough was performed; the persisted e2e suite was still run per step 9a since it's cheap and the PR's own change (a lint rule governing e2e specs) is adjacent to that suite. Independently re-verified the new eslint override with violation shapes different from task-worker's own test (src/api/, src/pages/, and a mixed type+value import) and confirmed both the Testing.md tsconfig correction and task-worker's checklist items are accurate. code-review skill was dispatched (forked/background execution) against the diff but its async result did not return within this review session; given the diff's small, low-risk scope (doc wording, a single eslint config addition, task-board bookkeeping -- no application source code), I performed an equivalent manual correctness pass myself: read the full diff, traced the eslint rule's matching semantics, and empirically tested it (including the one real finding below) rather than relying on inspection alone. One new non-blocking finding surfaced (the directory-allowlist's false-negative surface for a future src/ subdirectory not on the list) and is tracked as a follow-up task rather than left only in this comment."
   }
 }
