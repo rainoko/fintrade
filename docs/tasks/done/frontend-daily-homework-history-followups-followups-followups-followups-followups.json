@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from frontend-daily-homework-history-followups-followups-followups-followups's PR review (#414)",
   "area": "frontend/pages",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-daily-homework-history-followups-followups-followups-followups"],
   "references": [
     "docs/tasks/done/frontend-daily-homework-history-followups-followups-followups-followups.json",
@@ -42,5 +42,18 @@
     "pr_number": 416,
     "pr_url": "https://github.com/rainoko/fintrade/pull/416",
     "pushed_at": "2026-10-10T10:34:22Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-10T10:43:20Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/416",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified independently rather than trusting the probe list in task-worker's own verification: the regex `(^|/)src/(?!utils/)` behaves correctly on every import-source shape tested, including the adversarial ones meant to catch a false positive -- `../../src/utils/format` and `../../src/utils/sub/thing` PASS (nested utils/ carve-out works), `../../src/features/x`, `../../src/hooks/useX`, `../../src/contexts/MyContext`, `src/App`, and `src/index.css` all correctly FAIL (blocked), `../../src/utilsx/foo` correctly FAILS (the carve-out doesn't over-match a utils-prefixed-but-different directory), and `../../mysrc/foo`, `../../src-gen/foo`, and `@some/package-src/foo` all correctly PASS (no false positive from a package/directory name that merely contains the substring \"src\"). Built and ran my own probe files (all removed afterward, confirmed via `git status`): a static value import of a new `src/hooks/useProbe.ts` hook is flagged by `no-restricted-imports` where the old six-item allowlist missed it; a dynamic `await import('../../src/features/homework/components/DailyHomeworkHistoryTable')` is flagged by the new `no-restricted-syntax` rule where it previously passed silently, while the equivalent dynamic import from `src/utils/format` passes clean; a mixed `import { type DailyHomeworkOut, getHomework } from '../../src/api/homework'` (one type specifier alongside one value specifier) is correctly flagged as a whole; pure type-only imports (including `import type` of a previously-blocked-directory type) pass clean; the two legitimate imports already in `daily-homework.spec.ts` are untouched. Also independently reproduced the one residual gap Testing.md now documents: a template-literal-sourced dynamic import (`` import(`../../src/${name}`) ``) parses to a `TemplateLiteral` node rather than `Literal` and bypasses both rules -- confirmed via my own probe, matching the PR's claim exactly. `yarn eslint tests/e2e` on the real suite (no probes) is clean. `yarn lint` (repo-wide), `yarn tsc -b --noEmit`, backend ruff/mypy, the profit-target wording guard, and `scripts/validate_tasks.py` (394 files) are all clean. Backend pytest: 1655 passed, 99.95% coverage. Frontend vitest: 1083 passed, 99.78%/99.06% stmt/branch coverage. `make e2e`: 28/28 passed. No application/UI code is touched by this PR (eslint config + Testing.md + task-board bookkeeping only), so no interactive browser walkthrough applied; the persisted e2e suite was still run per the task's own explicit request and passed in full. Testing.md's rewritten prose was checked line-by-line against the actual rule behavior and the empirical probes above -- it accurately describes the default-deny regex, the `src/utils/` carve-out, both new rules, and the documented residual template-literal/variable gap, and the removed directory enumeration doesn't drop information a reader needs (there's no longer a finite list to enumerate). All three checklist items from PR #414's review are genuinely closed, with a `decisions` entry recording the approach taken, alternatives rejected, and verification performed for each. No new findings surfaced during this independent re-verification.",
+        "file": "frontend/eslint.config.js",
+        "line": 69
+      }
+    ],
+    "notes": "Full review of PR #416 (the final open task on the board): checked out the branch, ran backend+frontend coverage, static-verify (ruff/mypy/eslint/tsc + profit-target wording guard), validate_tasks.py, and make e2e, all clean and matching the PR description's claims. Independently re-derived and stress-tested the regex and no-restricted-syntax selector against a wider adversarial probe set than task-worker's own (per the dispatch instructions) rather than trusting the PR's verification narrative at face value -- every case behaved as claimed, including the one deliberately-left-open residual gap (template-literal/variable dynamic import source). No new blocking or non-blocking findings. The code-review skill was also dispatched (forked/background execution) against the diff as an additional check; its result had not returned by the time this review's manual pass -- which independently covered correctness of the regex/selector, doc accuracy, and reuse (no new dependency, both rules are core ESLint, scoped only to the one override block) -- was already complete and conclusive, so the verdict was not held open waiting on it per the 'don't wait on it' guidance for backgrounded skill results."
   }
 }
