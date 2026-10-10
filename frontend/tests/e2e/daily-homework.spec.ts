@@ -36,6 +36,14 @@ import { formatDate } from '../../src/utils/format'
  * to the `date` the backend actually recorded in its POST response -- see
  * the `recordedDate` capture below for why that's read back from the
  * response rather than recomputed client-side.
+ *
+ * This is the first spec under tests/e2e/ to import anything from `src/`
+ * directly (a type and a pure formatting helper) rather than through a
+ * tests/-local module like tests/dateFixtures.ts -- see
+ * docs/architecture/Testing.md's "Importing from src/ in an e2e spec"
+ * convention (frontend-daily-homework-history-followups-followups-followups)
+ * for what's allowed here (types, pure side-effect-free utilities) and what
+ * isn't (components, hooks, anything with app-runtime/DOM dependencies).
  */
 test.describe('daily homework: nav, submit, and see the color-coded score banner', () => {
   test('nav drawer link opens the page, submitting the form shows the score banner, and it persists across reload', async ({
