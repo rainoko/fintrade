@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #417's review (frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups)",
   "area": "frontend/pages",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups"
   ],
@@ -44,5 +44,28 @@
     "pr_number": 418,
     "pr_url": "https://github.com/rainoko/fintrade/pull/418",
     "pushed_at": "2026-10-10T12:12:59Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-10T12:27:06Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/418",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Item 1 (root-absolute false negative) verified complete and correct: /src/pages/Something and /src/api/x are now blocked, /src/utils/format stays allowed, bare/@scoped package specifiers stay allowed, path traversal and the bare-utils-barrel case still behave correctly (all via the new test table plus manual re-checks against real e2e spec files and `yarn eslint`). The `~` non-goal was independently checked: no `resolve.alias`/tsconfig `paths` entry exists anywhere in frontend/vite.config.ts or tsconfig*.json, so `~`-prefixed specifiers genuinely don't resolve in this toolchain and leaving them unhandled is correct, not an incomplete fix.",
+        "file": "frontend/eslint-rules/no-restricted-src-import.js",
+        "line": 104
+      },
+      {
+        "summary": "Item 2 (extraction + persisted test) verified behavior-preserving (diffed old inline eslint.config.js logic against the extracted module -- identical apart from the item-1 fix) and verified the wiring test is genuinely load-bearing via three mutation tests: (a) unregistering the rule from eslint.config.js's real exported config -> 4 wiring tests fail; (b) reverting isBlockedSrcSource's leading-character guard to the pre-fix version -> table test + 2 wiring tests fail; (c) changing the registered severity to 'warn' and the rule's registered key to a different name -> wiring tests fail on both. Confirmed the test file actually runs (yarn vitest run eslint-rules: 21/21) and that a real violation in a real tests/e2e/*.spec.ts file (both a relative and a root-absolute src/pages import) is still flagged by `yarn lint`.",
+        "file": "frontend/eslint-rules/no-restricted-src-import.test.ts",
+        "line": 64
+      },
+      {
+        "summary": "Non-blocking: the decisions entry's claim that 'a sibling .ts file here would fail to load under plain Node ESM when eslint.config.js imports it directly' does not hold on this repo's actual dev-container Node version (v22.23.2, native TypeScript type-stripping on by default) -- renaming the module to .ts (unchanged, then with added real TS syntax: a typed function signature, an interface, a generic) loaded and linted cleanly both ways. Consequently frontend/eslint-rules/no-restricted-src-import.test.ts, a genuine TypeScript file, is invisible to both `yarn tsc -b --noEmit` (eslint-rules/ is outside both tsconfig projects' include) and eslint's own (non-type-aware) rules; verified concretely that a real type error introduced into the test (passing a number where isBlockedSrcSource expects a string) passes both gates silently and is only caught by actually running the test. Not blocking this PR -- functionality, tests, lint, and tsc all pass as claimed, and this mirrors eslint.config.js's own pre-existing untyped status -- but tracked as a follow-up since the Node-loader objection to using real TypeScript here turns out not to hold.",
+        "file": "docs/tasks/frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups-followups.json",
+        "line": 37
+      }
+    ],
+    "notes": "Re-ran the full verification matrix independently: backend pytest --cov (1655 passed, 99.95% coverage, unaffected by this frontend-only PR), frontend yarn vitest run --coverage (105 files / 1104 tests passed, ~99.8% coverage, matching the PR's claim of growth from 1083), backend ruff+mypy clean, frontend yarn lint + tsc -b --noEmit clean, scripts/check_profit_target_wording.py clean, scripts/validate_tasks.py clean (397 task files, no violations), make e2e 28/28 passed. Testing.md's updated wording checked line-by-line against the actual rule/test behavior and confirmed accurate. CLAUDE.md and .claude/ confirmed untouched (git diff main...HEAD -- CLAUDE.md .claude/ is empty). A backgrounded code-review pass (high effort) also returned clean with no findings, independently confirming the tsconfig-exclusion claim and the behavior-preserving extraction. One non-blocking finding (a factual inaccuracy in the decisions entry's stated rationale, and the resulting untype-checked-test gap it leaves open) is recorded above and tracked on frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups-followups-followups."
   }
 }
