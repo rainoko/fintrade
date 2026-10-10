@@ -39,5 +39,11 @@
       "rationale": "Keeps the append-only log property CLAUDE.md documents the carve-out as protecting: a reader of frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups-followups's decisions entry today still sees exactly what was claimed and justified at the time (including the now-corrected Node/ESM-loader claim), and finds the correction, with its own timestamp and rationale, here instead -- rather than this task silently rewriting another already-done task's historical record."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups-followups-followups",
+    "pr_number": 419,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/419",
+    "pushed_at": "2026-10-10T12:50:23Z"
+  }
 }
