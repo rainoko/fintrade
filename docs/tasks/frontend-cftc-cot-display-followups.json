@@ -32,5 +32,11 @@
       "rationale": "The fix is a pure type-predicate tightening inside a helper function with no change to any rendered output, prop, or component tree -- describeExtreme's observable behavior for every input reachable via the real API (which never actually produces undefined, only explicit null) is unchanged; only its behavior on an input that was previously type-unsound (undefined) changes, and that's covered by the new unit tests (verified load-bearing by reverting the fix and confirming both new tests fail, one by throwing exactly as the finding predicted). No UI surface could exercise the new branch today since the backend never emits undefined for this field."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-cftc-cot-display-followups",
+    "pr_number": 411,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/411",
+    "pushed_at": "2026-10-10T05:02:01Z"
+  }
 }
