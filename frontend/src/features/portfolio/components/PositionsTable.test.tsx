@@ -32,6 +32,7 @@ const positions: PositionOut[] = [
     signal: 'BUY',
     confidence: 72,
     confidence_band: 'High',
+    strategy: 'Pullback to value',
   },
   {
     id: 'pos_456',
@@ -44,6 +45,7 @@ const positions: PositionOut[] = [
     signal: null,
     confidence: null,
     confidence_band: null,
+    strategy: null,
   },
 ]
 
@@ -89,6 +91,7 @@ describe('PositionsTable', () => {
     expect(within(rows[0]).getByText('+17.20%')).toBeInTheDocument()
     const aaplBadge = within(rows[0]).getByTestId('signal-badge')
     expect(aaplBadge).toHaveTextContent('BUY')
+    expect(within(rows[0]).getByText('Pullback to value')).toBeInTheDocument()
 
     // Stop/Profit Target columns (frontend-position-risk-columns) read from
     // GET /api/portfolio/risk, cross-referenced by ticker.
@@ -159,6 +162,21 @@ describe('PositionsTable', () => {
     await waitFor(() =>
       expect(within(zzzzRow).getAllByText('—').length).toBeGreaterThan(0),
     )
+  })
+
+  it('renders an em dash for a position with no strategy tag, and sorts by strategy with the null value last', async () => {
+    const user = userEvent.setup()
+    renderPositionsTable(positions)
+
+    const table = screen.getByRole('table')
+    const zzzzRow = within(table).getAllByRole('row').slice(1)[1]
+    expect(within(zzzzRow).getAllByText('—').length).toBeGreaterThan(0)
+
+    await user.click(screen.getByRole('button', { name: 'Strategy' }))
+
+    const ascendingRows = within(table).getAllByRole('row').slice(1)
+    expect(within(ascendingRows[0]).getByText('AAPL')).toBeInTheDocument()
+    expect(within(ascendingRows[1]).getByText('ZZZZ')).toBeInTheDocument()
   })
 
   it('sorts by current_price, with the null value sorting last', async () => {

@@ -1,4 +1,5 @@
 import Alert from '@mui/material/Alert'
+import Autocomplete from '@mui/material/Autocomplete'
 import Button from '@mui/material/Button'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
@@ -22,6 +23,18 @@ export interface AddPositionDialogProps {
    * the sole source of truth for whether a merge actually happens.
    */
   existingTickers: string[]
+  /**
+   * Distinct `strategy` values already used on the user's own held
+   * positions/closed trades, offered as `Autocomplete` suggestions on the
+   * Strategy field below (frontend-trade-strategy-tagging) — not a fixed,
+   * predefined list (the backend-trade-strategy-tagging task's own
+   * `decisions` already rejected one, since Elder's framing is that
+   * strategies are personal and evolve), just a nudge toward reusing a tag
+   * the user already typed before, since the field groups by exact string
+   * match for future strategy-segmented review. Defaults to an empty array
+   * so callers/tests that don't care about this can omit it.
+   */
+  recentStrategies?: string[]
 }
 
 interface FormState {
@@ -30,6 +43,7 @@ interface FormState {
   avgCostBasis: string
   entryDate: string
   notes: string
+  strategy: string
 }
 
 interface FormErrors {
@@ -45,6 +59,7 @@ const emptyForm: FormState = {
   avgCostBasis: '',
   entryDate: '',
   notes: '',
+  strategy: '',
 }
 
 function validate(form: FormState): FormErrors {
@@ -82,6 +97,7 @@ export default function AddPositionDialog({
   open,
   onClose,
   existingTickers,
+  recentStrategies = [],
 }: AddPositionDialogProps) {
   const [form, setForm] = useState<FormState>(emptyForm)
   const [errors, setErrors] = useState<FormErrors>({})
@@ -124,6 +140,7 @@ export default function AddPositionDialog({
     const merging = existingTickers.includes(normalizedTicker)
 
     const trimmedNotes = form.notes.trim()
+    const trimmedStrategy = form.strategy.trim()
 
     addPosition.mutate(
       {
@@ -136,6 +153,10 @@ export default function AddPositionDialog({
         // (PositionIn.entry_notes), but not sending the key at all keeps the
         // request body itself free of a pointless empty value.
         ...(trimmedNotes ? { entry_notes: trimmedNotes } : {}),
+        // Same omit-if-blank convention as entry_notes above -- see this
+        // task's `decisions` entry for why `strategy` follows entry_notes'
+        // convention rather than inventing a new one.
+        ...(trimmedStrategy ? { strategy: trimmedStrategy } : {}),
       },
       {
         onSuccess: () => {
@@ -227,6 +248,22 @@ export default function AddPositionDialog({
                 minRows={2}
                 fullWidth
                 helperText="Why did you take this trade? (Elder ch. 59 Trade Journal Section A)"
+              />
+              <Autocomplete
+                freeSolo
+                fullWidth
+                options={recentStrategies}
+                inputValue={form.strategy}
+                onInputChange={(_event, newValue) =>
+                  setForm((current) => ({ ...current, strategy: newValue }))
+                }
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Strategy (optional)"
+                    helperText="Your own named setup for this trade, e.g. 'pullback to value' (Elder ch. 55/56/58/59)"
+                  />
+                )}
               />
             </Stack>
           </DialogContent>

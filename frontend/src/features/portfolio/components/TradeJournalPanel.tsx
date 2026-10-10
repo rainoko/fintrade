@@ -210,6 +210,17 @@ const columns: DataTableColumn<ClosedTradeOut>[] = [
     header: 'Notes',
     render: (row) => <NotesCell entryNotes={row.entry_notes} />,
   },
+  {
+    // Plain text, unlike the Notes column above -- `strategy` is a short
+    // personal, named tag by design (Elder's own examples are short phrases
+    // like "pullback to value," not paragraphs), so it doesn't need an
+    // expandable detail; matches the Notes column's own em-dash-when-absent
+    // convention instead (frontend-trade-strategy-tagging).
+    key: 'strategy',
+    header: 'Strategy',
+    sortable: true,
+    render: (row) => row.strategy ?? '—',
+  },
 ]
 
 /**
@@ -236,6 +247,13 @@ const columns: DataTableColumn<ClosedTradeOut>[] = [
  * an expandable detail via `NotesCell`/`InfoBalloon` rather than a raw
  * text column, since most trades won't have a note and the ones that do
  * can be long free text (frontend-trade-journal-entry-notes).
+ *
+ * The Strategy column surfaces `strategy` (Elder ch. 55/56/58/59's personal,
+ * named strategy/setup tag -- his own examples: "false breakout with a
+ * divergence," "pullback to value") as plain text with an em dash when
+ * absent, NOT an expandable detail like Notes: unlike `entry_notes`,
+ * `strategy` is a short tag by design, so it doesn't need one
+ * (frontend-trade-strategy-tagging).
  */
 export default function TradeJournalPanel() {
   const closedTradesQuery = useClosedTrades()

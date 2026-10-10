@@ -39,6 +39,7 @@ describe('TradeJournalPanel', () => {
           sell_grade_pct: 35.5,
           trade_grade_pct: 32.1,
           trade_letter_grade: 'A',
+          strategy: 'Pullback to value',
         },
       ],
     })
@@ -76,6 +77,8 @@ describe('TradeJournalPanel', () => {
     // and its A letter grade is shown alongside the percentage.
     const tradeGrade = within(row).getByText('32.1% (A)')
     expect(tradeGrade).toHaveStyle({ fontWeight: '700' })
+
+    expect(within(row).getByText('Pullback to value')).toBeInTheDocument()
   })
 
   it('renders the trade grade letter alongside the percentage for every letter grade', async () => {
@@ -254,6 +257,61 @@ describe('TradeJournalPanel', () => {
     expect(within(descendingRows[2]).getByText('CCC')).toBeInTheDocument()
   })
 
+  it('sorts by strategy, with the missing-tag value sorting last', async () => {
+    const user = userEvent.setup()
+    mockClosedTrades({
+      items: [
+        {
+          id: 'trade_a',
+          ticker: 'AAA',
+          quantity: 1,
+          entry_price: 10,
+          entry_date: '2026-01-01',
+          exit_price: 11,
+          exit_date: '2026-01-05',
+          realized_pnl: 1,
+          exit_reason: 'target_hit',
+          strategy: 'Breakout',
+        },
+        {
+          id: 'trade_b',
+          ticker: 'BBB',
+          quantity: 1,
+          entry_price: 10,
+          entry_date: '2026-01-01',
+          exit_price: 11,
+          exit_date: '2026-01-05',
+          realized_pnl: 1,
+          exit_reason: 'target_hit',
+          strategy: 'Pullback to value',
+        },
+        {
+          id: 'trade_c',
+          ticker: 'CCC',
+          quantity: 1,
+          entry_price: 10,
+          entry_date: '2026-01-01',
+          exit_price: 11,
+          exit_date: '2026-01-05',
+          realized_pnl: 1,
+          exit_reason: 'target_hit',
+          strategy: null,
+        },
+      ],
+    })
+
+    renderTradeJournalPanel()
+    await waitFor(() => expect(screen.getByText('AAA')).toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: 'Strategy' }))
+
+    const table = screen.getByRole('table', { name: 'Trade journal' })
+    const ascendingRows = within(table).getAllByRole('row').slice(1)
+    expect(within(ascendingRows[0]).getByText('AAA')).toBeInTheDocument()
+    expect(within(ascendingRows[1]).getByText('BBB')).toBeInTheDocument()
+    expect(within(ascendingRows[2]).getByText('CCC')).toBeInTheDocument()
+  })
+
   it('wires each grade cell’s MetricHelp to its own formula/value explanation', async () => {
     const user = userEvent.setup()
     mockClosedTrades({
@@ -319,9 +377,9 @@ describe('TradeJournalPanel', () => {
     await waitFor(() => expect(screen.getByText('TSLA')).toBeInTheDocument())
 
     const row = screen.getByText('TSLA').closest('tr') as HTMLElement
-    // 3 null grade cells plus the Notes column's own em dash (no entry_notes
-    // on this fixture row).
-    expect(within(row).getAllByText('—')).toHaveLength(4)
+    // 3 null grade cells plus the Notes and Strategy columns' own em dashes
+    // (neither entry_notes nor strategy is set on this fixture row).
+    expect(within(row).getAllByText('—')).toHaveLength(5)
 
     const loss = within(row).getByText('-$75.00')
     expect(loss).toHaveStyle({ color: theme.palette.error.main })

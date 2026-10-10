@@ -162,6 +162,46 @@ describe('PortfolioPage', () => {
     })
   }, 15000)
 
+  // frontend-trade-strategy-tagging: `recentStrategies` is derived from the
+  // user's own currently-held positions (see this task's `decisions` entry
+  // for why closed trades' own strategy tags are deliberately excluded).
+  it("offers a held position's own strategy tag as an Autocomplete suggestion on the Add Position dialog", async () => {
+    server.use(
+      http.get('/api/portfolio', () =>
+        HttpResponse.json({
+          trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
+          equity: { cash: 5000, positions_value: 22890, total: 27890 },
+          positions: [
+            {
+              id: 'pos_123',
+              ticker: 'AAPL',
+              quantity: 100,
+              avg_cost_basis: 195.3,
+              entry_date: '2026-05-14',
+              strategy: 'Pullback to value',
+            },
+          ],
+        }),
+      ),
+    )
+    const user = userEvent.setup()
+    renderPortfolioPage()
+
+    await waitFor(() =>
+      expect(screen.getByRole('table', { name: 'Positions' })).toBeInTheDocument(),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Add Position' }))
+    const strategyInput = within(screen.getByRole('dialog')).getByLabelText(
+      'Strategy (optional)',
+    )
+    await user.click(strategyInput)
+
+    expect(
+      await screen.findByRole('option', { name: 'Pullback to value' }),
+    ).toBeInTheDocument()
+  })
+
   it('deletes a position end to end and removes it from the refreshed table', async () => {
     const user = userEvent.setup()
     renderPortfolioPage()

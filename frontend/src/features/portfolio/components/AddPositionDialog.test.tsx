@@ -179,6 +179,102 @@ describe('AddPositionDialog', () => {
     expect(capturedBody).not.toHaveProperty('entry_notes')
   })
 
+  it('sends the trimmed strategy tag as strategy when provided', async () => {
+    let capturedBody: PositionIn | undefined
+    server.use(
+      http.post('/api/portfolio/positions', async ({ request }) => {
+        capturedBody = (await request.json()) as PositionIn
+        return HttpResponse.json(
+          {
+            id: 'pos_new',
+            ticker: capturedBody.ticker,
+            quantity: capturedBody.quantity,
+            avg_cost_basis: capturedBody.avg_cost_basis,
+            entry_date: capturedBody.entry_date,
+            strategy: capturedBody.strategy ?? null,
+            current_price: null,
+            unrealized_pnl_pct: null,
+            signal: null,
+            confidence: null,
+            confidence_band: null,
+          },
+          { status: 201 },
+        )
+      }),
+    )
+
+    const user = userEvent.setup()
+    renderWithProviders(<AddPositionDialog open onClose={vi.fn()} existingTickers={[]} />)
+
+    await fillValidForm(user, 'MSFT')
+    await user.type(
+      screen.getByLabelText('Strategy (optional)'),
+      '  Pullback to value  ',
+    )
+    await user.click(screen.getByRole('button', { name: 'Add Position' }))
+
+    await waitFor(() =>
+      expect(screen.getByText('Added MSFT to your portfolio.')).toBeInTheDocument(),
+    )
+    expect(capturedBody?.strategy).toBe('Pullback to value')
+  })
+
+  it('omits strategy from the request entirely when left blank', async () => {
+    let capturedBody: PositionIn | undefined
+    server.use(
+      http.post('/api/portfolio/positions', async ({ request }) => {
+        capturedBody = (await request.json()) as PositionIn
+        return HttpResponse.json(
+          {
+            id: 'pos_new',
+            ticker: capturedBody.ticker,
+            quantity: capturedBody.quantity,
+            avg_cost_basis: capturedBody.avg_cost_basis,
+            entry_date: capturedBody.entry_date,
+            strategy: null,
+            current_price: null,
+            unrealized_pnl_pct: null,
+            signal: null,
+            confidence: null,
+            confidence_band: null,
+          },
+          { status: 201 },
+        )
+      }),
+    )
+
+    const user = userEvent.setup()
+    renderWithProviders(<AddPositionDialog open onClose={vi.fn()} existingTickers={[]} />)
+
+    await fillValidForm(user, 'MSFT')
+    await user.click(screen.getByRole('button', { name: 'Add Position' }))
+
+    await waitFor(() =>
+      expect(screen.getByText('Added MSFT to your portfolio.')).toBeInTheDocument(),
+    )
+    expect(capturedBody).not.toHaveProperty('strategy')
+  })
+
+  it('offers recentStrategies as Autocomplete suggestions and fills the field on selection', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <AddPositionDialog
+        open
+        onClose={vi.fn()}
+        existingTickers={[]}
+        recentStrategies={['Pullback to value', 'False breakout with a divergence']}
+      />,
+    )
+
+    const strategyInput = screen.getByLabelText('Strategy (optional)')
+    await user.click(strategyInput)
+
+    const option = await screen.findByRole('option', { name: 'Pullback to value' })
+    await user.click(option)
+
+    expect(strategyInput).toHaveValue('Pullback to value')
+  })
+
   it('resets the form and any prior success/error state each time it reopens', async () => {
     const user = userEvent.setup()
     const { rerender } = renderWithProviders(
@@ -187,6 +283,7 @@ describe('AddPositionDialog', () => {
 
     await fillValidForm(user, 'MSFT')
     await user.type(screen.getByLabelText('Notes (optional)'), 'Some notes.')
+    await user.type(screen.getByLabelText('Strategy (optional)'), 'Pullback to value')
     await user.click(screen.getByRole('button', { name: 'Add Position' }))
     await waitFor(() => screen.getByRole('button', { name: 'Done' }))
 
@@ -196,6 +293,7 @@ describe('AddPositionDialog', () => {
     expect(screen.queryByText('Added MSFT to your portfolio.')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Ticker')).toHaveValue('')
     expect(screen.getByLabelText('Notes (optional)')).toHaveValue('')
+    expect(screen.getByLabelText('Strategy (optional)')).toHaveValue('')
   })
 
   // frontend-ibkr-portfolio-preload-followups-followups: MUI's Dialog fires

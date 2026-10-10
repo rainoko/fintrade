@@ -275,6 +275,7 @@ const closedTradesFixture: ClosedTradesResponse = {
       trade_letter_grade: 'A',
       follow_up_notes: null,
       follow_up_reviewed_at: null,
+      strategy: 'Pullback to value',
     },
     {
       id: 'trade_def456',
@@ -820,6 +821,13 @@ export const handlers: HttpHandler[] = [
           ? `${existing.entry_notes}\n\n${body.entry_notes}`
           : body.entry_notes
       }
+      // Unlike entry_notes above, an incoming `strategy` *overwrites* the
+      // existing tag rather than appending (backend-trade-strategy-tagging's
+      // `decisions`) -- a merge with no incoming `strategy` leaves the
+      // existing one untouched.
+      if (body.strategy) {
+        existing.strategy = body.strategy
+      }
       stored = existing
     } else {
       stored = {
@@ -829,6 +837,7 @@ export const handlers: HttpHandler[] = [
         avg_cost_basis: body.avg_cost_basis,
         entry_date: body.entry_date,
         entry_notes: body.entry_notes ?? null,
+        strategy: body.strategy ?? null,
       }
       positions.push(stored)
     }
@@ -1201,6 +1210,10 @@ export const handlers: HttpHandler[] = [
         avg_cost_basis: position.avg_cost,
         entry_date: entryDate,
         entry_notes: 'Imported from IBKR.',
+        // Mirrors the real backend: IBKR's positions response carries
+        // nothing mappable onto a personal named strategy tag (see
+        // POST /api/ibkr/portfolio-preload's own docstring).
+        strategy: null,
       }
       positions.push(stored)
       existingTickers.add(position.ticker)
