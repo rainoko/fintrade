@@ -1,0 +1,28 @@
+{
+  "id": "frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups",
+  "title": "Non-blocking findings from frontend-daily-homework-history-followups-followups-followups-followups-followups's re-review of PR #416 (post path-traversal-fix round)",
+  "area": "frontend/pages",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-daily-homework-history-followups-followups-followups-followups-followups-followups"],
+  "references": [
+    "docs/tasks/done/frontend-daily-homework-history-followups-followups-followups-followups-followups.json",
+    "docs/tasks/done/frontend-daily-homework-history-followups-followups-followups-followups-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/416",
+    "frontend/eslint.config.js",
+    "CLAUDE.md#task-board-docs-tasks"
+  ],
+  "description": "pr-reviewer's re-review of PR #416 (after task-worker's commit 413f22df closed the path-traversal bypass with a normalizing custom ESLint rule) accepted the PR -- the rule was proven genuinely active via a mutation test, the traversal bypass was independently reproduced as fixed for static/dynamic imports and newly-tested re-export forms, type-only handling was confirmed correct in every shape tested, and the full coverage/static-analysis/e2e suites all passed with no regression. Two non-blocking findings surfaced during this review round that weren't caught by either the prior rounds or the backgrounded code-review pass, and shouldn't disappear once PR #416 merges.",
+  "checklist": [
+    {
+      "step": "The blocked-path regex `BLOCKED_SRC_VALUE_IMPORT = /(^|\\/)src\\/(?!utils(?:\\/|$))/` anchors on `(^|/)`, which matches not just a project-relative `src/` segment but also a bare npm package specifier that happens to contain a literal `src/` path segment anywhere in it -- e.g. `import { x } from 'my-package/src/foo'` is incorrectly flagged as blocked, verified empirically (`path.posix.normalize('my-package/src/foo')` is unchanged, and the regex matches the `/src/` substring right after `my-package`). This is a real false positive not present in the original six-directory glob-allowlist version of this rule (which only matched specific `**/src/<dir>/**` globs, never a bare `src/` segment inside an unrelated package name) -- introduced when PR #416 replaced the allowlist with the default-deny regex, and unchanged by this round's traversal-bypass fix since the regex's anchor shape didn't change. No e2e spec in the current tree imports a package whose specifier contains a literal `src/` segment, so nothing is misflagged today, but it's the same class of over-restriction as the already-fixed bare-utils-barrel false positive, just on a different input shape. Worth either tightening the regex to only match a `src/` segment that's actually relative-path-rooted (e.g. requiring the source to start with `.` or `/`), or at minimum documenting this as a known limitation in Testing.md alongside the other disclosed gaps.",
+      "done": false
+    },
+    {
+      "step": "Board-bookkeeping pattern worth deciding explicitly: task-worker folded the already-filed follow-up task (frontend-daily-homework-history-followups-followups-followups-followups-followups-followups) into PR #416/the parent task's branch -- marking its checklist items done, setting its `git.branch` to the parent task's own branch name rather than a dedicated `task/<its-own-id>` branch, and resolving both tasks' states together. This was an explicit, documented judgment call (a `decisions` entry gives the rationale: avoiding a redundant branch/PR pair for a three-line fix in the same file) and didn't trip any `validate_tasks.py`-checked structural invariant, but CLAUDE.md's board conventions don't explicitly address a 'fold a follow-up task into its parent's same-round fix' pattern, and the child task's `git.branch` diverged from the `task/<task-id>` naming convention CLAUDE.md documents. Worth either formalizing this pattern in CLAUDE.md's board-conventions section (when it's acceptable for one PR/branch to resolve two task ids, and how `git`/`state` should be recorded on the piggybacking task) or deciding it should always get its own branch/PR regardless of diff size.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

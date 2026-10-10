@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from frontend-daily-homework-history-followups-followups-followups-followups-followups's PR review (#416)",
   "area": "frontend/pages",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-daily-homework-history-followups-followups-followups-followups-followups"],
   "references": [
     "docs/tasks/frontend-daily-homework-history-followups-followups-followups-followups-followups.json",
@@ -36,5 +36,18 @@
       "rationale": "Chose not to open a second branch/PR for this task's two items given they are three lines apart from the parent task's blocking fix in the same file and the dispatch instructions for the parent task explicitly called out fixing both here instead of spawning (or, by extension, routing to) a separate follow-up task. This avoids a redundant branch/PR pair touching the same few lines of frontend/eslint.config.js, and keeps the two tasks' states in lockstep (both `testing`, pointing at the same PR #416) rather than one sitting `planned` while its own fix already exists upstream on a PR it doesn't reference."
     }
   ],
-  "questions": []
+  "questions": [],
+  "review": {
+    "reviewed_at": "2026-10-10T11:12:24Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/416",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Both checklist items verified fixed as part of the parent task's (frontend-daily-homework-history-followups-followups-followups-followups-followups) accepted PR #416 review: the bare `src/utils` barrel false positive is gone (verified empirically -- `import { barrel } from '../../src/utils'` against a real probe `src/utils/index.ts` now passes clean), and the hand-duplicated regex/selector pattern is eliminated, not just synchronized, by the single `e2e-import-guard/no-restricted-src-import` rule's one `BLOCKED_SRC_VALUE_IMPORT` definition reused for both static and dynamic cases. Full verification detail is recorded on the parent task's own review -- see that task's `review.notes` for the complete account, since the same PR/commit resolves both tasks' checklists together.",
+        "file": "frontend/eslint.config.js",
+        "line": 24
+      }
+    ],
+    "notes": "This task's two checklist items were both folded into, and fully resolved by, PR #416 -- the same PR that closed the parent task's (frontend-daily-homework-history-followups-followups-followups-followups-followups) path-traversal blocking finding. Rather than this task getting its own dedicated `task/<id>` branch and PR, task-worker recorded this task's `git` block pointing at the same branch/PR as the parent, with a `decisions` entry explaining why (a three-line fix in the same file as the parent's blocking fix, to avoid a redundant branch/PR pair). I judged this acceptable as a documented, explicit judgment call rather than an undocumented shortcut, and confirmed `python3 scripts/validate_tasks.py` finds no structural violation from it -- but flagged the pattern itself (two task ids resolved by one PR/branch, with this task's `git.branch` not matching its own `task/<id>` naming convention) as a non-blocking finding on the parent task's review, tracked further on a new follow-up task since CLAUDE.md's board conventions don't explicitly address this case. Resolving this task to done in the same commit as the parent's accept, since both checklist items are independently verified fixed and there's no remaining work to track on this task itself."
+  }
 }
