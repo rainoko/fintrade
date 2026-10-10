@@ -2665,8 +2665,15 @@
       "id": "frontend-cftc-cot-display-followups",
       "area": "frontend/pages",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/frontend-cftc-cot-display-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-cftc-cot-display-followups.json"
+    },
+    {
+      "id": "frontend-cftc-cot-display-followups-followups",
+      "area": "frontend/pages",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-cftc-cot-display-followups-followups.json"
     },
     {
       "id": "frontend-trade-strategy-tagging",

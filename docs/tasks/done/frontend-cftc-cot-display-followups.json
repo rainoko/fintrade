@@ -1,0 +1,80 @@
+{
+  "id": "frontend-cftc-cot-display-followups",
+  "title": "Non-blocking findings from frontend-cftc-cot-display's PR review (#407)",
+  "area": "frontend/pages",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-cftc-cot-display"],
+  "references": [
+    "docs/tasks/frontend-cftc-cot-display.json",
+    "https://github.com/rainoko/fintrade/pull/407",
+    "frontend/src/features/cftc/components/cftcCotHelp.ts",
+    "frontend/src/features/stocks/components/metricHelpContent.ts"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #407 (frontend-cftc-cot-display), recorded here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule so they aren't lost once that PR merges. (That review also found one blocking issue -- a tie-handling bug in describeExtreme -- which was sent back to task-worker on the PR itself rather than deferred here.)",
+  "checklist": [
+    {
+      "step": "frontend/src/features/cftc/components/cftcCotHelp.ts's describeExtreme type predicate (`market[pick] !== null`) only excludes `null`, not `undefined`, even though CFTCCOTMarketOut's `*_cot_index_52w` fields are typed `number | null | undefined` (an optional-and-nullable Pydantic field). If a market object ever had the field actually `undefined` (key omitted) rather than explicit `null`, the predicate would wrongly type-narrow it to `number` and the subsequent `.toFixed(0)` call would throw. Currently unreachable in practice -- the backend has no `response_model_exclude_none`, so it always serializes an explicit `null` -- so this is a latent defensive-coding gap, not a live bug. `features/stocks/components/metricHelpContent.ts`'s own `isKnown` helper (`value !== null && value !== undefined && !Number.isNaN(value)`) already establishes the right null+undefined-safe pattern for this exact shape elsewhere in the codebase; bring describeExtreme's filter in line with it (and add a test exercising an explicit `undefined` value, not just `null`).",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-10-10T05:00:54Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a local `isKnown(value: number | null | undefined): value is number` helper to cftcCotHelp.ts, copying metricHelpContent.ts's exact predicate (`value !== null && value !== undefined && !Number.isNaN(value)`) including the `Number.isNaN` guard, and used it in describeExtreme's filter instead of the bare `market[pick] !== null` check.",
+      "rationale": "The task flagged the null-vs-undefined gap specifically, but the referenced precedent (metricHelpContent.ts's isKnown) also screens out NaN, which can't actually arise from this field today (JSON has no NaN literal, and the backend always serializes null or a finite number) but keeps the two helpers byte-for-byte consistent rather than a near-duplicate with a silently narrower guard. Considered writing a leaner `value !== null && value !== undefined` without the NaN check (sufficient for the described bug) but rejected it since it would reintroduce a cosmetic divergence from the exact pattern CLAUDE.md's task description points at as 'the right null+undefined-safe pattern ... elsewhere in the codebase' to align with."
+    },
+    {
+      "timestamp": "2026-10-10T05:00:54Z",
+      "recorded_by": "task-worker",
+      "decision": "No live-browser walkthrough was run for this change.",
+      "rationale": "The fix is a pure type-predicate tightening inside a helper function with no change to any rendered output, prop, or component tree -- describeExtreme's observable behavior for every input reachable via the real API (which never actually produces undefined, only explicit null) is unchanged; only its behavior on an input that was previously type-unsound (undefined) changes, and that's covered by the new unit tests (verified load-bearing by reverting the fix and confirming both new tests fail, one by throwing exactly as the finding predicted). No UI surface could exercise the new branch today since the backend never emits undefined for this field."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-cftc-cot-display-followups",
+    "pr_number": 411,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/411",
+    "pushed_at": "2026-10-10T05:02:01Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-10T05:07:23Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/411",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Mutation-tested the fix myself: reverted describeExtreme's filter back to the pre-fix `market[pick] !== null` predicate and ran only the two new tests -- both failed, one with exactly the predicted `TypeError: Cannot read properties of undefined (reading 'toFixed')` at describeExtreme's tie-branch toFixed call. Restored the fix afterward; working tree left clean. Confirms the new tests are genuinely load-bearing against this specific bug, not passing regardless of the fix.",
+        "file": "frontend/src/features/cftc/components/cftcCotHelp.test.ts",
+        "line": 92
+      },
+      {
+        "summary": "Confirmed the copied `isKnown` predicate in cftcCotHelp.ts (line 37-39) is byte-for-byte identical to features/stocks/components/metricHelpContent.ts's own `isKnown` (line 328-330): `value !== null && value !== undefined && !Number.isNaN(value)`. Judged the NaN guard reasonable precedent-following, not cargo-culting: the task description itself pointed at metricHelpContent.ts's isKnown as 'the right null+undefined-safe pattern ... elsewhere in the codebase' to align with, and matching it exactly avoids introducing a second, subtly narrower variant of the same-shaped helper in the codebase -- a real (if minor) maintenance cost the task-worker's own decisions entry weighed correctly. Having the same predicate duplicated in two files with no shared source, though, is itself a minor reuse gap -- tracked as a non-blocking finding below rather than blocking this PR.",
+        "file": "frontend/src/features/cftc/components/cftcCotHelp.ts",
+        "line": 37
+      },
+      {
+        "summary": "Re-ran the reachable-case regression tests specifically (highest/lowest, single-market, null-when-none-computable, empty-list, both tie variants) with `vitest run -t`: all 6 pass unchanged, confirming the fix is behavior-preserving for every input the real backend can actually produce (explicit `null` or a real number) -- only the previously type-unsound `undefined` input's behavior changed.",
+        "file": "frontend/src/features/cftc/components/cftcCotHelp.test.ts",
+        "line": 130
+      },
+      {
+        "summary": "Verified the 'backend can't actually emit undefined here' claim independently by reading backend/app/api/routers/cftc.py and the CFTCCOTMarketOut schema in backend/app/api/schemas.py: no `response_model_exclude_none` anywhere in the backend (grepped the whole app/ tree), and `cot_index()` (app/data/cftc_cot_provider.py) always returns `float | None` explicitly -- every CFTCCOTMarketOut instance is constructed with commercial_cot_index_52w set to either a float or None, never omitted. FastAPI/Pydantic therefore always serializes an explicit `null` or number for this field, never an omitted key that would deserialize to `undefined` on the frontend. Confirms the finding is genuinely latent/unreachable via the real API today, as claimed, not a live bug.",
+        "file": "backend/app/api/routers/cftc.py",
+        "line": 0
+      },
+      {
+        "summary": "Agree with task-worker's reasoning that no live-browser walkthrough was needed: pure helper-level type-predicate fix with no change to any rendered output/prop/component tree, and the new branch (undefined input) is unreachable via the real UI since the backend never emits undefined for this field (confirmed independently above). No UI surface exists for this PR to exercise differently than before; step 9's browser walkthrough and step 9a's e2e suite are correctly not applicable here, not silently skipped.",
+        "file": "frontend/src/features/cftc/components/cftcCotHelp.ts",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking: the now-twice-duplicated isKnown predicate (this file and metricHelpContent.ts) has no shared source of truth -- worth extracting to a small shared utility next time either file is touched. Tracked on frontend-cftc-cot-display-followups-followups rather than left only in this PR comment.",
+        "file": "frontend/src/features/cftc/components/cftcCotHelp.ts",
+        "line": 37
+      }
+    ],
+    "notes": "Full review per CLAUDE.md's pr-reviewer process. Frontend suite: 1079 tests pass across 104 files (matches claim), coverage 99.78% statements / 99.07% branches / 99.84% functions / 99.82% lines (100% on cftcCotHelp.ts), well above the 90% gate -- no regression. eslint and `tsc -b --noEmit` both clean. Backend suite run for completeness even though untouched by this PR: 1649 tests pass, 99.95% coverage, no regression (as expected, zero backend files in the diff). Backend ruff clean; backend mypy reports pre-existing errors, all in test files this PR doesn't touch and unrelated to this change (confirmed `git diff --stat main...HEAD -- backend/` is empty) -- not a regression introduced here. scripts/validate_tasks.py clean. No API route/schema touched, so no openapi.json regen needed. area is frontend/pages (not backend/signals or backend/portfolio) and skill is null, so verify-elder-signal doesn't apply; no new module/dependency/layer added, so architecture-review doesn't apply; no new/changed frontend component (the change is confined to a non-component helper module and its test file), so the §7a component-placement check doesn't apply either. Step 9/9a (browser walkthrough, e2e suite): genuinely not applicable -- stated explicitly rather than silently omitted, and independently verified task-worker's own reasoning for skipping them (see comments). The one checklist item ('decide X'-shaped) has a corresponding, well-reasoned decisions entry; no gap. One non-blocking finding (isKnown duplication) tracked on frontend-cftc-cot-display-followups-followups. Verdict: accepted."
+  }
+}

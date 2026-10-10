@@ -1,0 +1,23 @@
+{
+  "id": "frontend-cftc-cot-display-followups-followups",
+  "title": "Non-blocking findings from frontend-cftc-cot-display-followups's PR review (#411)",
+  "area": "frontend/pages",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-cftc-cot-display-followups"],
+  "references": [
+    "docs/tasks/frontend-cftc-cot-display-followups.json",
+    "https://github.com/rainoko/fintrade/pull/411",
+    "frontend/src/features/cftc/components/cftcCotHelp.ts",
+    "frontend/src/features/stocks/components/metricHelpContent.ts"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's full review of PR #411 (frontend-cftc-cot-display-followups), recorded here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule so it isn't lost once that PR merges. PR #411 itself was accepted with no blocking findings.",
+  "checklist": [
+    {
+      "step": "PR #411 fixed cftcCotHelp.ts's describeExtreme null/undefined gap by adding a local `isKnown` helper that is a byte-for-byte copy of features/stocks/components/metricHelpContent.ts's own `isKnown` (both: `value !== null && value !== undefined && !Number.isNaN(value)`). That's a reasonable choice given cftcCotHelp.ts's own file header already documents keeping this metric's help content local to its one call site rather than importing from metricHelpContent.ts's shared registry (this metric isn't shown on StockDetailPage), but it does mean the exact same 3-line type predicate now lives twice with no shared source of truth -- a future tweak to one (e.g. dropping or changing the NaN guard) could silently drift from the other. Worth considering extracting `isKnown` to a small shared utility (e.g. `src/utils/isKnown.ts` or similar), imported by both cftcCotHelp.ts and metricHelpContent.ts, next time either file is touched -- not urgent enough to justify a dedicated PR on its own.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
