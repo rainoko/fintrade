@@ -1,0 +1,59 @@
+{
+  "id": "frontend-daily-homework-history-followups-followups-followups-followups-followups-followups",
+  "title": "Non-blocking findings from frontend-daily-homework-history-followups-followups-followups-followups-followups's PR review (#416)",
+  "area": "frontend/pages",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-daily-homework-history-followups-followups-followups-followups-followups"],
+  "references": [
+    "docs/tasks/frontend-daily-homework-history-followups-followups-followups-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/416",
+    "frontend/eslint.config.js",
+    "docs/architecture/Testing.md#end-to-end-playwright"
+  ],
+  "description": "pr-reviewer's review of PR #416 (frontend-daily-homework-history-followups-followups-followups-followups-followups) found a blocking path-traversal bypass of the new e2e-import-guard rules (tracked by reopening that task itself back to implementing, not here) plus two non-blocking findings from the same pass (one from the code-review skill's backgrounded result, independently re-verified by pr-reviewer) that shouldn't disappear once PR #416's eventual fix merges.",
+  "checklist": [
+    {
+      "step": "The negative lookahead `(?!utils/)` in frontend/eslint.config.js's `no-restricted-imports` regex (`(^|/)src/(?!utils/)`) requires an exact trailing `utils/` (with slash), so a bare import of the `src/utils` module itself (no file/trailing slash, e.g. a future `src/utils/index.ts` barrel import) is incorrectly flagged as blocked even though it's inside the exempted utils path. Verified empirically: `import { barrel } from '../../src/utils'` against a real `src/utils/index.ts` probe produced a `no-restricted-imports` error. No `src/utils/index.ts` exists today so nothing is misflagged in the current tree, but the false positive is real and would surprise whoever adds a utils barrel file later. Worth fixing the regex (e.g. `(^|/)src/(?!utils(/|$))`) alongside whatever fix closes the path-traversal bypass, since both are regex-correctness issues in the same pattern.",
+      "done": true
+    },
+    {
+      "step": "The blocked-path pattern is duplicated by hand in two different syntaxes/escapings in frontend/eslint.config.js -- `no-restricted-imports`'s `regex: '(^|/)src/(?!utils/)'` (line 69) vs. the esquery selector's `Literal[value=/(^|\\/)src\\/(?!utils\\/)/]` (line 90) -- instead of being defined once (e.g. a shared string constant interpolated into both, or a shared RegExp source) and reused. A future change to the exempt directory applied to only one of the two would silently reintroduce an allow/block mismatch between the static- and dynamic-import rules, with nothing to flag the drift. Worth factoring the pattern into a single source of truth when the path-traversal fix touches this file anyway.",
+      "done": true
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-daily-homework-history-followups-followups-followups-followups-followups",
+    "pr_number": 416,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/416",
+    "pushed_at": "2026-10-10T10:59:56Z"
+  },
+  "decisions": [
+    {
+      "timestamp": "2026-10-10T10:59:03Z",
+      "recorded_by": "task-worker",
+      "decision": "Resolved both checklist items as part of the parent task's (frontend-daily-homework-history-followups-followups-followups-followups-followups) same PR #416 fix round, per that round's explicit dispatch instruction to fix both here rather than defer to a separate branch/PR: the bare `src/utils` barrel false positive is fixed by widening the lookahead to `(?!utils(?:/|$))`, and the hand-duplicated pattern is eliminated (not just synchronized) by replacing both rules with one local custom rule (`e2e-import-guard/no-restricted-src-import`) that defines the blocked-path regex exactly once and reuses it for both the static and dynamic checks. Full rationale and verification are recorded on the parent task's own `decisions` array (same timestamp window) since the same commit addresses both tasks' checklists; this task's `state` moves to `testing` alongside the parent rather than straight to `done`, since this task's own id hasn't itself gone through pr-reviewer/pr-decision yet -- only the parent's superseded accept has, and that's exactly the needs_work round PR #416 is still in.",
+      "rationale": "Chose not to open a second branch/PR for this task's two items given they are three lines apart from the parent task's blocking fix in the same file and the dispatch instructions for the parent task explicitly called out fixing both here instead of spawning (or, by extension, routing to) a separate follow-up task. This avoids a redundant branch/PR pair touching the same few lines of frontend/eslint.config.js, and keeps the two tasks' states in lockstep (both `testing`, pointing at the same PR #416) rather than one sitting `planned` while its own fix already exists upstream on a PR it doesn't reference."
+    }
+  ],
+  "questions": [],
+  "pr_decision": {
+    "confirmed_at": "2026-10-10T11:22:46Z",
+    "verdict": "merge",
+    "notes": "This task's two checklist items (bare-utils-barrel false positive, hand-duplicated regex) were resolved by the same PR #416 commit as the parent task's (frontend-daily-homework-history-followups-followups-followups-followups-followups) blocking fix; see that task's own pr_decision entry for the full independent re-verification (test/coverage/static-analysis re-run, custom-rule activity proof via mutation test, traversal-probe reproduction, and the weighed judgment on the newly-filed my-package/src/foo false positive and board-bookkeeping question). Confirmed this task's own two items are in fact fixed: '../../src/utils' (bare barrel, no trailing slash) passes clean, and the single BLOCKED_SRC_VALUE_IMPORT constant is used by both the static and dynamic checks in the one custom rule, eliminating rather than just re-synchronizing the prior duplication.",
+    "see_also": "docs/tasks/done/frontend-daily-homework-history-followups-followups-followups-followups-followups.json#pr_decision"
+  },
+  "review": {
+    "reviewed_at": "2026-10-10T11:12:24Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/416",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Both checklist items verified fixed as part of the parent task's (frontend-daily-homework-history-followups-followups-followups-followups-followups) accepted PR #416 review: the bare `src/utils` barrel false positive is gone (verified empirically -- `import { barrel } from '../../src/utils'` against a real probe `src/utils/index.ts` now passes clean), and the hand-duplicated regex/selector pattern is eliminated, not just synchronized, by the single `e2e-import-guard/no-restricted-src-import` rule's one `BLOCKED_SRC_VALUE_IMPORT` definition reused for both static and dynamic cases. Full verification detail is recorded on the parent task's own review -- see that task's `review.notes` for the complete account, since the same PR/commit resolves both tasks' checklists together.",
+        "file": "frontend/eslint.config.js",
+        "line": 24
+      }
+    ],
+    "notes": "This task's two checklist items were both folded into, and fully resolved by, PR #416 -- the same PR that closed the parent task's (frontend-daily-homework-history-followups-followups-followups-followups-followups) path-traversal blocking finding. Rather than this task getting its own dedicated `task/<id>` branch and PR, task-worker recorded this task's `git` block pointing at the same branch/PR as the parent, with a `decisions` entry explaining why (a three-line fix in the same file as the parent's blocking fix, to avoid a redundant branch/PR pair). I judged this acceptable as a documented, explicit judgment call rather than an undocumented shortcut, and confirmed `python3 scripts/validate_tasks.py` finds no structural violation from it -- but flagged the pattern itself (two task ids resolved by one PR/branch, with this task's `git.branch` not matching its own `task/<id>` naming convention) as a non-blocking finding on the parent task's review, tracked further on a new follow-up task since CLAUDE.md's board conventions don't explicitly address this case. Resolving this task to done in the same commit as the parent's accept, since both checklist items are independently verified fixed and there's no remaining work to track on this task itself."
+  }
+}
