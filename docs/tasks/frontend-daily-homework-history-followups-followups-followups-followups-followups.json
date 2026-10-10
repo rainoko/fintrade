@@ -36,5 +36,11 @@
       "residual_gap_documented": "While verifying gap 2's fix I found and documented (in Testing.md, not left silent) one further residual: a dynamic import whose source is a template literal or variable (e.g. `import(`../../src/${name}`)` or `import(path)`) parses to a `TemplateLiteral`/`Identifier` node rather than a `Literal`, so neither new rule's selector matches it -- verified empirically with a template-literal-sourced probe import, zero eslint errors. I chose not to chase this further: expressing 'the literal source or any string this expression could evaluate to' is a data-flow question no lint-rule selector can answer without executing the code (a custom rule could special-case a few patterns like string concatenation of a literal prefix, but a sufficiently motivated author could always construct a path ESLint's static AST can't resolve), and a dynamically-constructed module path is already a conspicuous, easy-to-flag-in-review pattern for a black-box e2e spec to contain at all -- no spec in the current tree does this. This mirrors the same proportionality judgment the original PR #414 decision made about the gaps it left open."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-daily-homework-history-followups-followups-followups-followups-followups",
+    "pr_number": 416,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/416",
+    "pushed_at": "2026-10-10T10:34:22Z"
+  }
 }
