@@ -15,6 +15,7 @@ import PositionsTable from '../features/portfolio/components/PositionsTable'
 import RiskPanel from '../features/portfolio/components/RiskPanel'
 import TradeFollowUpDuePanel from '../features/portfolio/components/TradeFollowUpDuePanel'
 import TradeJournalPanel from '../features/portfolio/components/TradeJournalPanel'
+import { useClosedTrades } from '../features/portfolio/hooks/useClosedTrades'
 import { usePortfolio } from '../features/portfolio/hooks/usePortfolio'
 import { formatCurrency } from '../utils/format'
 
@@ -38,6 +39,11 @@ import { formatCurrency } from '../utils/format'
  */
 export default function PortfolioPage() {
   const portfolioQuery = usePortfolio()
+  // Shares TradeJournalPanel's own `useClosedTrades()` query key
+  // (portfolioKeys.closedTrades) -- this is the same cached request, not a
+  // second fetch, whichever of the two components happens to mount/resolve
+  // first.
+  const closedTradesQuery = useClosedTrades()
   const ibkrStatusQuery = useIbkrStatus()
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [preloadDialogOpen, setPreloadDialogOpen] = useState(false)
@@ -47,32 +53,34 @@ export default function PortfolioPage() {
     [portfolioQuery.data],
   )
 
-  // Distinct `strategy` values across the user's own currently-held
-  // positions -- "recent tags" `Autocomplete` suggestions for
-  // AddPositionDialog's own Strategy field (frontend-trade-strategy-tagging's
-  // checklist item 4). Deliberately scoped to `usePortfolio()`'s own
-  // already-fetched data (the same query this page already calls for
-  // `existingTickers` above) rather than also reading
-  // `GET /api/portfolio/closed-trades`: an earlier revision of this task
-  // called `useClosedTrades()` directly here too to union in closed trades'
-  // own strategy tags, but that kicks off that fetch at this page's own
-  // mount instead of only once TradeJournalPanel itself mounts further down
-  // -- shifting several *other*, timing-sensitive tests' assumptions about
-  // render/query-resolution order on this same page (e.g. a position link
-  // appearing in both PositionsTable and RiskPanel by the time a prior
-  // assertion expected only one to have resolved yet). Scoping to held
-  // positions only avoids that blast radius entirely, at the cost of not
-  // suggesting a strategy only ever used on a now-closed trade -- see this
-  // task's `decisions` entry for the full rationale, including why a
-  // starker alternative (passing a callback down for AddPositionDialog to
-  // pull the closed-trades list itself only once opened) was also
-  // considered and rejected as more complex for the same marginal benefit.
+  // Distinct `strategy` values across both the user's own currently-held
+  // positions *and* their closed trade history -- "recent tags"
+  // `Autocomplete` suggestions for AddPositionDialog's own Strategy field
+  // (frontend-trade-strategy-tagging's checklist item 4). An earlier
+  // revision of frontend-trade-strategy-tagging unioned in
+  // `GET /api/portfolio/closed-trades` the same way this does, but was
+  // reverted because starting that fetch at this page's own mount (instead
+  // of only once TradeJournalPanel mounts further down the tree) broke
+  // several of this file's own pre-existing tests, which turned out to
+  // implicitly depend on query-start/resolution *timing* rather than
+  // asserting deterministically against each query's own DOM -- tracked and
+  // fixed as frontend-trade-strategy-tagging-followups checklist item 1.
+  // With that fixed, the union is reinstated here: a strategy used only on
+  // a now-closed trade is suggested too, closing the gap that same task's
+  // checklist item 2 flagged. `useClosedTrades()` shares TradeJournalPanel's
+  // own query key, so this doesn't add a second network request.
   const recentStrategies = useMemo(() => {
-    const strategies = (portfolioQuery.data?.positions ?? [])
-      .map((position) => position.strategy)
-      .filter((strategy): strategy is string => Boolean(strategy))
+    const heldStrategies = (portfolioQuery.data?.positions ?? []).map(
+      (position) => position.strategy,
+    )
+    const closedStrategies = (closedTradesQuery.data?.items ?? []).map(
+      (trade) => trade.strategy,
+    )
+    const strategies = [...heldStrategies, ...closedStrategies].filter(
+      (strategy): strategy is string => Boolean(strategy),
+    )
     return [...new Set(strategies)]
-  }, [portfolioQuery.data])
+  }, [portfolioQuery.data, closedTradesQuery.data])
 
   const ibkrAvailable = ibkrStatusQuery.data?.state === 'available'
   // `isError` is checked before `!data`, mirroring `IbkrStatusIndicator`'s
