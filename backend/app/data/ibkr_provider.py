@@ -401,12 +401,22 @@ class IBKRTrade:
     accepting the spelled-out `"BUY"`/`"SELL"` defensively) -- see `_parse_account_trades`
     for the exact mapping; a row whose side can't be recognized is dropped rather than
     guessed at. `quantity` is always strictly positive regardless of side (the direction
-    lives in `side`, not the sign)."""
+    lives in `side`, not the sign).
+
+    `trade_date` is `None` only for a `"SELL"` row whose date couldn't be determined --
+    see `_parse_account_trades`'s docstring (`backend-ibkr-import-entry-date-from-trades-
+    followups`'s `pr-decision` round 2) for why only `"BUY"` rows are guaranteed a real
+    date: `_derive_entry_date` (`app.api.routers.ibkr`) only ever reads a SELL row's
+    `quantity`, never its date, so a SELL row with an unknown date can still safely
+    participate in quantity reconciliation. A `"BUY"` row's `trade_date` is always a real
+    `date`, never `None` -- a BUY row whose date can't be determined is dropped entirely
+    rather than kept with a null date, since `_derive_entry_date` DOES read every buy's
+    date (the earliest one becomes the derived `entry_date`)."""
 
     conid: int
     side: Literal["BUY", "SELL"]
     quantity: float
-    trade_date: date
+    trade_date: date | None
 
 
 class IBKRUnavailableError(Exception):
@@ -1122,10 +1132,12 @@ class IBKRProvider:
         Each row is expected as a plain JSON object with (at least) `"conid"`, `"side"`
         (`"B"`/`"S"`, or spelled out `"BUY"`/`"SELL"`), `"size"` (share quantity, IBKR's own
         field name -- distinct from `"position"`'s role in `get_account_positions`), an
-        `"account"` id string, and either `"trade_time_r"` (epoch milliseconds, preferred --
-        unambiguous) or `"trade_time"` (a `YYYYMMDDHHMM[SS]` string) for when the execution
-        happened. See `_parse_account_trades` for the exact per-field parsing and which rows
-        are dropped.
+        `"account"` id string, and `"trade_time_r"` (epoch milliseconds) for when the
+        execution happened -- `"trade_time"` (a `YYYYMMDDHHMM[SS]` string IBKR's own
+        documented example also includes) is intentionally NOT used for this, since its
+        timezone is undocumented and unconfirmed; see `_parse_trade_date`'s own docstring
+        for the full reasoning. See `_parse_account_trades` for the exact per-field parsing
+        and which rows are dropped.
 
         Scoped to the same account `get_account_positions` discovers/uses
         (`_discover_account_id`) -- a row that names a *different* account (this app's
@@ -1389,9 +1401,31 @@ def _parse_account_trades(payload: object, account_id: str) -> list[IBKRTrade]:
     A row naming a different account than `account_id`, or a row with no `"account"`
     field at all, is dropped (see `get_account_trades`'s own docstring for why the missing
     case is fail-closed too, not kept). A malformed individual row (not a dict,
-    unparseable `conid`/`side`/`size`/trade date) is skipped rather than failing the whole
-    response, same convention as `_parse_account_positions`/`_parse_bars`/
-    `_parse_scanner_results`.
+    unparseable `conid`/`side`/`size`) is skipped rather than failing the whole response,
+    same convention as `_parse_account_positions`/`_parse_bars`/`_parse_scanner_results`.
+
+    An unparseable `trade_date` (see `_parse_trade_date`) only drops the row when `side`
+    is `"BUY"` -- a `"SELL"` row with no usable date is kept, with `trade_date=None`
+    (`backend-ibkr-import-entry-date-from-trades-followups`'s `pr-decision` round 2
+    override). The two sides aren't symmetric here: `_derive_entry_date`
+    (`app.api.routers.ibkr`) uses a BUY row's date to pick the earliest buy (so an
+    unknown BUY date must drop the row, same fail-closed convention as every other
+    ambiguous field here), but only ever reads a SELL row's `quantity`, for the
+    net-of-sells subtraction -- never its date. Dropping a dateless SELL row *entirely*
+    (the pre-this-fix behavior) removed its quantity from that subtraction rather than
+    merely leaving its date unknown, which pushes the computed net *upward* instead of
+    toward the safe `today()` fallback: concretely, if a position's true history is
+    `held = P (pre-window quantity) + B (in-window buys) - S (in-window sells)`, dropping
+    one in-window sell whose quantity happens to equal `P` turns a would-have-correctly-
+    mismatched `net = B - S = held - P` into `net = B = held` -- an exact FALSE match.
+    Unlike the already-accepted "untracked corporate action" coincidence this function's
+    callers already tolerate as negligible (whose magnitude comes from a structurally
+    different, uncorrelated process -- split ratios, assignment terms), a dropped SELL's
+    quantity is drawn from the same ordinary trade-size distribution as `P` itself, and
+    closing a position in one order of the same round size it was built in is a common
+    pattern -- not a remote coincidence. Keeping the SELL row with a `None` date instead
+    preserves its contribution to the subtraction while still never letting its (unknown)
+    date influence `entry_date`.
     """
     if not isinstance(payload, list):
         return []
@@ -1412,7 +1446,7 @@ def _parse_account_trades(payload: object, account_id: str) -> list[IBKRTrade]:
         if quantity is None or quantity <= 0:
             continue
         trade_date = _parse_trade_date(raw)
-        if trade_date is None:
+        if trade_date is None and side == "BUY":
             continue
         trades.append(IBKRTrade(conid=conid, side=side, quantity=quantity, trade_date=trade_date))
     return trades
@@ -1437,23 +1471,42 @@ def _parse_trade_side(value: object) -> Literal["BUY", "SELL"] | None:
 
 
 def _parse_trade_date(raw: dict) -> date | None:
-    """Prefers `"trade_time_r"` (epoch milliseconds -- unambiguous) over `"trade_time"`
-    (a `YYYYMMDDHHMM[SS]` string per IBKR's own documented example), trying the string
-    field only when the epoch one is missing/unparseable. Returns `None` (row dropped by
-    the caller) if neither field yields a valid date."""
+    """Only trusts `"trade_time_r"` (epoch milliseconds) for the execution date --
+    `datetime.fromtimestamp(..., tz=UTC)` makes that conversion unambiguous regardless of
+    which timezone IBKR's own clock was in when it stamped the epoch. `"trade_time"` (a
+    `YYYYMMDDHHMM[SS]` string per IBKR's own documented example) is deliberately NOT
+    parsed as a fallback, even though it was in an earlier version of this function:
+    IBKR's documentation doesn't state which timezone those digits are expressed in
+    (exchange-local vs. UTC are both plausible for a broker API, and this session has no
+    way to confirm either against a live payload -- this module's own "Testing
+    constraint" docstring paragraph, and
+    `backend-ibkr-import-entry-date-from-trades-followups`'s `decisions` entry for the
+    full reasoning). Guessing wrong would silently produce an off-by-one-day `trade_date`
+    for an extended-hours execution near the UTC day boundary -- and unlike every other
+    field this function already validates, a *wrong-but-plausible* date is exactly the one
+    failure the caller's quantity-only reconciliation (`_derive_entry_date`) cannot catch,
+    since it never looks at dates, only quantities. Returning `None` here means the row's
+    date can't be trusted; it costs nothing when `trade_time_r` is present (IBKR's own
+    documented example always includes it alongside `trade_time`).
+
+    This function itself doesn't know the row's `side` and always returns the same
+    `None`-or-a-real-date result regardless -- it's `_parse_account_trades`, not this
+    function, that decides what a `None` means for the row: dropped entirely for a BUY
+    (same fail-closed convention `_parse_account_trades` already applies to
+    `conid`/`side`/`size`/the missing-`"account"` case, since a BUY's date feeds directly
+    into `entry_date`), but kept with `trade_date=None` for a SELL (whose date nothing
+    downstream reads -- see `_parse_account_trades`'s own docstring,
+    `backend-ibkr-import-entry-date-from-trades-followups`'s `pr-decision` round 2, for
+    why dropping a SELL row outright instead of just its date was itself a bug: it can
+    manufacture a false-positive quantity match rather than only ever pushing toward the
+    conservative `today()` fallback).
+    """
     epoch_ms = raw.get("trade_time_r")
     if isinstance(epoch_ms, (int, float)) and not isinstance(epoch_ms, bool):
         try:
             return datetime.fromtimestamp(float(epoch_ms) / 1000, tz=UTC).date()
         except (OverflowError, OSError, ValueError):
             pass
-    trade_time = raw.get("trade_time")
-    if isinstance(trade_time, str) and trade_time:
-        for fmt in ("%Y%m%d%H%M%S", "%Y%m%d%H%M"):
-            try:
-                return datetime.strptime(trade_time, fmt).date()
-            except ValueError:
-                continue
     return None
 
 

@@ -1,0 +1,25 @@
+{
+  "id": "backend-ibkr-import-entry-date-from-trades-followups-followups-followups",
+  "title": "Non-blocking findings from backend-ibkr-import-entry-date-from-trades-followups's PR re-review (#410, round 2)",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-ibkr-import-entry-date-from-trades-followups"],
+  "references": [
+    "docs/tasks/backend-ibkr-import-entry-date-from-trades-followups.json",
+    "https://github.com/rainoko/fintrade/pull/410"
+  ],
+  "description": "pr-reviewer's re-review of PR #410 (backend-ibkr-import-entry-date-from-trades-followups), after the fix for pr-decision's round-2 override (the dateless-SELL-row false-positive-match finding) landed, accepted the PR outright. Two genuinely non-blocking findings surfaced during that re-review's forward-looking check for 'any remaining path of the same shape' and are tracked here so they aren't lost once the PR merges. backend-ibkr-import-entry-date-from-trades-followups-followups.json (the prior <id>-followups task) is already `done` (closed as superseded by the round-2 fix), so this is filed one level deeper per the naming convention CLAUDE.md documents for exactly this case.",
+  "checklist": [
+    {
+      "step": "`_parse_account_trades` (`backend/app/data/ibkr_provider.py`) drops a row entirely when `side` can't be recognized (`_parse_trade_side` returns `None`) or when `quantity`/`size` is missing/non-positive -- for a row that was actually a SELL, this removes its quantity from `_derive_entry_date`'s net-of-sells subtraction exactly the same way a dateless dropped SELL row did before this PR's fix, which can manufacture the same kind of false-positive exact quantity match (net pushed upward instead of toward the safe `today()` fallback). Unlike the just-fixed `trade_date` case, there is no equivalent mitigation available here: an unparseable `side` means the row's quantity can't be attributed to either bucket (buy vs. sell) at all, and an unparseable/non-positive `quantity` means there's no magnitude to keep even if the side were known -- so 'keep the row, just don't trust the one field `_derive_entry_date` doesn't read' (the fix applied to dates) doesn't generalize to these two fields. Assessed as lower real-world risk than the `trade_time`/`trade_time_r` case was (`side`/`size` are core fields every real trade row needs to be interpretable as a trade at all -- not a two-field fallback where one documented alternative could plausibly be absent -- and PR #410's own review already noted IBKR's live swagger has no `required` list for ANY field, including these, so this isn't a new weaker guarantee), but nobody has done the explicit directional-risk derivation for `side`/`quantity` that this round's `pr-decision` override did for `trade_date` -- worth recording that derivation explicitly (in the relevant docstrings) and/or deciding whether the residual risk is worth guarding against (e.g., treating an ambiguous-side row conservatively as a SELL for the subtraction, since that's the direction that can never manufacture a false positive) next time someone is in this file.",
+      "done": false
+    },
+    {
+      "step": "`_derive_entry_date`'s invariant that every `IBKRTrade` with `side==\"BUY\"` reaching it has a non-`None` `trade_date` (which makes the `min(t.trade_date for t in buys if t.trade_date is not None)` filter purely a mypy-satisfying no-op, not a runtime guard, per that line's own comment) is enforced only by `_parse_account_trades` being the single production call site that constructs `IBKRTrade` -- confirmed by grep (`grep -rn 'IBKRTrade(' app/` finds exactly one construction site). Nothing enforces this at the type level (`IBKRTrade.trade_date: date | None` permits `None` regardless of `side`) or via a runtime guard on `IBKRTrade` itself (a frozen dataclass with no `__post_init__` check) -- a hypothetical future second construction site for `IBKRTrade` that didn't replicate `_parse_account_trades`'s exact BUY-vs-SELL drop discipline could silently reintroduce a 'skip this buy, derive from a later one instead' wrong-but-plausible-`entry_date` risk, structurally the same shape of bug this task line has now been bitten by twice. Empirically confirmed this round that `coverage.py` does not instrument branch coverage inside a generator expression's own `if` filter clause (a minimal repro: a genexpr `min(x for x in xs if x is not None)` exercised only with the `True` branch still reports 0/0 branches, 100% coverage) -- so a regression here would not even show up as a coverage drop on this line, the usual safety net this project leans on. Low current risk (one call site, correctly guarded, well documented) but worth either a `__post_init__` assertion on `IBKRTrade` (a BUY row's `trade_date` must not be `None`) or a comment at any future second construction site pointing back at this invariant, if this module grows another way to build an `IBKRTrade`.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

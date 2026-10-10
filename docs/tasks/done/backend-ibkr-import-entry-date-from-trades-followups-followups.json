@@ -1,0 +1,28 @@
+{
+  "id": "backend-ibkr-import-entry-date-from-trades-followups-followups",
+  "title": "Non-blocking finding from backend-ibkr-import-entry-date-from-trades-followups's PR review (#410)",
+  "area": "backend/data",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-ibkr-import-entry-date-from-trades-followups"],
+  "references": [
+    "docs/tasks/backend-ibkr-import-entry-date-from-trades-followups.json",
+    "https://github.com/rainoko/fintrade/pull/410"
+  ],
+  "description": "pr-reviewer's review of PR #410 (backend-ibkr-import-entry-date-from-trades-followups) accepted the PR outright -- this one genuinely non-blocking finding surfaced during that review is tracked here so it isn't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "PR #410 review: `_parse_trade_date` now returns `None` (row dropped by `_parse_account_trades`) whenever `trade_time_r` is missing/unparseable, instead of ever falling back to the timezone-ambiguous `trade_time` string -- this review confirmed that change is sound for BUY rows (dropping one only ever decreases the computed net-buy quantity in `_derive_entry_date`, pushing toward the conservative `today()` fallback, never toward a false-positive match). But the same drop applies uniformly to SELL rows too, and dropping a SELL row removes its quantity from the net calculation entirely (`net = sum(buys) - sum(sells)` in `app/api/routers/ibkr.py::_derive_entry_date`) rather than just leaving its date unknown -- so a dropped SELL row's quantity is NOT subtracted from `net`, pushing `net` *upward* rather than toward the fallback. In the specific numeric coincidence where a dropped SELL row's quantity happens to equal the position's true pre-window quantity, this could produce a false-positive exact match (and therefore a wrong derived `entry_date`) in exactly the one way `_derive_entry_date`'s own docstring says this feature's soundness argument depends on never happening. Assessed as very low real-world risk (not blocking) because: (a) this exact risk category -- a coincidental cancellation producing a false-positive match -- already exists and is explicitly accepted as negligible in the same docstring for the analogous untracked-corporate-action case; (b) IBKR's live swagger describes `trade_time`/`trade_time_r` as two formats of literally the same event ('Time of status update'), strongly suggesting they're always populated together in practice, so the missing-`trade_time_r`-but-present-`trade_time` precondition this depends on is itself rare. Worth, when someone's next in this file: (1) adding a dedicated unit test that exercises this specific SELL-row-dropped-near-a-false-positive-match scenario through `_derive_entry_date` directly (not just `_parse_account_trades`'s row-count, which the existing tests already cover), and (2) a one-line acknowledgment of this BUY-vs-SELL directional asymmetry in `_derive_entry_date`'s or `_parse_trade_date`'s own docstring, so a future reader doesn't have to re-derive it from scratch.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-10-10T04:29:46Z",
+      "recorded_by": "task-worker",
+      "decision": "Closing this task as superseded/done rather than working it independently: `pr-decision`'s round-2 re-review of PR #410 (backend-ibkr-import-entry-date-from-trades-followups, https://github.com/rainoko/fintrade/pull/410#issuecomment-6093706761) escalated this exact finding from non-blocking to blocking, and the fix landed directly on that task instead -- both of this checklist item's two asks (a dedicated regression test exercising the false-positive-match scenario through `_derive_entry_date`, and a docstring acknowledgment of the BUY-vs-SELL asymmetry) are satisfied by that fix: `test_entry_date_does_not_false_match_when_a_dropped_sell_would_equal_pre_window_quantity` (`backend/tests/integration/test_ibkr_portfolio_preload.py`) encodes pr-decision's exact P=100/B=250/S=100 counterexample, and `_derive_entry_date`/`_parse_account_trades`/`_parse_trade_date`'s docstrings (`backend/app/api/routers/ibkr.py`, `backend/app/data/ibkr_provider.py`) now document the asymmetry. Marking this task's checklist item done and the task itself `done` instead of leaving it open as duplicate tracking for already-completed work, per `backend-ibkr-import-entry-date-from-trades-followups`'s own round-2 `pr-decision` override instruction to 'fold that follow-up task's checklist item in and close it out rather than leaving duplicate tracking.' No separate PR/branch for this task -- the actual code change is part of backend-ibkr-import-entry-date-from-trades-followups's existing branch/PR (task/backend-ibkr-import-entry-date-from-trades-followups, PR #410); see that task's `git` field.",
+      "rationale": "CLAUDE.md's `pr-reviewer` non-blocking-finding convention exists so a finding isn't lost once a PR merges -- it doesn't require a finding to stay open on its own dedicated task once it's actually been fixed elsewhere; leaving this task open after the fix lands would itself be the kind of stale/duplicate board state CLAUDE.md's task-board conventions exist to prevent. Considered leaving this task `planned` with a note pointing at the other task's fix, but rejected that: a `planned` task that's already fully satisfied would mislead `next-task`/`orchestrate-tasks` into treating it as outstanding work, when there is none left to do."
+    }
+  ],
+  "questions": []
+}

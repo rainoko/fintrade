@@ -531,6 +531,43 @@ class TestPreloadIbkrPortfolio:
 
         assert response.json()["imported"][0]["entry_date"] == "2026-10-03"
 
+    def test_entry_date_does_not_false_match_when_a_dropped_sell_would_equal_pre_window_quantity(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        """Regression for `backend-ibkr-import-entry-date-from-trades-followups`'s
+        `pr-decision` round 2 numeric counterexample: a position's true history is
+        `held = P (pre-window quantity, never touched in-window) + B (in-window buys) -
+        S (in-window sells)`. Here `P=100` (implicit -- not itself a trade row, just
+        quantity already held before the trade-history window started), `B=250`
+        (one in-window buy), `S=100` (one in-window sell whose `trade_time_r` IBKR didn't
+        return, so its `trade_date` is unknown/`None` -- `_parse_account_trades` now keeps
+        this row rather than dropping it, per that task's fix).
+
+        `held = 100 + 250 - 100 = 250`. The CORRECT reconciliation is
+        `net_true = B - S = 250 - 100 = 150`, which does NOT equal `held` (250) -- so this
+        must fall back to today(), not derive a date. Before the fix, dropping the dateless
+        SELL row entirely (rather than keeping its quantity with `trade_date=None`) would
+        have computed `net_computed = B - 0 = 250 == held` -- an exact FALSE positive match
+        that would have wrongly derived the buy's date as `entry_date`."""
+        _override(
+            _StubIBKRProvider(
+                positions_result=[
+                    IBKRAccountPosition(conid=1, ticker="AAPL", quantity=250.0, avg_cost=150.0)
+                ],
+                trades_result=[
+                    IBKRTrade(conid=1, side="BUY", quantity=250.0, trade_date=date(2026, 10, 5)),
+                    IBKRTrade(conid=1, side="SELL", quantity=100.0, trade_date=None),
+                ],
+            )
+        )
+
+        response = client.post("/api/ibkr/portfolio-preload")
+
+        body = response.json()
+        assert body["imported"][0]["entry_date"] == date.today().isoformat()
+        row = db_session.query(PositionORM).filter(PositionORM.ticker == "AAPL").one()
+        assert "import date, not the original" in row.entry_notes
+
     def test_entry_date_falls_back_when_trade_history_only_shows_a_partial_top_up(
         self, client: TestClient, db_session: Session
     ) -> None:
