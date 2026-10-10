@@ -2658,8 +2658,8 @@
       "id": "frontend-cftc-cot-display",
       "area": "frontend/pages",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-cftc-cot-display.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-cftc-cot-display.json"
     },
     {
       "id": "frontend-cftc-cot-display-followups",
