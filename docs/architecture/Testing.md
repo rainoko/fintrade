@@ -216,7 +216,20 @@ plus an end-to-end check (via ESLint's own `Linter`, fed the actual flat config 
 `'error'` severity — a predicate-only test can't see the rule being silently unregistered or
 detuned, which is exactly the failure mode that check exists for. Anyone changing this rule's
 matching logic should add a row to that test's table instead of hand-probing with a throwaway
-file. A genuinely test-only need
+file. `frontend/eslint-rules/` sits outside both `tsconfig.app.json`'s (`src`, `tests`,
+`.storybook`) and `tsconfig.node.json`'s (originally just `vite.config.ts`,
+`playwright.config.ts`) `include` arrays, so by default `yarn tsc -b --noEmit` never saw either
+file in it — a gap `frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups-followups-followups`
+closed concretely (not just by moving config lines) by adding `eslint-rules` to
+`tsconfig.node.json`'s `include` (the build/tooling-code project, not the app-code one) and
+turning on `allowJs` there (needed only to resolve the `.js` import specifiers
+`no-restricted-src-import.test.ts` and `eslint.config.js` use to reach each other — without it,
+TS can't see either module's exported shape and falls back to `any`); `checkJs` was deliberately
+left off, so the rule module's own internal, loosely-AST-typed JSDoc code isn't itself
+type-checked, but every real type annotation in the test file now is, against the real exported
+types of both modules — proved by injecting `isBlockedSrcSource(42)` (a `number` where the
+function's signature expects a `string`) and confirming `yarn tsc -b --noEmit` failed on it
+(`TS2345`), then reverting and confirming clean again. A genuinely test-only need
 shared across specs, or between a spec and
 the mocked suites' fixtures — not a copy or thin wrapper of app logic, e.g. `isoDateWeeksAgo`
 — still belongs in a `tests/`-local module (`tests/dateFixtures.ts`), not under `src/`.
