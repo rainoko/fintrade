@@ -49,5 +49,11 @@
       "rationale": "This task is a pure frontend consumer of an already-existing, already-documented GET /api/cftc/cot endpoint (backend-cftc-cot-data, PR #270) -- no backend route/schema was touched by this task's changes, so no OpenAPI drift was possible, but the checklist explicitly asked to confirm this rather than assume it."
     }
   ],
+  "git": {
+    "branch": "task/frontend-cftc-cot-display",
+    "pr_number": 407,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/407",
+    "pushed_at": "2026-10-10T01:45:02Z"
+  },
   "questions": []
 }
