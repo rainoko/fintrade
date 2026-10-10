@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from backend-ibkr-import-entry-date-from-trades-followups's PR re-review (#410, round 2)",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-ibkr-import-entry-date-from-trades-followups"],
   "references": [
     "docs/tasks/backend-ibkr-import-entry-date-from-trades-followups.json",
@@ -40,5 +40,12 @@
     "pr_number": 413,
     "pr_url": "https://github.com/rainoko/fintrade/pull/413",
     "pushed_at": "2026-10-10T06:05:57Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-10T06:13:34Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/413",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review of PR #413. Independently re-derived the side-bucketing dominance argument by hand (bucketing an unparseable-side-but-valid-quantity row as SELL: if truly SELL, net error is exactly 0 -- the correct contribution; if truly BUY, net ends up 2q below true value, i.e. further in the already-safe downward direction than dropping's -q error -- so bucketing strictly dominates dropping, trading only an occasional false negative for eliminating the false-positive path entirely). Confirmed by grep that `_parse_account_trades` is the sole production `IBKRTrade(...)` construction site, and read the parser's control flow line-by-line: quantity is checked (and the row dropped/poisoned) *before* an unparseable side is defaulted to \"SELL\", and the dateless-BUY drop (`if trade_date is None and side == \"BUY\": continue`) happens *before* `IBKRTrade(...)` is ever constructed on every branch -- so `IBKRTrade.__post_init__`'s ValueError is genuinely unreachable in the one production path today, confirmed not just inferred (it exists purely as a guard against a hypothetical future second construction site, as documented). Verified `preload_ibkr_portfolio` only wraps `get_account_trades()` itself (not downstream `_derive_entry_date`) in try/except, which is fine since the raise can't fire from the current code paths. Checked the task-worker's reported `git checkout --` mishap for `backend/app/data/ibkr_provider.py`: read the committed file in full (not diff-skimmed) and traced every one of the three edits (bucketing, poisoning-production, `__post_init__`) -- all present, coherent, and consistent with the docstrings and decisions entries; no sign of a dropped/garbled re-application. Independently reproduced all four claimed mutation tests by hand (reverting `__post_init__` to a no-op, reverting the `side is None` bucketing branch to `continue`, removing the poisoning-production line, removing `_derive_entry_date`'s poisoned-conid short-circuit) -- each one failed exactly the test(s) task-worker claimed it would, then reverted cleanly via `git checkout --` with a pre-verified clean tree. Ran the full backend suite (1655 passed, 99.95% coverage, 100% on both changed files), ruff + mypy (clean), re-exported `openapi.json` (byte-identical, confirmed via `git status`), and `scripts/validate_tasks.py` (clean). Also ran the `code-review` skill against the diff independently; it returned zero findings, consistent with this manual pass. No API route/schema changed, so the OpenAPI snapshot requirement is satisfied trivially (nothing to regenerate). No frontend/UI surface in this PR (pure backend data-provider/router logic, no new/changed API contract) -- browser walkthrough and the e2e suite are explicitly skipped as inapplicable per the review process's own UI-surface gate. Both checklist items' judgment calls are backed by `decisions` entries with full rationale, including alternatives considered and rejected. No non-blocking findings surfaced during this review."
   }
 }
