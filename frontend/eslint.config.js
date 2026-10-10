@@ -47,10 +47,30 @@ function isTypeOnlyDeclaration(node) {
 /**
  * Whether an import source string, once `..` segments are resolved, points
  * somewhere under `src/` other than `src/utils/`.
+ *
+ * Only a *relative* specifier (one starting with `.`, e.g. `./x` or `../x`)
+ * is even considered -- a bare npm package specifier (`my-package/src/foo`,
+ * `@scope/pkg/src/foo`) never starts with `.` per Node/bundler module
+ * resolution semantics, so checking the raw source's leading character
+ * before normalizing rules those out up front, rather than letting
+ * `BLOCKED_SRC_VALUE_IMPORT`'s `(^|/)src\/` anchor match a literal `src/`
+ * segment that happens to appear inside an unrelated package name (a false
+ * positive the six-directory glob-allowlist version of this rule didn't
+ * have, introduced when that allowlist was replaced by this default-deny
+ * regex -- see
+ * `frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups`'s
+ * `decisions` entry). The check is against the *raw* (pre-normalize) source
+ * specifically: normalizing a single-dot-relative specifier like `./src/foo`
+ * strips the leading `./` (`path.posix.normalize('./src/foo') === 'src/foo'`),
+ * which would make it indistinguishable from a bare package specifier if the
+ * leading-dot check ran after normalization instead of before. A `..`
+ * traversal specifier (`../../src/utils/../api/homework`) still starts with
+ * `.`, so it still reaches the normalize-then-test step below unaffected.
  * @param {string} rawSource the literal import source, before normalization
  * @returns {boolean}
  */
 function isBlockedSrcSource(rawSource) {
+  if (!rawSource.startsWith('.')) return false
   return BLOCKED_SRC_VALUE_IMPORT.test(path.posix.normalize(rawSource))
 }
 
