@@ -3,7 +3,7 @@
   "title": "Surface the CFTC Commitments of Traders (COT) data somewhere in the UI -- GET /api/cftc/cot has zero frontend consumer",
   "area": "frontend/pages",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "backend/app/api/routers/cftc.py",
@@ -54,6 +54,24 @@
     "pr_number": 407,
     "pr_url": "https://github.com/rainoko/fintrade/pull/407",
     "pushed_at": "2026-10-10T01:45:02Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-10T01:55:32Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/407",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: cftcCotHelp.ts's describeExtreme mis-describes a tie -- when 2+ markets share the same (highest == lowest) computable commercial_cot_index_52w value, it claims the single reduce()-found object is 'the only market with a computable reading right now', which is false whenever more than one market is tied. Realistically reachable (not a contrived float coincidence): two different markets can both sit exactly at their own trailing-52-week extreme at the same time, forcing their COT Index to the same boundary value (0 or 100). Reproduced directly with two equal-valued markets. No test covers a 2+-way tie. A wrong 'most bullish'/'only market' claim in Elder ch. 37 help text is a correctness bug, not cosmetic -- review-blocking.",
+        "file": "frontend/src/features/cftc/components/cftcCotHelp.ts",
+        "line": 42
+      },
+      {
+        "summary": "Non-blocking: describeExtreme's type predicate (market[pick] !== null) only excludes null, not undefined, even though CFTCCOTMarketOut's *_cot_index_52w fields are typed number | null | undefined. Currently unreachable (the backend always serializes an explicit null, no response_model_exclude_none), so this is a latent defensive-coding gap, not a live bug -- but it diverges from features/stocks/components/metricHelpContent.ts's own isKnown helper, which already establishes the right null+undefined-safe pattern for this exact shape elsewhere in the codebase. Tracked at frontend-cftc-cot-display-followups.",
+        "file": "frontend/src/features/cftc/components/cftcCotHelp.ts",
+        "line": 35
+      }
+    ],
+    "notes": "Full review: backend (1618 passed, 99.94% coverage) + frontend (99.78%/99.07%/99.84%/99.82% stmt/branch/fn/line coverage, all new cftc/ files at 100%) tests clean, no regression; ruff/mypy/eslint/tsc all clean; code-review skill run (independently flagged the same undefined/null predicate gap as a non-blocking finding); live-browser walkthrough independently reproduced (real CFTC network access works in this environment too -- golden path + a route-intercepted 503 edge case both render correctly, confirmed via screenshots, no console/network errors); persisted e2e suite (make e2e) -- all 28 specs passed, including watchlist specs now loading alongside CftcCotCard. Null-safety of the COT Index (formatNullableNumber), the GroupCell prop-typing fix (a genuine correct typing, not a cast), the gateway-unavailable/503 case, and WatchlistPage.test.tsx's re-scoped 'Watchlist'-named table assertion (correctly disambiguated by accessible name, not weakened) all checked out. Placement (features/cftc/components/, no Storybook story per Frontend.md §4), ch. 37 methodology conformance, and the OpenAPI-no-regeneration-needed confirmation all checked out too. Posted as a PR review comment (COMMENTED) plus one inline comment on the blocking finding -- see PR #407."
   },
   "questions": []
 }
