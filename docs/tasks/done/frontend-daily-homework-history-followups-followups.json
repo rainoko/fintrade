@@ -3,7 +3,7 @@
   "title": "Non-blocking test-quality findings from frontend-daily-homework-history-followups' PR review (#403)",
   "area": "frontend/pages",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-daily-homework-history-followups"],
   "references": [
     "docs/tasks/done/frontend-daily-homework-history-followups.json",
@@ -29,6 +29,29 @@
     "pr_number": 404,
     "pr_url": "https://github.com/rainoko/fintrade/pull/404",
     "pushed_at": "2026-10-09T23:59:52Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-10T00:08:09Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/404",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified `page.waitForResponse` is registered before the triggering Save click (via `Promise.all`, not after), so it genuinely eliminates the UTC-midnight race rather than relocating it -- confirmed by reading the diff directly, not just the PR description.",
+        "file": "frontend/tests/e2e/daily-homework.spec.ts",
+        "line": 95
+      },
+      {
+        "summary": "Confirmed the History-row date assertion is still load-bearing after the change: mutated DailyHomeworkHistoryTable.tsx's date-cell render to append a stray character, re-ran the spec, and it failed with the expected text mismatch; reverted and re-ran make e2e clean (28/28).",
+        "file": "frontend/src/features/homework/components/DailyHomeworkHistoryTable.tsx",
+        "line": 71
+      },
+      {
+        "summary": "Confirmed the spec now imports and uses the real `formatDate` (frontend/src/utils/format.ts) rather than a local copy, with matching `toLocaleDateString` options to what was removed. This is the first e2e spec under frontend/tests/e2e/ to import anything from `src/` directly (every other spec's shared helper, e.g. `isoDateWeeksAgo`, comes from tests/dateFixtures.ts instead) -- correct for this specific fix (the parent task's checklist explicitly called for a direct import), but a new precedent worth an explicit convention decision for future specs. Non-blocking; tracked as a follow-up task.",
+        "file": "frontend/tests/e2e/daily-homework.spec.ts",
+        "line": 2
+      }
+    ],
+    "notes": "make e2e: 28/28 passed (confirmed independently, not just the claimed figure). Backend pytest --cov=app: 1618 passed, 99.94% coverage. Frontend vitest --coverage: 1054 passed across 101 files, 99.78%/99.05%/99.84%/99.81% (statements/branches/functions/lines) -- both well above the 90% gate, no regression. Backend+frontend ruff/mypy/eslint/tsc and scripts/check_profit_target_wording.py and scripts/validate_tasks.py all clean. The code-review skill (medium effort) found no concrete bugs. No application code is touched by this PR (only the e2e spec plus task-board JSON), so no OpenAPI/API-doc check applies and no browser (Playwright MCP) walkthrough was run -- there's no new UI behavior for one to exercise; the persisted e2e suite (make e2e) is the directly relevant check here and was run as above. One non-blocking finding (the new src/-import precedent) filed as a followup task per CLAUDE.md's non-blocking-finding tracking rule."
   },
   "decisions": [
     {
