@@ -2651,7 +2651,7 @@
       "id": "backend-ibkr-import-entry-date-from-trades",
       "area": "backend/data",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-ibkr-import-entry-date-from-trades.json"
     },
     {
