@@ -2756,8 +2756,8 @@
       "id": "backend-ibkr-import-entry-date-from-trades-followups-followups-followups",
       "area": "backend/data",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-ibkr-import-entry-date-from-trades-followups-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-import-entry-date-from-trades-followups-followups-followups.json"
     }
   ]
 }

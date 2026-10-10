@@ -411,12 +411,57 @@ class IBKRTrade:
     participate in quantity reconciliation. A `"BUY"` row's `trade_date` is always a real
     `date`, never `None` -- a BUY row whose date can't be determined is dropped entirely
     rather than kept with a null date, since `_derive_entry_date` DOES read every buy's
-    date (the earliest one becomes the derived `entry_date`)."""
+    date (the earliest one becomes the derived `entry_date`).
+
+    This invariant (every `"BUY"` row has a non-`None` `trade_date`) is enforced here, at
+    construction, by `__post_init__` below -- not only by `_parse_account_trades` being
+    this class's sole production construction site (`backend-ibkr-import-entry-date-from-
+    trades-followups-followups-followups`'s checklist item 2: that single-call-site
+    discipline was previously the ONLY thing enforcing this, which a hypothetical future
+    second construction site could silently fail to replicate, and
+    `_derive_entry_date`'s own `min(... if t.trade_date is not None)` filter -- the one
+    place that would otherwise misbehave -- sits inside a generator expression whose `if`
+    clause `coverage.py` does not instrument branch coverage for, confirmed empirically
+    this round, so a regression there wouldn't even show up as a coverage drop). A
+    `__post_init__` assertion is cheap here specifically because it's a genuine invariant
+    of this type's own meaning (a `"BUY"` execution's date is definitionally knowable --
+    see `_parse_account_trades`), not an arbitrary restriction, so it costs nothing in the
+    correct case and fails loudly, at the point of construction, in the wrong one."""
 
     conid: int
     side: Literal["BUY", "SELL"]
     quantity: float
     trade_date: date | None
+
+    def __post_init__(self) -> None:
+        if self.side == "BUY" and self.trade_date is None:
+            raise ValueError("IBKRTrade: a 'BUY' row must carry a non-None trade_date")
+
+
+@dataclass(frozen=True)
+class IBKRAccountTrades:
+    """Return shape of `IBKRProvider.get_account_trades()`
+    (`backend-ibkr-import-entry-date-from-trades-followups-followups-followups`'s
+    checklist item 1). `trades` is the recent buy/sell rows `_derive_entry_date`
+    reconciles a position's held quantity against, exactly as `get_account_trades` always
+    returned before this task.
+
+    `poisoned_conids` is new: the conids for which this response contained at least one
+    row this parser genuinely could not interpret in a way that could plausibly have been
+    a `"SELL"` whose quantity `_derive_entry_date`'s net-of-sells subtraction needed --
+    specifically, a row whose `quantity`/`size` was missing/unparseable/non-positive and
+    whose `side` was not confirmed `"BUY"` (see `_parse_account_trades`'s own docstring
+    for the full directional-risk derivation this is based on, and why a confirmed-`"BUY"`
+    row with a bad quantity does NOT poison its conid -- dropping a `"BUY"` row is always
+    safe). `_derive_entry_date` must treat any conid in this set as entirely
+    unreconcilable -- always falling back to the conservative `today()` date, without even
+    attempting a quantity match -- regardless of what `trades` alone would otherwise
+    compute for it, since the true, unobservable quantity this parser had to discard could
+    have been exactly the one value that would turn a correctly-mismatching net into a
+    false-positive exact match."""
+
+    trades: list[IBKRTrade]
+    poisoned_conids: frozenset[int]
 
 
 class IBKRUnavailableError(Exception):
@@ -1108,7 +1153,7 @@ class IBKRProvider:
             positions.extend(page_positions)
         return positions
 
-    def get_account_trades(self) -> list[IBKRTrade]:
+    def get_account_trades(self) -> IBKRAccountTrades:
         """Recent buy/sell executions for the connected account, from IBKR's own
         documented "recent executions" endpoint `GET /iserver/account/trades`
         (`backend-ibkr-import-entry-date-from-trades`'s checklist item 1/4). IBKR's own
@@ -1124,10 +1169,15 @@ class IBKRProvider:
         reconciling a position's recently-held quantity against its recent trade history
         to decide whether a real `entry_date` can be derived, instead of falling back to
         today's date (see `app.api.routers.ibkr._derive_entry_date`). Degrading to an
-        empty list on failure (rather than ever raising past this call) is the caller's
-        job, not this method's -- it raises `IBKRUnavailableError` exactly like every
-        other gateway-calling method here, so a caller that wants the softer "couldn't get
-        trade history, fall back" behavior catches that itself.
+        empty `IBKRAccountTrades` on failure (rather than ever raising past this call) is
+        the caller's job, not this method's -- it raises `IBKRUnavailableError` exactly
+        like every other gateway-calling method here, so a caller that wants the softer
+        "couldn't get trade history, fall back" behavior catches that itself.
+
+        Returns `IBKRAccountTrades` (`backend-ibkr-import-entry-date-from-trades-
+        followups-followups-followups`'s checklist item 1), not a bare `list[IBKRTrade]`
+        as this method used to -- see that dataclass's own docstring for why
+        `poisoned_conids` exists and what a caller must do with it.
 
         Each row is expected as a plain JSON object with (at least) `"conid"`, `"side"`
         (`"B"`/`"S"`, or spelled out `"BUY"`/`"SELL"`), `"size"` (share quantity, IBKR's own
@@ -1390,7 +1440,7 @@ def _parse_account_positions(payload: object) -> list[IBKRAccountPosition]:
     return positions
 
 
-def _parse_account_trades(payload: object, account_id: str) -> list[IBKRTrade]:
+def _parse_account_trades(payload: object, account_id: str) -> IBKRAccountTrades:
     """One response from `GET /iserver/account/trades`, documented (this task's
     `decisions` entry) as a plain JSON array, one entry per execution, roughly
     `{"conid": 265598, "side": "B", "size": 10, "account": "DU1234567",
@@ -1401,8 +1451,8 @@ def _parse_account_trades(payload: object, account_id: str) -> list[IBKRTrade]:
     A row naming a different account than `account_id`, or a row with no `"account"`
     field at all, is dropped (see `get_account_trades`'s own docstring for why the missing
     case is fail-closed too, not kept). A malformed individual row (not a dict,
-    unparseable `conid`/`side`/`size`) is skipped rather than failing the whole response,
-    same convention as `_parse_account_positions`/`_parse_bars`/`_parse_scanner_results`.
+    unparseable `conid`) is skipped rather than failing the whole response, same
+    convention as `_parse_account_positions`/`_parse_bars`/`_parse_scanner_results`.
 
     An unparseable `trade_date` (see `_parse_trade_date`) only drops the row when `side`
     is `"BUY"` -- a `"SELL"` row with no usable date is kept, with `trade_date=None`
@@ -1426,10 +1476,50 @@ def _parse_account_trades(payload: object, account_id: str) -> list[IBKRTrade]:
     pattern -- not a remote coincidence. Keeping the SELL row with a `None` date instead
     preserves its contribution to the subtraction while still never letting its (unknown)
     date influence `entry_date`.
+
+    An unrecognized `side` (see `_parse_trade_side`) no longer drops the row outright
+    either, *provided* `quantity`/`size` parses to a usable positive number
+    (`backend-ibkr-import-entry-date-from-trades-followups-followups-followups`'s
+    checklist item 1) -- it's defensively bucketed as `"SELL"` instead. This is a
+    deliberate, provably-safe choice, not a guess: let `q` be the row's (known, valid)
+    quantity. If the row's true side was actually `"SELL"`, bucketing it as `"SELL"`
+    computes the EXACT correct contribution to `net` (`-q`) -- no risk at all, since this
+    is simply what the correct calculation would have done anyway. If the row's true side
+    was actually `"BUY"`, bucketing it as `"SELL"` contributes `-q` where the true
+    contribution would have been `+q` -- `net` ends up *below* the true value (by `2q`),
+    which is the same direction as every other already-established-safe mitigation here
+    (a dropped BUY only ever decreases `net`, see `get_account_trades`'s own docstring):
+    moving `net` *down* from the true value can only turn a would-be TRUE match into a
+    (safe, conservative) mismatch, never the reverse, since the true `net` can never
+    exceed `held` in the first place (see `_derive_entry_date`'s own docstring for why).
+    So bucketing an ambiguous-side row as `"SELL"` is safe regardless of which side it
+    actually was -- strictly better than dropping it (which carried the SAME
+    false-positive risk the just-cited dateless-SELL fix closed, whenever the true side
+    was actually `"SELL"`), at the cost of occasionally missing a legitimate derivation
+    when the true side was actually `"BUY"` (a false negative, this feature's own
+    documented acceptable-cost side of its soundness tradeoff -- never a false positive).
+
+    `quantity`/`size` missing, unparseable, or non-positive is the one case with no
+    equivalent free fix: there's no magnitude left to bucket one way or the other. A
+    confirmed `"BUY"` row with a bad quantity is still just dropped (safe, unchanged --
+    the BUY-only-ever-decreases-net argument above). Anything else -- a confirmed
+    `"SELL"` row with a bad quantity, OR a row whose `side` is *also* unrecognized (so
+    there's no way to even rule out `"SELL"`) -- adds this row's `conid` to
+    `poisoned_conids` instead of merely dropping the row: unlike every other fail-closed
+    case in this function, there is no quantity to discard that's safe to lose, so rather
+    than risk this row having been the one in-window SELL whose quantity would have made
+    `_derive_entry_date`'s net-of-sells subtraction correctly mismatch, this conid's
+    reconciliation is poisoned outright -- `_derive_entry_date` must fall back to
+    `today()` unconditionally for it, without even attempting a quantity match (see
+    `IBKRAccountTrades`'s own docstring). Poisoning is scoped to exactly this failure
+    shape (confirmed-or-possible SELL, unusable quantity) rather than any dropped row,
+    specifically so it doesn't needlessly disable derivation for the common, already-safe
+    case of a malformed BUY row.
     """
     if not isinstance(payload, list):
-        return []
+        return IBKRAccountTrades(trades=[], poisoned_conids=frozenset())
     trades: list[IBKRTrade] = []
+    poisoned_conids: set[int] = set()
     for raw in payload:
         if not isinstance(raw, dict):
             continue
@@ -1440,16 +1530,27 @@ def _parse_account_trades(payload: object, account_id: str) -> list[IBKRTrade]:
         if conid is None:
             continue
         side = _parse_trade_side(raw.get("side"))
-        if side is None:
-            continue
         quantity = _float_or_none(raw.get("size"))
         if quantity is None or quantity <= 0:
+            # No magnitude left to keep at all. Safe to just drop when this row is a
+            # confirmed BUY (dropping a BUY only ever decreases net, see this function's
+            # own docstring); anything else (a confirmed SELL, or a side we can't even
+            # recognize) might have been the one SELL whose quantity mattered, so this
+            # conid's whole reconciliation is poisoned instead -- see this function's
+            # docstring and `IBKRAccountTrades`.
+            if side != "BUY":
+                poisoned_conids.add(conid)
             continue
+        if side is None:
+            # Unrecognized side, but a valid quantity -- bucket defensively as SELL
+            # rather than drop, per this function's own docstring (provably safe
+            # regardless of the row's actual, unknown side).
+            side = "SELL"
         trade_date = _parse_trade_date(raw)
         if trade_date is None and side == "BUY":
             continue
         trades.append(IBKRTrade(conid=conid, side=side, quantity=quantity, trade_date=trade_date))
-    return trades
+    return IBKRAccountTrades(trades=trades, poisoned_conids=frozenset(poisoned_conids))
 
 
 def _parse_trade_side(value: object) -> Literal["BUY", "SELL"] | None:
@@ -1457,9 +1558,15 @@ def _parse_trade_side(value: object) -> Literal["BUY", "SELL"] | None:
     `"BUY"`/`"SELL"` is also accepted defensively since this session could not verify the
     live wire value against a real gateway (this module's own "Testing constraint"
     docstring paragraph). Anything else (missing, a different casing-normalized string,
-    a non-string value) is unrecognized and returns `None` so the caller drops the row --
-    guessing a side for an unrecognized value would risk silently miscounting the net
-    quantity reconciliation this is used for."""
+    a non-string value) is unrecognized and returns `None`.
+
+    A `None` result no longer unconditionally means "the caller drops the row" (it did
+    before `backend-ibkr-import-entry-date-from-trades-followups-followups-followups`) --
+    `_parse_account_trades` now defensively buckets a `None` result as `"SELL"` when the
+    row's quantity is otherwise usable (see that function's own docstring for why this is
+    provably safe), and only actually drops/poisons the row when there's no usable
+    quantity either. This function itself still just reports what it can and can't
+    recognize; it doesn't know about quantity and isn't the one deciding the row's fate."""
     if not isinstance(value, str):
         return None
     normalized = value.strip().upper()

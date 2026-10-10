@@ -21,6 +21,7 @@ from app.api.dependencies import get_ibkr_provider
 from app.data.ibkr_provider import (
     GatewayStatus,
     IBKRAccountPosition,
+    IBKRAccountTrades,
     IBKRTrade,
     IBKRUnavailableError,
 )
@@ -40,6 +41,14 @@ class _StubIBKRProvider:
     reconciliation possible" case, which is exactly this feature's original
     pre-`backend-ibkr-import-entry-date-from-trades` behavior, so every test written before
     that task keeps testing the same `entry_date`-always-today() fallback path unmodified.
+
+    `poisoned_conids` (`backend-ibkr-import-entry-date-from-trades-followups-followups-
+    followups`'s checklist item 1) is accepted separately from `trades_result`, rather than
+    requiring every existing test to construct an `IBKRAccountTrades` directly, so this
+    stub does that wrapping itself -- keeping every test written before this task's
+    `poisoned_conids` concept existed passing unmodified, exactly the same accommodation
+    `trades_result`'s own default already makes for `backend-ibkr-import-entry-date-from-
+    trades`.
     """
 
     def __init__(
@@ -48,10 +57,12 @@ class _StubIBKRProvider:
         status: GatewayStatus = _AVAILABLE,
         positions_result: list[IBKRAccountPosition] | Exception | None = None,
         trades_result: list[IBKRTrade] | Exception | None = None,
+        poisoned_conids: frozenset[int] = frozenset(),
     ) -> None:
         self._status = status
         self._positions_result = positions_result
         self._trades_result = trades_result if trades_result is not None else []
+        self._poisoned_conids = poisoned_conids
 
     def get_gateway_status(self) -> GatewayStatus:
         return self._status
@@ -62,10 +73,10 @@ class _StubIBKRProvider:
         assert self._positions_result is not None
         return self._positions_result
 
-    def get_account_trades(self) -> list[IBKRTrade]:
+    def get_account_trades(self) -> IBKRAccountTrades:
         if isinstance(self._trades_result, Exception):
             raise self._trades_result
-        return self._trades_result
+        return IBKRAccountTrades(trades=self._trades_result, poisoned_conids=self._poisoned_conids)
 
 
 @pytest.fixture(autouse=True)
@@ -558,6 +569,37 @@ class TestPreloadIbkrPortfolio:
                     IBKRTrade(conid=1, side="BUY", quantity=250.0, trade_date=date(2026, 10, 5)),
                     IBKRTrade(conid=1, side="SELL", quantity=100.0, trade_date=None),
                 ],
+            )
+        )
+
+        response = client.post("/api/ibkr/portfolio-preload")
+
+        body = response.json()
+        assert body["imported"][0]["entry_date"] == date.today().isoformat()
+        row = db_session.query(PositionORM).filter(PositionORM.ticker == "AAPL").one()
+        assert "import date, not the original" in row.entry_notes
+
+    def test_entry_date_falls_back_for_a_poisoned_conid_even_when_the_remaining_trades_would_have_matched(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        """Regression for `backend-ibkr-import-entry-date-from-trades-followups-
+        followups-followups`'s checklist item 1: a confirmed-SELL row (or an
+        unrecognized-side row) with an unparseable/non-positive quantity poisons its
+        conid's whole reconciliation, not just dropping that one row. Here the (visible)
+        trades alone would have exactly matched `held` (a single 250-share BUY against a
+        250-share position) -- the SAME false-positive shape the already-fixed dateless-
+        SELL case closed -- but because `_parse_account_trades` also saw a SELL row for
+        this conid whose quantity it couldn't read, the conid is poisoned and this must
+        still fall back to today(), never deriving the BUY's date as a false positive."""
+        _override(
+            _StubIBKRProvider(
+                positions_result=[
+                    IBKRAccountPosition(conid=1, ticker="AAPL", quantity=250.0, avg_cost=150.0)
+                ],
+                trades_result=[
+                    IBKRTrade(conid=1, side="BUY", quantity=250.0, trade_date=date(2026, 10, 5)),
+                ],
+                poisoned_conids=frozenset({1}),
             )
         )
 
