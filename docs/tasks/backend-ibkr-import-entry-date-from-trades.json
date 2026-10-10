@@ -46,5 +46,11 @@
       "rationale": "The task explicitly frames an investigated, well-reasoned 'not currently possible' as a valid, complete outcome for an 'if possible' research task (checklist item 3) -- forcing an implementation against an endpoint whose own documented scope structurally can't support the feature's actual requirement (arbitrary-age existing positions, not just recently-opened ones) would trade an honest, already-explained `today()` fallback for a worse one that looks precise but is silently wrong for exactly the positions most likely to need it. Rejected alternative: implement against `/iserver/account/trades` anyway and only use it when a matching execution happens to fall inside the lookback window, falling back to `today()` otherwise (literally what checklist item 4 describes as the 'if possible' shape) -- rejected specifically because of the partial-top-up failure mode above: this session has no way to distinguish (within that implementation) 'genuinely opened inside the window' from 'held longer than the window, this is just a later add,' so shipping it would silently mislabel the second case as the first for any position with in-window top-up activity, which is a materially worse and harder-to-notice failure than the current, already-labeled `today()` fallback. Chose to record this as a decisions entry rather than a questions entry because nothing here is a product call only the user can make -- it's a technical research conclusion the worker is positioned to reach and justify itself, per CLAUDE.md's decisions-vs-questions distinction."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-ibkr-import-entry-date-from-trades",
+    "pr_number": 408,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/408",
+    "pushed_at": "2026-10-10T02:24:25Z"
+  }
 }
