@@ -1,0 +1,26 @@
+{
+  "id": "frontend-daily-homework-history-followups-followups-followups-followups",
+  "title": "Non-blocking findings from PR #405's review (frontend-daily-homework-history-followups-followups-followups)",
+  "area": "frontend/pages",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-daily-homework-history-followups-followups-followups"],
+  "references": [
+    "docs/tasks/frontend-daily-homework-history-followups-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/405",
+    "docs/architecture/Testing.md#end-to-end-playwright"
+  ],
+  "description": "Tracked follow-up for two non-blocking findings raised in pr-reviewer's review of PR #405 (frontend-daily-homework-history-followups-followups-followups), which documented an explicit convention for importing from `src/` in an e2e spec. The convention itself is sound, correctly placed, consistent with the rest of Testing.md, and the one spec (daily-homework.spec.ts) it was written to cover already conforms -- grepping the whole of frontend/tests/e2e/ confirmed no other spec imports from src/ at all, so nothing in the current tree violates the newly-written rule on day one. Neither finding below blocks the accept.",
+  "checklist": [
+    {
+      "step": "The new convention (\"a type, or a pure, side-effect-free utility/formatting function\") is documentary only -- there is no `eslint.config.js` rule (e.g. a `no-restricted-imports` override scoped to `tests/e2e/**` allowing only `import type` plus a specific named-export allowlist) that would mechanically catch a future spec importing a React component, hook, or context from `src/` in violation of the rule. The worked example (DailyHomeworkOut as a type, formatDate as a pure function) and the explicit prohibition give a reasonably clear bright-line test for the common case, but \"pure, side-effect-free\" for a borderline helper (one that calls other src/ functions transitively, does memoization, or has a non-obvious dependency) is something only a human reviewer can judge -- there's no automated backstop today. Worth considering whether a scoped eslint override is practical, and if not, at least noting in Testing.md that enforcement is review-only.",
+      "done": false
+    },
+    {
+      "step": "Minor documentation-accuracy nit in the new Testing.md paragraph: it says the exception works because \"both `tsconfig.app.json` and Playwright's own `tsconfig` already include `src` and `tests` together\" -- but there is no separate Playwright-specific tsconfig file anywhere in `frontend/` (confirmed: no `tsconfig.e2e*`/`*playwright*tsconfig*` file exists, and `playwright.config.ts` doesn't reference one). Playwright's own test runner doesn't type-check specs at all (it transpiles via esbuild without checking types); type-checking of `tests/e2e/*.spec.ts` happens solely through the project's ordinary `yarn tsc -b --noEmit` step against `tsconfig.app.json`, which already lists `src`/`tests`/`.storybook` in its `include`. The parenthetical should be reworded to not imply a second, Playwright-specific tsconfig exists -- e.g. \"the one `tsconfig.app.json` (via its project-reference build) already covers both `src` and `tests`, so nothing extra needs wiring for either static type-checking or the Playwright runner's own transpilation.\"",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
