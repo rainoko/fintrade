@@ -37,7 +37,16 @@ describe('PortfolioPage', () => {
     expect(screen.getByText('Cash')).toBeInTheDocument()
     expect(screen.getByText('Positions Value')).toBeInTheDocument()
     expect(screen.getByText('Total Equity')).toBeInTheDocument()
-    expect(screen.getByText('AAPL')).toBeInTheDocument()
+    // Scoped to the Positions table specifically (not a bare
+    // `screen.getByText('AAPL')`): TradeJournalPanel's own closed-trades
+    // query can resolve its own AAPL text too (frontend-trade-strategy-
+    // tagging-followups checklist item 1) once this page's queries are no
+    // longer guaranteed to resolve in a fixed order, which would otherwise
+    // make this assertion ambiguous ("Found multiple elements") rather than
+    // a genuine assertion about what the Positions table itself renders.
+    expect(
+      within(screen.getByRole('table', { name: 'Positions' })).getByText('AAPL'),
+    ).toBeInTheDocument()
 
     await waitFor(() =>
       expect(screen.getByRole('table', { name: 'Portfolio risk' })).toBeInTheDocument(),
@@ -48,7 +57,9 @@ describe('PortfolioPage', () => {
       expect(screen.getByRole('table', { name: 'Trade journal' })).toBeInTheDocument(),
     )
     expect(screen.getByRole('heading', { name: 'Trade Journal' })).toBeInTheDocument()
-    expect(screen.getByText('ADSK')).toBeInTheDocument()
+    expect(
+      within(screen.getByRole('table', { name: 'Trade journal' })).getByText('ADSK'),
+    ).toBeInTheDocument()
   })
 
   it('shows the empty state when the portfolio has no positions', async () => {
@@ -69,6 +80,14 @@ describe('PortfolioPage', () => {
           positions: [],
         }),
       ),
+      // Explicitly empty, rather than relying on the default (non-empty)
+      // closed-trades fixture simply not having resolved yet by the time
+      // the `queryByRole('table')` assertion below runs: this test asserts
+      // no table can ever render for an empty portfolio, including
+      // TradeJournalPanel's own table once it does resolve, not just that
+      // none happens to have resolved at assertion time
+      // (frontend-trade-strategy-tagging-followups checklist item 1).
+      http.get('/api/portfolio/closed-trades', () => HttpResponse.json({ items: [] })),
     )
 
     renderPortfolioPage()
@@ -78,6 +97,10 @@ describe('PortfolioPage', () => {
         screen.getByText('No positions yet. Add one to get started.'),
       ).toBeInTheDocument(),
     )
+    // Give TradeJournalPanel's own (now-empty) closed-trades query a chance
+    // to actually resolve before asserting no table exists, so this isn't
+    // just catching it mid-flight.
+    await waitFor(() => expect(screen.getByText(/no closed trades/i)).toBeInTheDocument())
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
 
@@ -163,8 +186,7 @@ describe('PortfolioPage', () => {
   }, 15000)
 
   // frontend-trade-strategy-tagging: `recentStrategies` is derived from the
-  // user's own currently-held positions (see this task's `decisions` entry
-  // for why closed trades' own strategy tags are deliberately excluded).
+  // user's own currently-held positions.
   it("offers a held position's own strategy tag as an Autocomplete suggestion on the Add Position dialog", async () => {
     server.use(
       http.get('/api/portfolio', () =>
@@ -179,6 +201,50 @@ describe('PortfolioPage', () => {
               avg_cost_basis: 195.3,
               entry_date: '2026-05-14',
               strategy: 'Pullback to value',
+            },
+          ],
+        }),
+      ),
+    )
+    const user = userEvent.setup()
+    renderPortfolioPage()
+
+    await waitFor(() =>
+      expect(screen.getByRole('table', { name: 'Positions' })).toBeInTheDocument(),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Add Position' }))
+    const strategyInput = within(screen.getByRole('dialog')).getByLabelText(
+      'Strategy (optional)',
+    )
+    await user.click(strategyInput)
+
+    expect(
+      await screen.findByRole('option', { name: 'Pullback to value' }),
+    ).toBeInTheDocument()
+  })
+
+  // frontend-trade-strategy-tagging-followups checklist item 2: a strategy
+  // used only on a now-closed trade (never on a currently-held position) is
+  // still offered as a suggestion -- `recentStrategies` unions
+  // GET /api/portfolio/closed-trades' own `strategy` values too, not just
+  // held positions'. The default closed-trades fixture's ADSK row carries
+  // `strategy: 'Pullback to value'` (tests/mocks/handlers.ts) while this
+  // override's only held position has no strategy at all, so this option
+  // can only come from the closed-trades union.
+  it("offers a closed-only trade's own strategy tag as an Autocomplete suggestion too", async () => {
+    server.use(
+      http.get('/api/portfolio', () =>
+        HttpResponse.json({
+          trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
+          equity: { cash: 5000, positions_value: 22890, total: 27890 },
+          positions: [
+            {
+              id: 'pos_123',
+              ticker: 'AAPL',
+              quantity: 100,
+              avg_cost_basis: 195.3,
+              entry_date: '2026-05-14',
             },
           ],
         }),

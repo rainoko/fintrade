@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from frontend-trade-strategy-tagging's PR review (#406)",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-trade-strategy-tagging"],
   "references": [
     "docs/tasks/done/frontend-trade-strategy-tagging.json",
@@ -15,13 +15,26 @@
   "checklist": [
     {
       "step": "frontend/src/pages/PortfolioPage.test.tsx has several pre-existing tests that implicitly rely on async query-start/resolution *timing* rather than deterministic assertions, rather than on the actual DOM each query should produce. Confirmed by direct experiment during this PR's review: reproducing the PR's own earlier (reverted) revision -- adding a second `useClosedTrades()` call at PortfolioPage's own top level to union closed-trades' strategy values into recentStrategies -- causes 'shows a loading state, then the equity stat cards and positions table' to fail with 'Found multiple elements with the text: AAPL' (PositionsTable's AAPL link and TradeJournalPanel's own AAPL link both now resolve by the time the bare `screen.getByText('AAPL')` assertion runs, because starting the closed-trades fetch earlier -- at PortfolioPage's own mount instead of only once TradeJournalPanel mounts deeper in the tree -- gives it enough of a timing head start to resolve before that assertion fires), and 'shows the empty state when the portfolio has no positions' fails because `screen.queryByRole('table')).not.toBeInTheDocument()` implicitly assumes TradeJournalPanel's own closed-trades query (whose default MSW fixture is non-empty) hasn't resolved yet by the time that assertion runs, rather than actually asserting the Trade Journal table can never appear for an empty portfolio. Both are real, pre-existing test-design smells (order/timing-dependent assertions, not fixed by anything in this PR) that constrained a legitimate implementation choice in #406 (unioning closed trades' own strategy values was reverted specifically because of this fragility) -- recommend scoping assertions to the specific table under test (e.g. `within(screen.getByRole('table', { name: 'Positions' })).getByText('AAPL')`) and/or explicitly overriding `GET /api/portfolio/closed-trades` to return an empty list in the empty-portfolio test, rather than relying on implicit query-start ordering either way.",
-      "done": false
+      "done": true
     },
     {
       "step": "AddPositionDialog's 'recent tags' Autocomplete suggestions (recentStrategies, derived in PortfolioPage from usePortfolio()'s held positions only) don't include a `strategy` value that was only ever used on a trade that's since been closed -- a real, if narrow, behavior gap acknowledged in frontend-trade-strategy-tagging's own `decisions` entry. Worth revisiting once the PortfolioPage test-timing fragility above is fixed (or via an alternative that avoids it, e.g. AddPositionDialog/PortfolioPage pulling GET /api/portfolio/closed-trades lazily only once the dialog is actually opened, rather than PortfolioPage prefetching it unconditionally at mount) -- confirm in practice whether this gap is worth closing at all before doing so.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-10T03:31:46Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the two flagged PortfolioPage.test.tsx assertions by scoping them to the specific table under test rather than asserting against the whole document: 'shows a loading state...' now asserts `within(screen.getByRole('table', { name: 'Positions' })).getByText('AAPL')` (and, for symmetry, `within(screen.getByRole('table', { name: 'Trade journal' })).getByText('ADSK')`) instead of a bare `screen.getByText(...)`; 'shows the empty state...' now explicitly overrides `GET /api/portfolio/closed-trades` to `{ items: [] }` and waits for TradeJournalPanel's own 'No closed trades yet.' empty message to actually render before asserting `queryByRole('table')` is absent, rather than relying on the default non-empty closed-trades fixture simply not having resolved yet.",
+      "rationale": "This is exactly the fix the PR #406 review (and this task's checklist item 1) recommended, and it was verified deterministic the way the task required: ran the full suite with ONLY this fix applied (no PortfolioPage.tsx change yet) and confirmed 100% green (104 files / 1076 tests) before touching PortfolioPage.tsx at all, so the subsequent union change (checklist item 2) can't be read as having silently papered over a still-fragile test. Left the other two bare `screen.getByText('AAPL')` call sites in this file (the delete-position and IBKR-preload tests) unchanged: the default closed-trades MSW fixture (ADSK/TSLA/NVDA) never renders the text 'AAPL' anywhere, so those two remain genuinely unambiguous regardless of query-start order -- scoping them too would be defensive churn with no corresponding fragility to fix, unlike the two call sites the review specifically reproduced breaking."
+    },
+    {
+      "timestamp": "2026-10-10T03:31:46Z",
+      "recorded_by": "task-worker",
+      "decision": "Reinstated the closed-trades union into `recentStrategies`: PortfolioPage.tsx now also calls `useClosedTrades()` (sharing TradeJournalPanel's own `portfolioKeys.closedTrades` query key, so this is not a second network request) and unions `GET /api/portfolio/closed-trades`'s `ClosedTradesResponse.items[].strategy` values in alongside the held positions' own `strategy` values before de-duplicating via `Set`. Added a new test ('offers a closed-only trade's own strategy tag as an Autocomplete suggestion too') that overrides GET /api/portfolio to a position with no strategy at all, relies on the default closed-trades fixture's ADSK row (`strategy: 'Pullback to value'`) being present, and confirms that option is still offered -- this can only pass via the closed-trades union, not the held-positions path. Also did a one-off real-browser check (Playwright script against the locally running dev stack, backend/fintrade.db) confirming the same behavior end to end with no console errors or failed network requests; reverted the one-off DB edit afterward and confirmed the shared dev db is back at 18 positions / 20 closed trades.",
+      "rationale": "This closes the real (if narrow) behavior gap checklist item 2 and frontend-trade-strategy-tagging's own decisions entry both flagged: a strategy used only on a now-closed trade was previously never suggested. It's safe to ship now that checklist item 1's fix makes the previously timing-dependent tests deterministic -- confirmed by running the full frontend suite (104 files / 1077 tests, including the new test) green with the union in place, immediately after already having confirmed the suite green with only the determinism fix and no union (per CLAUDE.md's instructed ordering), so the union is demonstrably not papering over any remaining fragility. No alternative (e.g. lazily fetching closed-trades only once AddPositionDialog opens) was pursued: that would add complexity (prop-drilling a fetch trigger down into AddPositionDialog, or lifting the Autocomplete's data dependency into the dialog itself) for no benefit beyond what sharing TradeJournalPanel's already-fetched query key already gives for free, now that the query-key-sharing approach's only real cost (the test fragility) is fixed."
+    }
+  ],
   "questions": []
 }
