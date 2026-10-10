@@ -124,15 +124,37 @@ component, hook, context, or any module with side effects/DOM/app-runtime depend
 **not allowed** — that would let a spec exercise app logic directly instead of through the
 browser the way a real user does, which is the black-box boundary this suite exists to
 keep. `frontend/eslint.config.js` has a `no-restricted-imports` override scoped to
-`tests/e2e/**/*.ts` that mechanically catches the common case of this — a non-type import
-from `src/components/`, `src/features/`, `src/pages/`, `src/api/`, `src/theme/`, or an app
-entry point is flagged, while a type import from anywhere in `src/` and any import (type or
-value) from `src/utils/` are left alone — but it's a backstop for the obvious violations,
-not a substitute for review: it can't tell a genuinely pure `src/utils/` helper from one
-that's quietly grown a transitive dependency on something impure, so a borderline case still
-needs a human judgment call (see
+`tests/e2e/**/*.ts` that mechanically catches this — a non-type **value** import whose
+source path contains a `src/` segment not immediately followed by `utils/` is flagged (a
+`regex` pattern, not a directory-name glob, matched with plain `RegExp#test` against the raw
+import-source string), while a type import from anywhere in `src/` and any import (type or
+value) from `src/utils/` are left alone. This is a default-deny over all of `src/`, not a
+directory allowlist — an earlier version of this rule listed six specific blocked
+directories (`src/components/`, `src/features/`, `src/pages/`, `src/api/`, `src/theme/`, app
+entry points) and silently passed a value import from any `src/` subdirectory not on that
+list, most notably a `src/hooks/` or `src/contexts/` that didn't exist in the tree yet; the
+current regex has no such gap, since it blocks everything under `src/` except `src/utils/`
+by construction rather than by name. A second override, `no-restricted-syntax` targeting
+`ImportExpression` nodes, closes a companion gap: `no-restricted-imports` only visits static
+`import`/`export` declarations, so a dynamic `await import('../../src/components/...')` used
+to bypass it entirely; the `no-restricted-syntax` rule matches the same blocked-path shape
+against a dynamic import's literal source instead -- but only when that source is a plain
+string literal; a dynamic import built from a template literal or a variable (e.g.
+`` import(`../../src/${name}`) `` or `import(path)`) parses to a `TemplateLiteral`/
+`Identifier` node rather than a `Literal`, so it still bypasses both rules (verified
+empirically: a template-literal-sourced dynamic import of a blocked component produced zero
+eslint errors). This residual gap was left open deliberately rather than chased further --
+a dynamically-constructed module path is already a conspicuous, easy-to-spot-in-review
+pattern for a black-box e2e spec to contain at all, and expressing "the literal source *or*
+any string this expression could evaluate to" is a data-flow question no lint rule selector
+can answer without executing the code. Together the two rules are still a
+backstop for the obvious violations, not a substitute for review: neither can tell a
+genuinely pure `src/utils/` helper from one that's quietly grown a transitive dependency on
+something impure, so that one borderline case still needs a human judgment call (see
 `frontend-daily-homework-history-followups-followups-followups-followups`'s `decisions`
-entry for the full reasoning on what is and isn't mechanizable here). A genuinely test-only
+entry for the full reasoning on what is and isn't mechanizable here, and
+`frontend-daily-homework-history-followups-followups-followups-followups-followups`'s for
+how the directory-allowlist and dynamic-import gaps above were closed). A genuinely test-only
 need shared across specs, or between a spec and the mocked
 suites' fixtures — not a copy or thin wrapper of app logic, e.g. `isoDateWeeksAgo` — still
 belongs in a `tests/`-local module (`tests/dateFixtures.ts`), not under `src/`.
