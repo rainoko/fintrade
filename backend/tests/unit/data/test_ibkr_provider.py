@@ -2250,12 +2250,16 @@ class TestGetAccountTrades:
 
         assert [t.conid for t in trades] == [2]
 
-    def test_row_with_no_account_field_is_kept(self, mocker) -> None:
+    def test_row_with_no_account_field_is_dropped(self, mocker) -> None:
+        """Fail-closed, matching every other ambiguous field in this parser (unparseable
+        conid/side/quantity/date all drop the row too) -- an unattributable row is exactly
+        as dangerous as a wrongly-attributed one for the quantity-reconciliation invariant
+        `_derive_entry_date` depends on (PR #408's pr-decision override)."""
         mocker.patch(
             "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
             return_value=mocker.Mock(state="available", detail=None),
         )
-        rows = [self._trade_row(1, "B", account=None)]
+        rows = [self._trade_row(1, "B", account=None), self._trade_row(2, "B", account="DU1")]
         mocker.patch(
             "app.data.ibkr_provider.IBKRProvider._request",
             side_effect=[{"accounts": ["DU1"]}, rows],
@@ -2263,7 +2267,7 @@ class TestGetAccountTrades:
 
         trades = IBKRProvider().get_account_trades()
 
-        assert [t.conid for t in trades] == [1]
+        assert [t.conid for t in trades] == [2]
 
     def test_non_positive_quantity_is_dropped(self, mocker) -> None:
         mocker.patch(

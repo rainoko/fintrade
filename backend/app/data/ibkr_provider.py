@@ -1132,11 +1132,15 @@ class IBKRProvider:
         session may have visibility into more than one IBKR sub-account under the same
         login) is dropped, not counted, so a multi-sub-account session's trade history for
         another account never contaminates this account's own quantity reconciliation (see
-        this task's `decisions` entry for the full reconciliation-soundness argument). A
-        row with no `"account"` field at all is kept rather than dropped -- IBKR's own
-        documented example response for this endpoint doesn't always include one, and
-        treating a missing field as "wrong account" would be needlessly destructive for the
-        common single-account case this app is mostly used with.
+        this task's `decisions` entry for the full reconciliation-soundness argument). A row
+        with no `"account"` field at all is ALSO dropped, not kept -- matching this same
+        function's fail-closed convention for every other ambiguous field (unparseable
+        `conid`/`side`/`size`/trade date all drop the row too). An unattributable row is
+        exactly as dangerous as a wrongly-attributed one for the one invariant the whole
+        feature's soundness argument depends on: reconciliation errors must only ever push
+        toward the conservative `today()` fallback, never manufacture a false-positive
+        quantity match (see `backend-ibkr-import-entry-date-from-trades`'s `decisions`
+        entry for the full false-positive-vs-safe-fallback argument this follows).
 
         Raises:
             IBKRUnavailableError: the gateway isn't `available`, the account id can't be
@@ -1382,11 +1386,12 @@ def _parse_account_trades(payload: object, account_id: str) -> list[IBKRTrade]:
     commission, exchange, order_ref, etc.) this app has no use for and doesn't model,
     matching `_parse_account_positions`'s own "model only what's needed" precedent.
 
-    A row naming a different account than `account_id` is dropped (see
-    `get_account_trades`'s own docstring for why); a row with no `"account"` field at all
-    is kept. A malformed individual row (not a dict, unparseable `conid`/`side`/`size`/
-    trade date) is skipped rather than failing the whole response, same convention as
-    `_parse_account_positions`/`_parse_bars`/`_parse_scanner_results`.
+    A row naming a different account than `account_id`, or a row with no `"account"`
+    field at all, is dropped (see `get_account_trades`'s own docstring for why the missing
+    case is fail-closed too, not kept). A malformed individual row (not a dict,
+    unparseable `conid`/`side`/`size`/trade date) is skipped rather than failing the whole
+    response, same convention as `_parse_account_positions`/`_parse_bars`/
+    `_parse_scanner_results`.
     """
     if not isinstance(payload, list):
         return []
@@ -1395,7 +1400,7 @@ def _parse_account_trades(payload: object, account_id: str) -> list[IBKRTrade]:
         if not isinstance(raw, dict):
             continue
         row_account = raw.get("account")
-        if isinstance(row_account, str) and row_account and row_account != account_id:
+        if not isinstance(row_account, str) or not row_account or row_account != account_id:
             continue
         conid = _int_or_none(raw.get("conid"))
         if conid is None:
