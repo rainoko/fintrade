@@ -47,6 +47,33 @@ export default function PortfolioPage() {
     [portfolioQuery.data],
   )
 
+  // Distinct `strategy` values across the user's own currently-held
+  // positions -- "recent tags" `Autocomplete` suggestions for
+  // AddPositionDialog's own Strategy field (frontend-trade-strategy-tagging's
+  // checklist item 4). Deliberately scoped to `usePortfolio()`'s own
+  // already-fetched data (the same query this page already calls for
+  // `existingTickers` above) rather than also reading
+  // `GET /api/portfolio/closed-trades`: an earlier revision of this task
+  // called `useClosedTrades()` directly here too to union in closed trades'
+  // own strategy tags, but that kicks off that fetch at this page's own
+  // mount instead of only once TradeJournalPanel itself mounts further down
+  // -- shifting several *other*, timing-sensitive tests' assumptions about
+  // render/query-resolution order on this same page (e.g. a position link
+  // appearing in both PositionsTable and RiskPanel by the time a prior
+  // assertion expected only one to have resolved yet). Scoping to held
+  // positions only avoids that blast radius entirely, at the cost of not
+  // suggesting a strategy only ever used on a now-closed trade -- see this
+  // task's `decisions` entry for the full rationale, including why a
+  // starker alternative (passing a callback down for AddPositionDialog to
+  // pull the closed-trades list itself only once opened) was also
+  // considered and rejected as more complex for the same marginal benefit.
+  const recentStrategies = useMemo(() => {
+    const strategies = (portfolioQuery.data?.positions ?? [])
+      .map((position) => position.strategy)
+      .filter((strategy): strategy is string => Boolean(strategy))
+    return [...new Set(strategies)]
+  }, [portfolioQuery.data])
+
   const ibkrAvailable = ibkrStatusQuery.data?.state === 'available'
   // `isError` is checked before `!data`, mirroring `IbkrStatusIndicator`'s
   // own check on this exact query (useIbkrStatus.ts's own docstring): a
@@ -135,6 +162,7 @@ export default function PortfolioPage() {
         open={addDialogOpen}
         onClose={() => setAddDialogOpen(false)}
         existingTickers={existingTickers}
+        recentStrategies={recentStrategies}
       />
       <IbkrPreloadDialog
         open={preloadDialogOpen}

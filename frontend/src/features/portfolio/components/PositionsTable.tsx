@@ -96,6 +96,13 @@ export interface PositionsTableProps {
  * review) for why an earlier revision of this task added, then removed,
  * that second block.
  *
+ * The Strategy column surfaces `PositionOut.strategy` (Elder ch.
+ * 55/56/58/59's personal, named strategy/setup tag) as plain text with an em
+ * dash when absent -- mirroring the matching column added to
+ * TradeJournalPanel.tsx's closed-trade rows rather than a field on
+ * `HeldPositionBanner.tsx` (frontend-trade-strategy-tagging, see this task's
+ * `decisions` entry for the full placement rationale).
+ *
  * A close-position failure's `ErrorState` is scoped to whichever position it
  * actually belongs to (`deletePosition.variables?.id`), not just "the
  * currently open dialog": while ClosePositionDialog is open *for that same
@@ -156,6 +163,21 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
       render: (row) => formatCurrency(row.avg_cost_basis),
     },
     { key: 'entry_date', header: 'Entry Date', sortable: true },
+    {
+      // Plain, always-visible text cell (em dash when absent) rather than
+      // TradeJournalPanel's NotesCell icon-plus-InfoBalloon pattern --
+      // `strategy` is a short personal, named tag by design (Elder's own
+      // examples are short phrases like "pullback to value," not paragraphs
+      // of free text the way `entry_notes` can be), so it doesn't need an
+      // expandable detail. See this task's (frontend-trade-strategy-tagging)
+      // `decisions` entry for why this column (mirroring the matching one
+      // added to TradeJournalPanel.tsx) was chosen over a field on
+      // HeldPositionBanner.tsx.
+      key: 'strategy',
+      header: 'Strategy',
+      sortable: true,
+      render: (row) => row.strategy ?? '—',
+    },
     {
       // Sortable: current_price/unrealized_pnl_pct can be null (a failed
       // price fetch, API.md), but DataTable's own compareForSort already
