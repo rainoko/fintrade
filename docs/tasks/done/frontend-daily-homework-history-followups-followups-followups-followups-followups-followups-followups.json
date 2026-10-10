@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from frontend-daily-homework-history-followups-followups-followups-followups-followups's re-review of PR #416 (post path-traversal-fix round)",
   "area": "frontend/pages",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "frontend-daily-homework-history-followups-followups-followups-followups-followups-followups"
   ],
@@ -45,5 +45,33 @@
     "pr_number": 417,
     "pr_url": "https://github.com/rainoko/fintrade/pull/417",
     "pushed_at": "2026-10-10T11:32:47Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-10T11:43:29Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/417",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Re-proved the e2e-import-guard/no-restricted-src-import rule is genuinely active (full 12-shape probe matrix reproduced, plus a mutation test inverting the new startsWith('.') gate that flipped the flagged/allowed set exactly as expected). Re-reproduced the two previously-fixed holes (path-traversal bypass still flagged static+dynamic; bare src/utils barrel still allowed) to confirm the new gate didn't reintroduce either.",
+        "file": "frontend/eslint.config.js",
+        "line": 73
+      },
+      {
+        "summary": "Scrutinized the raw-vs-normalized split for a reachable gap: no tsconfig paths/baseUrl, vite resolve.alias, or package.json subpath imports exist in this project, so a no-leading-dot specifier (e.g. 'src/features/x', '/src/...') has no resolver path to the project's own src/ tree and isn't used anywhere in the current tree -- not a reachable gap given this repo's actual tooling.",
+        "file": "frontend/eslint.config.js",
+        "line": 73
+      },
+      {
+        "summary": "Confirmed docs/architecture/Testing.md's updated prose accurately describes the raw-vs-normalized split and relative-specifier gate, and confirmed the PR's diff genuinely does not touch CLAUDE.md or anything under .claude/, consistent with checklist item 2 being left done:false by design.",
+        "file": "docs/architecture/Testing.md",
+        "line": 126
+      },
+      {
+        "summary": "Full suite re-run clean: backend ruff/mypy, frontend eslint/tsc, profit-target wording guard, pytest (1655 passed, 99.95% coverage), vitest (1083 passed, ~99.8% coverage), make e2e (28/28), validate_tasks.py (no violations). No regressions, no new findings.",
+        "file": null,
+        "line": null
+      }
+    ],
+    "notes": "Independently re-verified task-worker's bare-package-specifier fix for PR #416's false positive. Re-proved rule liveness via mutation test, re-reproduced both previously-fixed holes (traversal bypass, bare-utils barrel) to confirm no regression, and scrutinized the raw-vs-normalized split for a reachable gap (none found, given this repo has no path aliases/subpath imports). Testing.md's updated prose matches the implementation. Checklist item 2 correctly remains open by design (governance call deferred to a human, since a CLAUDE.md/.claude/ edit can't be merged by pr-merger) -- this PR's diff does not touch either path. No non-blocking findings surfaced during this review round; no follow-up task filed."
   }
 }
