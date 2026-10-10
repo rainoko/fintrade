@@ -123,17 +123,21 @@ failure mode importing the real helper prevents from recurring. Importing a Reac
 component, hook, context, or any module with side effects/DOM/app-runtime dependencies is
 **not allowed** — that would let a spec exercise app logic directly instead of through the
 browser the way a real user does, which is the black-box boundary this suite exists to
-keep. `frontend/eslint.config.js` defines a local `e2e-import-guard/no-restricted-src-import`
-rule, scoped to `tests/e2e/**/*.ts`, that mechanically catches this — a non-type **value**
-import whose source is a *relative specifier* (starts with `.`, e.g. `./x` or `../x` — a bare
-npm package specifier like `my-package/src/foo` or `@scope/pkg/src/foo` never starts with `.`
-per Node/bundler module resolution semantics, so it's ruled out before the `src/` test ever
-runs, regardless of whether the package name happens to contain a literal `src/` segment) and,
-*after resolving any `..` path-traversal segment* (via `path.posix.normalize()`), contains a
-`src/` segment not immediately followed by `utils/` or exactly `utils` at the end of the path
-(covering both a file under `src/utils/` and a bare `src/utils` barrel import) is flagged,
-while a type import from anywhere in `src/`, any value import that normalizes to
-`src/utils/...`, and any bare package specifier are left alone. This is a default-deny over
+keep. `frontend/eslint-rules/no-restricted-src-import.js` defines a local
+`e2e-import-guard/no-restricted-src-import` rule (wired into `tests/e2e/**/*.ts` from
+`frontend/eslint.config.js`) that mechanically catches this — a non-type **value** import whose
+source is a *relative* (starts with `.`, e.g. `./x` or `../x`) or *root-absolute* (starts with
+`/`, e.g. `/src/pages/x` — Vite's dev-server resolver does resolve a leading-`/` specifier
+against the project root) specifier — a bare npm package specifier like `my-package/src/foo` or
+`@scope/pkg/src/foo` never starts with `.` or `/` per Node/bundler module resolution semantics,
+so it's ruled out before the `src/` test ever runs, regardless of whether the package name
+happens to contain a literal `src/` segment — and, *after resolving any `..` path-traversal
+segment* (via `path.posix.normalize()`), contains a `src/` segment not immediately followed by
+`utils/` or exactly `utils` at the end of the path (covering both a file under `src/utils/` and
+a bare `src/utils` barrel import, and both the relative and root-absolute specifier shapes) is
+flagged, while a type import from anywhere in `src/`, any value import that normalizes to
+`src/utils/...` (relative or root-absolute), and any bare package specifier are left alone. This
+is a default-deny over
 all of `src/`, not a directory allowlist — an earlier version of this rule listed six specific
 blocked directories (`src/components/`, `src/features/`, `src/pages/`, `src/api/`,
 `src/theme/`, app entry points) and silently passed a value import from any `src/`
@@ -165,18 +169,23 @@ produced zero eslint errors). This residual gap was left open deliberately rathe
 further — a dynamically-constructed module path is already a conspicuous, easy-to-spot-in-
 review pattern for a black-box e2e spec to contain at all, and expressing "the literal source
 *or* any string this expression could evaluate to" is a data-flow question no lint rule
-selector can answer without executing the code. The relative-specifier gate above (requiring
-the *raw*, pre-normalize source to start with `.`) was added after the blocked-path regex's
-`(^|/)src\/` anchor turned out to also match a bare npm package specifier containing a literal
-`src/` segment anywhere in it (e.g. `import { x } from 'my-package/src/foo'`) — a false
-positive the earlier six-directory glob-allowlist version of this rule never had, since it
-only ever matched specific `**/src/<dir>/**` globs, never a bare `src/` segment inside an
-unrelated package name. The check runs against the raw source rather than the normalized one
-specifically because `path.posix.normalize()` strips a single-dot relative prefix
-(`'./src/foo'` normalizes to `'src/foo'`), which would make a single-dot-relative specifier
-indistinguishable from a bare package specifier if the leading-dot check ran after
-normalization instead of before; a `..`-traversal specifier still starts with `.`, so it's
-unaffected and still reaches the normalize-then-test step (verified empirically:
+selector can answer without executing the code. The relative-or-root-absolute-specifier gate
+above (requiring the *raw*, pre-normalize source to start with `.` or `/`) was added after the
+blocked-path regex's `(^|/)src\/` anchor turned out to also match a bare npm package specifier
+containing a literal `src/` segment anywhere in it (e.g. `import { x } from
+'my-package/src/foo'`) — a false positive the earlier six-directory glob-allowlist version of
+this rule never had, since it only ever matched specific `**/src/<dir>/**` globs, never a bare
+`src/` segment inside an unrelated package name. That fix originally required the raw source to
+start with `.` specifically (ruling out a root-absolute `/src/...` specifier along with the bare
+package case it was meant to rule out — a regression from main's pre-fix behavior, caught and
+fixed in the round that also added this rule's persisted test); it now requires `.` *or* `/`,
+since a root-absolute specifier is no more a bare package specifier than a relative one is. The
+check runs against the raw source rather than the normalized one specifically because
+`path.posix.normalize()` strips a single-dot relative prefix (`'./src/foo'` normalizes to
+`'src/foo'`), which would make a single-dot-relative specifier indistinguishable from a bare
+package specifier if the leading-character check ran after normalization instead of before; a
+`..`-traversal specifier still starts with `.`, and a root-absolute one still starts with `/`,
+so both are unaffected and still reach the normalize-then-test step (verified empirically:
 `'../../src/utils/../api/homework'` is still flagged, both as a static import and as the
 dynamic `import()` equivalent). The rule is still a backstop for the obvious
 violations, not a substitute for review: it can't tell a genuinely pure `src/utils/` helper
@@ -190,7 +199,24 @@ the directory-allowlist and dynamic-import gaps were closed, and
 for the path-traversal bypass and the bare-barrel false positive / hand-duplicated-pattern
 fixes, and
 `frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups`'s
-for the bare-package-specifier false positive fix described above). A genuinely test-only need
+for the bare-package-specifier false positive fix described above, and
+`frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups-followups`'s
+for the root-absolute-specifier regression that bare-package fix introduced, and for how this
+rule finally got a persisted test). That last round also closed the structural gap behind every
+fix above: five rounds in a row each found a different edge case in the same small matching
+predicate, and every one of them had been verified only by writing a throwaway probe file, running
+it through `yarn eslint`, and deleting it before commit — nothing in the repo could have caught a
+regression in any previously-fixed case. The rule (and the `isBlockedSrcSource`/
+`BLOCKED_SRC_VALUE_IMPORT` predicate it's built on) now lives in its own module,
+`frontend/eslint-rules/no-restricted-src-import.js`, imported by `frontend/eslint.config.js`
+rather than defined inline, specifically so `frontend/eslint-rules/no-restricted-src-import.test.ts`
+can exercise it directly as a persisted vitest table test covering every case enumerated above,
+plus an end-to-end check (via ESLint's own `Linter`, fed the actual flat config array
+`eslint.config.js` exports) that the rule is still registered against `tests/e2e/**/*.ts` at
+`'error'` severity — a predicate-only test can't see the rule being silently unregistered or
+detuned, which is exactly the failure mode that check exists for. Anyone changing this rule's
+matching logic should add a row to that test's table instead of hand-probing with a throwaway
+file. A genuinely test-only need
 shared across specs, or between a spec and
 the mocked suites' fixtures — not a copy or thin wrapper of app logic, e.g. `isoDateWeeksAgo`
 — still belongs in a `tests/`-local module (`tests/dateFixtures.ts`), not under `src/`.

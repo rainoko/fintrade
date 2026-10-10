@@ -1,5 +1,3 @@
-import path from 'node:path'
-
 import js from '@eslint/js'
 import eslintConfigPrettier from 'eslint-config-prettier'
 import reactHooks from 'eslint-plugin-react-hooks'
@@ -8,137 +6,17 @@ import storybook from 'eslint-plugin-storybook'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
-// Single source of truth for the "blocked src/ value import" shape the
-// `e2e-import-guard/no-restricted-src-import` rule below enforces: a `src/`
-// path segment not immediately followed by `utils/` (with a trailing slash)
-// or exactly `utils` at the end of the string (a future `src/utils/index.ts`
-// barrel import, e.g. `../../src/utils` with no trailing file/slash -- the
-// `(?:\/|$)` alternation exempts that exact-barrel case too, closing a false
-// positive the previous `(?!utils/)` lookahead had). Matched against the
-// import source string *after* `path.posix.normalize()` collapses any `..`
-// segment -- matching the raw string let `src/utils/../api/homework` sneak
-// past the old regex (it only ever saw the literal substring `src/utils/`
-// right after the anchor, never resolving what the `..` actually points at);
-// normalizing first makes that `../api/homework` visible before the test
-// runs, the same way a bundler/type-checker would resolve the path.
-const BLOCKED_SRC_VALUE_IMPORT = /(^|\/)src\/(?!utils(?:\/|$))/
-
-/**
- * Whether a static import/export AST node is entirely type-only (mirrors
- * `no-restricted-imports`'s own `isTypeOnlyImport`/`isTypeOnlyExport`
- * helpers): either the declaration itself is `import type`/`export type`,
- * or every individual specifier carries an inline `type` modifier.
- * @param {import('estree').Node} node ImportDeclaration, ExportNamedDeclaration, or ExportAllDeclaration
- * @returns {boolean}
- */
-function isTypeOnlyDeclaration(node) {
-  if (node.type === 'ImportDeclaration') {
-    return (
-      node.importKind === 'type' ||
-      (node.specifiers.length > 0 && node.specifiers.every((specifier) => specifier.importKind === 'type'))
-    )
-  }
-  return (
-    node.exportKind === 'type' ||
-    (node.specifiers?.length > 0 && node.specifiers.every((specifier) => specifier.exportKind === 'type'))
-  )
-}
-
-/**
- * Whether an import source string, once `..` segments are resolved, points
- * somewhere under `src/` other than `src/utils/`.
- *
- * Only a *relative* specifier (one starting with `.`, e.g. `./x` or `../x`)
- * is even considered -- a bare npm package specifier (`my-package/src/foo`,
- * `@scope/pkg/src/foo`) never starts with `.` per Node/bundler module
- * resolution semantics, so checking the raw source's leading character
- * before normalizing rules those out up front, rather than letting
- * `BLOCKED_SRC_VALUE_IMPORT`'s `(^|/)src\/` anchor match a literal `src/`
- * segment that happens to appear inside an unrelated package name (a false
- * positive the six-directory glob-allowlist version of this rule didn't
- * have, introduced when that allowlist was replaced by this default-deny
- * regex -- see
- * `frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups`'s
- * `decisions` entry). The check is against the *raw* (pre-normalize) source
- * specifically: normalizing a single-dot-relative specifier like `./src/foo`
- * strips the leading `./` (`path.posix.normalize('./src/foo') === 'src/foo'`),
- * which would make it indistinguishable from a bare package specifier if the
- * leading-dot check ran after normalization instead of before. A `..`
- * traversal specifier (`../../src/utils/../api/homework`) still starts with
- * `.`, so it still reaches the normalize-then-test step below unaffected.
- * @param {string} rawSource the literal import source, before normalization
- * @returns {boolean}
- */
-function isBlockedSrcSource(rawSource) {
-  if (!rawSource.startsWith('.')) return false
-  return BLOCKED_SRC_VALUE_IMPORT.test(path.posix.normalize(rawSource))
-}
-
-/**
- * A local, single-rule replacement for the earlier pairing of ESLint core's
- * `no-restricted-imports` (regex option) + `no-restricted-syntax` (an
- * esquery selector over `ImportExpression`). Both of those matched the raw,
- * un-normalized import-source string, which a `src/utils/..` path-traversal
- * segment could exploit to reach a still-blocked directory
- * (`../../src/utils/../api/homework` resolves to `src/api/homework` but the
- * old regex only ever saw the literal substring `src/utils/` right after the
- * anchor) -- see
- * `frontend-daily-homework-history-followups-followups-followups-followups-followups`'s
- * `decisions` entry for the full history of what this rule supersedes and
- * why a custom rule, rather than another built-in-core option, was needed
- * once the gap turned out to require normalizing the path before testing it
- * (something neither `no-restricted-imports`'s `regex` option nor
- * `no-restricted-syntax`'s esquery selector can do -- both only ever see the
- * raw, unresolved source string). Handling both the static
- * (`ImportDeclaration`/`ExportNamedDeclaration`/`ExportAllDeclaration`) and
- * dynamic (`ImportExpression`) cases in one rule also means the blocked-path
- * pattern (`BLOCKED_SRC_VALUE_IMPORT` above) is defined exactly once, instead
- * of being hand-duplicated across two different rule option syntaxes/
- * escapings the way the two rules it replaces were.
- */
-const noRestrictedSrcImportRule = {
-  meta: {
-    type: 'problem',
-    docs: {
-      description:
-        "Disallow a static or dynamic value import from src/ outside src/utils/ in an e2e spec, including through a `..` path-traversal segment.",
-    },
-    schema: [],
-    messages: {
-      restrictedStatic:
-        'An e2e spec may import a type from anywhere in src/, or a pure utility from src/utils/, but not a component/hook/context/page/API-client/theme value import -- see docs/architecture/Testing.md’s "Importing from src/ in an e2e spec" section.',
-      restrictedDynamic:
-        'An e2e spec may not dynamically import from src/ outside src/utils/ -- see docs/architecture/Testing.md’s "Importing from src/ in an e2e spec" section.',
-    },
-  },
-  create(context) {
-    function checkStatic(node) {
-      if (!node.source || isTypeOnlyDeclaration(node)) return
-      if (isBlockedSrcSource(node.source.value)) {
-        context.report({ node: node.source, messageId: 'restrictedStatic' })
-      }
-    }
-
-    return {
-      ImportDeclaration: checkStatic,
-      ExportNamedDeclaration: checkStatic,
-      ExportAllDeclaration: checkStatic,
-      ImportExpression(node) {
-        // Only a plain string literal source can be checked statically; a
-        // template literal or variable (e.g. `` import(`../../src/${name}`) ``
-        // or `import(path)`) parses to a `TemplateLiteral`/`Identifier` node
-        // instead of `Literal` and is left alone -- a deliberate residual
-        // gap, documented in docs/architecture/Testing.md, since answering
-        // "the literal source or any string this expression could evaluate
-        // to" is a data-flow question no static AST check can resolve.
-        if (node.source.type !== 'Literal' || typeof node.source.value !== 'string') return
-        if (isBlockedSrcSource(node.source.value)) {
-          context.report({ node: node.source, messageId: 'restrictedDynamic' })
-        }
-      },
-    }
-  },
-}
+// The `e2e-import-guard/no-restricted-src-import` rule (and the
+// `isBlockedSrcSource`/`BLOCKED_SRC_VALUE_IMPORT` predicate it's built on)
+// lives in its own module specifically so it can be imported and exercised
+// directly by a persisted vitest test
+// (`eslint-rules/no-restricted-src-import.test.ts`) -- see that module's own
+// comments for the rule's full history and
+// `frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups-followups`'s
+// `decisions` entry for why this extraction happened now. Anyone changing
+// this rule's matching logic should extend that test's table rather than
+// hand-probing with a throwaway file the way every prior round did.
+import { noRestrictedSrcImportRule } from './eslint-rules/no-restricted-src-import.js'
 
 export default tseslint.config(
   { ignores: ['dist', 'storybook-static', 'coverage', '.yarn'] },
