@@ -1218,9 +1218,17 @@ class IBKRPortfolioPreloadImportedPositionOut(BaseModel):
     quantity: float = Field(description="Quantity imported from the IBKR position, unchanged.")
     avg_cost_basis: float = Field(description="Average cost per share imported from the IBKR position, unchanged.")
     entry_date: date = Field(
-        description="Always today's date -- IBKR's positions endpoint does not report when "
-        "a position was originally opened, so this can't be backfilled with the real "
-        "purchase date. See this task's `decisions` entry.",
+        description="A real purchase date when IBKR's recent trade history (GET "
+        "/iserver/account/trades, limited by IBKR to the current day plus the six "
+        "previous calendar days) contains buy execution(s) for this position whose "
+        "net-of-sells quantity, within that window, exactly accounts for the position's "
+        "currently-held quantity -- meaning this position's entire open history fits "
+        "inside that window, so the earliest such buy date is trustworthy. Otherwise "
+        "(no in-window trade activity, only a partial/top-up match, or the trade-history "
+        "fetch itself being unavailable), this falls back to today's import date, which "
+        "is NOT the real purchase date. entry_notes on the same position records which "
+        "case applied. See the backend-ibkr-import-entry-date-from-trades task's "
+        "`decisions` entry.",
     )
 
 

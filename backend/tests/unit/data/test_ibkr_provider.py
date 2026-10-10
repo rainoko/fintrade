@@ -26,6 +26,7 @@ from app.data.ibkr_provider import (
     IBKRBar,
     IBKRProvider,
     IBKRRateLimitedError,
+    IBKRTrade,
     IBKRUnavailableError,
     ScannerResult,
 )
@@ -2081,6 +2082,334 @@ class TestGetAccountPositions:
 
         assert request.call_count == 1 + _MAX_ACCOUNT_POSITIONS_PAGES
         assert len(positions) == _MAX_ACCOUNT_POSITIONS_PAGES
+
+
+class TestGetAccountTrades:
+    """docs/tasks/backend-ibkr-import-entry-date-from-trades.json -- `GET
+    /iserver/account/trades`, mocked per this module's own no-live-gateway testing
+    constraint (see that task's `decisions` entry, including PR #408's review, for the
+    exact documented shape this was implemented against)."""
+
+    @staticmethod
+    def _trade_row(
+        conid: int,
+        side: str = "B",
+        *,
+        quantity: float = 10.0,
+        trade_time_r: int | None = 1_760_000_000_000,
+        trade_time: str | None = None,
+        account: str | None = "DU1",
+    ) -> dict:
+        row: dict[str, object] = {"conid": conid, "side": side, "size": quantity}
+        if account is not None:
+            row["account"] = account
+        if trade_time_r is not None:
+            row["trade_time_r"] = trade_time_r
+        if trade_time is not None:
+            row["trade_time"] = trade_time
+        return row
+
+    def test_raises_when_gateway_not_available(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="gateway_unreachable", detail=None),
+        )
+        request = mocker.patch("app.data.ibkr_provider.IBKRProvider._request")
+
+        with pytest.raises(IBKRUnavailableError):
+            IBKRProvider().get_account_trades()
+
+        request.assert_not_called()
+
+    def test_single_row_returns_parsed_trade(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        epoch_ms = int(datetime(2026, 10, 5, 12, 0, 0, tzinfo=UTC).timestamp() * 1000)
+        rows = [self._trade_row(265598, "B", quantity=10.0, trade_time_r=epoch_ms)]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, rows],
+        )
+
+        trades = IBKRProvider().get_account_trades()
+
+        assert trades == [
+            IBKRTrade(conid=265598, side="BUY", quantity=10.0, trade_date=datetime(2026, 10, 5).date())
+        ]
+
+    def test_discovers_account_then_fetches_trades(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"], "selectedAccount": "DU1"}, []],
+        )
+
+        IBKRProvider().get_account_trades()
+
+        first_call = request.call_args_list[0]
+        assert first_call.args == ("GET", "/iserver/accounts")
+        second_call = request.call_args_list[1]
+        assert second_call.args == ("GET", "/iserver/account/trades")
+
+    def test_no_usable_account_id_raises(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value={"accounts": []})
+
+        with pytest.raises(IBKRUnavailableError):
+            IBKRProvider().get_account_trades()
+
+    def test_parses_buy_and_sell_rows(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        rows = [
+            self._trade_row(1, "B", quantity=10.0),
+            self._trade_row(1, "S", quantity=4.0),
+        ]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, rows],
+        )
+
+        trades = IBKRProvider().get_account_trades()
+
+        assert [t.side for t in trades] == ["BUY", "SELL"]
+        assert all(t.conid == 1 for t in trades)
+        assert trades[0].quantity == 10.0
+        assert trades[1].quantity == 4.0
+
+    def test_spelled_out_side_also_accepted(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        rows = [self._trade_row(1, "BUY"), self._trade_row(1, "SELL")]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, rows],
+        )
+
+        trades = IBKRProvider().get_account_trades()
+
+        assert [t.side for t in trades] == ["BUY", "SELL"]
+
+    def test_unrecognized_side_drops_row(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        rows = [self._trade_row(1, "X"), self._trade_row(2, "B")]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, rows],
+        )
+
+        trades = IBKRProvider().get_account_trades()
+
+        assert [t.conid for t in trades] == [2]
+
+    def test_non_string_side_drops_row(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        rows = [self._trade_row(1, side=None), self._trade_row(2, "B")]  # type: ignore[arg-type]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, rows],
+        )
+
+        trades = IBKRProvider().get_account_trades()
+
+        assert [t.conid for t in trades] == [2]
+
+    def test_row_for_a_different_account_is_dropped(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        rows = [
+            self._trade_row(1, "B", account="DU_OTHER"),
+            self._trade_row(2, "B", account="DU1"),
+        ]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, rows],
+        )
+
+        trades = IBKRProvider().get_account_trades()
+
+        assert [t.conid for t in trades] == [2]
+
+    def test_row_with_no_account_field_is_kept(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        rows = [self._trade_row(1, "B", account=None)]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, rows],
+        )
+
+        trades = IBKRProvider().get_account_trades()
+
+        assert [t.conid for t in trades] == [1]
+
+    def test_non_positive_quantity_is_dropped(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        rows = [self._trade_row(1, "B", quantity=0), self._trade_row(2, "B", quantity=-5)]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, rows],
+        )
+
+        trades = IBKRProvider().get_account_trades()
+
+        assert trades == []
+
+    def test_non_list_payload_returns_empty(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, {"not": "a list"}],
+        )
+
+        assert IBKRProvider().get_account_trades() == []
+
+    def test_non_dict_row_is_skipped(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        rows = ["not-a-dict", self._trade_row(1, "B")]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, rows],
+        )
+
+        trades = IBKRProvider().get_account_trades()
+
+        assert [t.conid for t in trades] == [1]
+
+    def test_missing_conid_drops_row(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        rows = [{"side": "B", "size": 10.0, "account": "DU1", "trade_time_r": 1_760_000_000_000}]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, rows],
+        )
+
+        assert IBKRProvider().get_account_trades() == []
+
+    def test_trade_time_r_epoch_ms_parses_to_the_correct_date(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        # 2026-10-05T12:00:00Z in epoch ms.
+        epoch_ms = int(datetime(2026, 10, 5, 12, 0, 0, tzinfo=UTC).timestamp() * 1000)
+        rows = [self._trade_row(1, "B", trade_time_r=epoch_ms)]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, rows],
+        )
+
+        trades = IBKRProvider().get_account_trades()
+
+        assert trades[0].trade_date == datetime(2026, 10, 5).date()
+
+    def test_falls_back_to_trade_time_string_when_epoch_missing(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        rows = [self._trade_row(1, "B", trade_time_r=None, trade_time="202610051230")]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, rows],
+        )
+
+        trades = IBKRProvider().get_account_trades()
+
+        assert trades[0].trade_date == datetime(2026, 10, 5).date()
+
+    def test_trade_time_string_with_seconds_also_parses(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        rows = [self._trade_row(1, "B", trade_time_r=None, trade_time="20261005123045")]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, rows],
+        )
+
+        trades = IBKRProvider().get_account_trades()
+
+        assert trades[0].trade_date == datetime(2026, 10, 5).date()
+
+    def test_absurd_epoch_falls_back_to_trade_time_string(self, mocker) -> None:
+        """A `trade_time_r` value so large `datetime.fromtimestamp` raises (`OverflowError`)
+        is caught and treated the same as a missing epoch -- falls through to
+        `trade_time` instead of dropping the row outright."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        rows = [self._trade_row(1, "B", trade_time_r=10**20, trade_time="202610051230")]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, rows],
+        )
+
+        trades = IBKRProvider().get_account_trades()
+
+        assert trades[0].trade_date == datetime(2026, 10, 5).date()
+
+    def test_unparseable_date_drops_row(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        rows = [self._trade_row(1, "B", trade_time_r=None, trade_time="not-a-date")]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, rows],
+        )
+
+        assert IBKRProvider().get_account_trades() == []
+
+    def test_no_time_field_at_all_drops_row(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        rows = [self._trade_row(1, "B", trade_time_r=None)]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, rows],
+        )
+
+        assert IBKRProvider().get_account_trades() == []
 
 
 class TestRequest:

@@ -43,6 +43,7 @@ still-conflicting ticker is always skipped entirely, never merged/updated.
 import logging
 import math
 import uuid
+from datetime import date
 from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -72,6 +73,7 @@ from app.data.ibkr_provider import (
     IBKRAccountPosition,
     IBKRProvider,
     IBKRRateLimitedError,
+    IBKRTrade,
     IBKRUnavailableError,
 )
 from app.db.models import IBKRBreadthSnapshotORM, PositionORM
@@ -503,17 +505,35 @@ def record_ibkr_breadth_snapshot(
 
 # --- GET /api/ibkr/portfolio-preview, POST /api/ibkr/portfolio-preload -----
 
-# Prefixed to every imported position's `entry_notes` (backend-ibkr-portfolio-preload's
-# `decisions` entry): IBKR's positions endpoint has no notion of "when was this opened",
-# so `entry_date` below is always today's date, not the real purchase date -- silently
-# leaving that undocumented on the row itself would be misleading the next time this
-# position is viewed (e.g. in a trade-duration or profit-target calculation that assumes
-# `entry_date` is meaningful). Not attached to `strategy` -- see this task's `decisions`
-# entry for why that field is left null instead.
-_IBKR_IMPORT_ENTRY_NOTE_TEMPLATE = (
-    "Imported from IBKR account positions on {entry_date}. entry_date reflects the "
-    "import date, not the original purchase date -- IBKR's positions endpoint does not "
-    "report when a position was opened."
+# Prefixed to every imported position's `entry_notes`. `backend-ibkr-portfolio-preload`'s
+# original `decisions` entry recorded that IBKR's positions endpoint alone has no notion of
+# "when was this opened" -- still true, `IBKRAccountPosition` carries no such field.
+# `backend-ibkr-import-entry-date-from-trades`'s own `decisions` entry (PR #408 review)
+# added a second, independent data source on top of that: `IBKRProvider.get_account_trades`
+# (`GET /iserver/account/trades`, IBKR-documented as the current day plus the six previous
+# calendar days only) can supply a REAL entry_date for a position whose buy/sell activity in
+# that window exactly reconciles with its currently-held quantity -- see `_derive_entry_date`
+# for the reconciliation this is based on. Two templates below, chosen per position
+# (`_derive_entry_date`'s own `derived` flag) rather than one shared string, since whether a
+# real date was found genuinely varies position by position within the same import call.
+_IBKR_IMPORT_ENTRY_NOTE_DERIVED_TEMPLATE = (
+    "Imported from IBKR account positions on {import_date}. entry_date ({entry_date}) is "
+    "derived from IBKR's recent trade history (GET /iserver/account/trades): the earliest "
+    "buy execution found for this position whose net-of-sells quantity, within that "
+    "endpoint's current-day-plus-six-previous-calendar-days window, exactly accounts for "
+    "the position's currently-held quantity -- meaning this position's entire open history "
+    "fits inside that window, so this should be the real purchase date. See the "
+    "backend-ibkr-import-entry-date-from-trades task's `decisions` entry for the "
+    "reconciliation this is based on and its known limitations."
+)
+_IBKR_IMPORT_ENTRY_NOTE_FALLBACK_TEMPLATE = (
+    "Imported from IBKR account positions on {entry_date}. entry_date reflects the import "
+    "date, not the original purchase date -- IBKR's recent trade history (GET "
+    "/iserver/account/trades, limited to the current day plus the six previous calendar "
+    "days) was either unavailable or didn't fully account for this position's "
+    "currently-held quantity, so there's no way to confirm the real purchase date from "
+    "what IBKR made available. See the backend-ibkr-import-entry-date-from-trades task's "
+    "`decisions` entry."
 )
 
 
@@ -542,6 +562,54 @@ def _valid_import_candidates(positions: list[IBKRAccountPosition]) -> list[IBKRA
         for p in positions
         if p.avg_cost is not None and math.isfinite(p.avg_cost) and p.avg_cost > 0
     ]
+
+
+def _derive_entry_date(
+    position: IBKRAccountPosition, trades: list[IBKRTrade], fallback: date
+) -> tuple[date, bool]:
+    """Decides `entry_date` for one position about to be imported by `POST
+    /api/ibkr/portfolio-preload` (`backend-ibkr-import-entry-date-from-trades`'s
+    checklist items 2 and 4, PR #408 review). Returns `(entry_date, derived)`: `derived`
+    is `True` only when `trades` reconciles cleanly, in which case `entry_date` is a real,
+    trustworthy purchase date; `derived` is `False` (and `entry_date` is exactly
+    `fallback`, i.e. today's import date) otherwise -- identical to this feature's
+    original, pre-this-task behavior.
+
+    Reconciliation (why an exact match is trustworthy): `trades` only ever covers
+    `IBKRProvider.get_account_trades`'s own IBKR-documented window (the current day plus
+    the six previous calendar days). For this conid, let `net` be the sum of in-window buy
+    quantities minus in-window sell quantities, and let `held` be `position.quantity`
+    (independent of any trade data -- straight from the live positions endpoint). If this
+    position had ANY open quantity before the window started, `net` would equal `held`
+    minus that pre-window quantity, which is strictly less than `held` (quantities here are
+    always positive) -- so `net == held` can only happen when there was NOTHING before the
+    window, i.e. this position's entire history fits inside it. A corporate action that
+    changes `held` without a matching buy/sell trade row (a split, an option assignment,
+    dividend reinvestment not reported as a trade) breaks an otherwise-exact match rather
+    than falsely creating one, so it can only ever push a position toward the conservative
+    `fallback` branch, never toward a wrong derived date -- the one way this could still go
+    wrong is a coincidental, exact numeric cancellation between an untracked prior
+    corporate action and in-window trade activity, considered negligible. No trades at all
+    for this conid, or a net that's merely a *partial* match (a top-up/add on a
+    longer-held position, the exact failure mode the original "not possible" research
+    conclusion was worried about), both correctly fall back rather than derive -- see this
+    task's `decisions` entry for the full discussion (PR #408 review).
+
+    When `derived` is `True`, `entry_date` is the EARLIEST in-window buy date for this
+    conid -- matching `PositionIn.entry_date`'s own documented same-ticker-merge
+    convention ("the earlier of the two entry dates is kept", `app/api/schemas.py`) for
+    consistency, per this task's checklist item 2, rather than the most recent buy (which
+    would also be the worse of the two conventions for a multi-buy position, since it's
+    furthest from the true original entry)."""
+    matching = [t for t in trades if t.conid == position.conid]
+    buys = [t for t in matching if t.side == "BUY"]
+    if not buys:
+        return fallback, False
+    sells_quantity = sum(t.quantity for t in matching if t.side == "SELL")
+    net = sum(t.quantity for t in buys) - sells_quantity
+    if not math.isclose(net, position.quantity, rel_tol=1e-9, abs_tol=1e-6):
+        return fallback, False
+    return min(t.trade_date for t in buys), True
 
 
 @router.get(
@@ -651,13 +719,21 @@ def preload_ibkr_portfolio(
     `PositionORM.ticker` has a uniqueness constraint that would otherwise fail the second
     insert outright. See this task's `decisions` entry.
 
-    `entry_date` on every imported position is always today's date (see
-    `IBKRPortfolioPreloadImportedPositionOut.entry_date`'s own description for why), and
-    `entry_notes` records that fact explicitly so it's visible later rather than silently
-    misleading (`_IBKR_IMPORT_ENTRY_NOTE_TEMPLATE`). `strategy` is always null -- IBKR's
-    positions response carries nothing this app could map onto a personal named strategy
-    tag, and guessing one would misrepresent the trader's own intent. See this task's
-    `decisions` entry.
+    `entry_date` on each imported position is derived per-position from IBKR's recent
+    trade history (`IBKRProvider.get_account_trades`, `GET /iserver/account/trades`) when
+    that history exactly reconciles with the position's currently-held quantity -- a real,
+    trustworthy purchase date -- and otherwise falls back to today's import date, exactly
+    as before this derivation existed (see `_derive_entry_date` and
+    `IBKRPortfolioPreloadImportedPositionOut.entry_date`'s own description for the full
+    reconciliation rule). `entry_notes` records which case applied, explicitly, so it's
+    visible later rather than silently misleading either way
+    (`_IBKR_IMPORT_ENTRY_NOTE_DERIVED_TEMPLATE`/`_IBKR_IMPORT_ENTRY_NOTE_FALLBACK_TEMPLATE`).
+    A failure fetching trade history itself (the trades endpoint being unavailable, 4xx/5xx,
+    or an unparseable response) never breaks this whole import -- it degrades to the
+    fallback branch for every position in the batch, same as today's date always did before
+    this task. `strategy` is always null -- IBKR's positions response carries nothing this
+    app could map onto a personal named strategy tag, and guessing one would misrepresent
+    the trader's own intent. See this task's `decisions` entry.
 
     'disabled'/`gateway_unreachable`/`not_authenticated` states behave exactly like
     `GET /api/ibkr/portfolio-preview` -- a normal `200` response, never an HTTP error, with
@@ -684,8 +760,23 @@ def preload_ibkr_portfolio(
 
     existing_tickers = _existing_position_tickers(db)
     candidates = _valid_import_candidates(account_positions)
-    entry_date = today()
-    entry_notes = _IBKR_IMPORT_ENTRY_NOTE_TEMPLATE.format(entry_date=entry_date)
+    import_date = today()
+
+    # A failure here (gateway/session hiccup, or `get_account_trades` raising for the same
+    # reasons `get_account_positions` above would) must not break the whole import -- it
+    # just means every candidate below degrades to the fallback (today()) branch, exactly
+    # this feature's original behavior before trade-history derivation existed. See
+    # `_derive_entry_date` and this task's `decisions` entry.
+    try:
+        trades = provider.get_account_trades()
+    except IBKRUnavailableError as exc:
+        logger.info(
+            "IBKR trade history unavailable for this portfolio-preload call; entry_date "
+            "falls back to today() for every imported position. (%s: %s)",
+            type(exc).__name__,
+            exc,
+        )
+        trades = []
 
     imported: list[IBKRPortfolioPreloadImportedPositionOut] = []
     skipped: list[str] = []
@@ -699,6 +790,12 @@ def preload_ibkr_portfolio(
         # avg_cost -- narrowed explicitly for mypy, matching this codebase's existing
         # assert-narrow convention (e.g. app.api.day_trader_signal).
         assert p.avg_cost is not None
+        entry_date, derived = _derive_entry_date(p, trades, fallback=import_date)
+        entry_notes = (
+            _IBKR_IMPORT_ENTRY_NOTE_DERIVED_TEMPLATE.format(import_date=import_date, entry_date=entry_date)
+            if derived
+            else _IBKR_IMPORT_ENTRY_NOTE_FALLBACK_TEMPLATE.format(entry_date=entry_date)
+        )
         db.add(
             PositionORM(
                 id=f"pos_{uuid.uuid4().hex[:12]}",

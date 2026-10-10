@@ -201,13 +201,21 @@ export interface paths {
          *     `PositionORM.ticker` has a uniqueness constraint that would otherwise fail the second
          *     insert outright. See this task's `decisions` entry.
          *
-         *     `entry_date` on every imported position is always today's date (see
-         *     `IBKRPortfolioPreloadImportedPositionOut.entry_date`'s own description for why), and
-         *     `entry_notes` records that fact explicitly so it's visible later rather than silently
-         *     misleading (`_IBKR_IMPORT_ENTRY_NOTE_TEMPLATE`). `strategy` is always null -- IBKR's
-         *     positions response carries nothing this app could map onto a personal named strategy
-         *     tag, and guessing one would misrepresent the trader's own intent. See this task's
-         *     `decisions` entry.
+         *     `entry_date` on each imported position is derived per-position from IBKR's recent
+         *     trade history (`IBKRProvider.get_account_trades`, `GET /iserver/account/trades`) when
+         *     that history exactly reconciles with the position's currently-held quantity -- a real,
+         *     trustworthy purchase date -- and otherwise falls back to today's import date, exactly
+         *     as before this derivation existed (see `_derive_entry_date` and
+         *     `IBKRPortfolioPreloadImportedPositionOut.entry_date`'s own description for the full
+         *     reconciliation rule). `entry_notes` records which case applied, explicitly, so it's
+         *     visible later rather than silently misleading either way
+         *     (`_IBKR_IMPORT_ENTRY_NOTE_DERIVED_TEMPLATE`/`_IBKR_IMPORT_ENTRY_NOTE_FALLBACK_TEMPLATE`).
+         *     A failure fetching trade history itself (the trades endpoint being unavailable, 4xx/5xx,
+         *     or an unparseable response) never breaks this whole import -- it degrades to the
+         *     fallback branch for every position in the batch, same as today's date always did before
+         *     this task. `strategy` is always null -- IBKR's positions response carries nothing this
+         *     app could map onto a personal named strategy tag, and guessing one would misrepresent
+         *     the trader's own intent. See this task's `decisions` entry.
          *
          *     'disabled'/`gateway_unreachable`/`not_authenticated` states behave exactly like
          *     `GET /api/ibkr/portfolio-preview` -- a normal `200` response, never an HTTP error, with
@@ -914,10 +922,11 @@ export interface paths {
          *     ever returning `AnalysisResponse` with a `signal`/`confidence`/`screens`/`indicators` that
          *     don't reflect real market data -- this endpoint's `signal`/`confidence`/etc. fields are
          *     non-nullable specifically so a `200` always means a real, fully-computed result, in either
-         *     mode. `support_resistance_zones`/`profit_target`/`extended_data`/`insider_clusters`/`as_of`
-         *     are unaffected either way -- always derived from `daily_ohlcv`/`weekly_ohlcv` regardless of
-         *     trading mode, per this task's own decision to defer the portfolio/profit-target layer's
-         *     hard-coded weekly/daily split to a follow-up (docs/architecture/Backend.md §10).
+         *     mode. `support_resistance_zones`/`profit_target`/`extended_data`/`insider_clusters`/`as_of`/
+         *     `current_price`/`current_price_change_pct` are unaffected either way -- always derived from
+         *     `daily_ohlcv`/`weekly_ohlcv` regardless of trading mode, per this task's own decision to
+         *     defer the portfolio/profit-target layer's hard-coded weekly/daily split to a follow-up
+         *     (docs/architecture/Backend.md §10).
          */
         get: operations["get_stock_analysis"];
         put?: never;
@@ -1209,7 +1218,7 @@ export interface components {
             current_price: number;
             /**
              * Current Price Change Pct
-             * @description Day-over-day change in `current_price` versus the prior daily bar's close, as a percentage (e.g. 2.5 for +2.5%, matching `unrealized_pnl_pct`'s own percentage convention elsewhere in this API -- not a 0-1 fraction). Null whenever fewer than 2 daily bars are available to compare (e.g. the `current_price` weekly-fallback case above, or a brand-new ticker).
+             * @description Day-over-day change in `current_price` versus the prior daily bar's close, as a percentage (e.g. 2.5 for +2.5%, matching `unrealized_pnl_pct`'s own percentage convention elsewhere in this API -- not a 0-1 fraction). Null whenever fewer than 2 daily bars are available to compare (e.g. the `current_price` weekly-fallback case above, or a brand-new ticker), or when the prior daily bar's close is exactly 0 (dividing by a zero previous close is undefined).
              */
             current_price_change_pct: number | null;
             /** @description The most recent qualifying MACD-Histogram/Stochastic/RSI divergence detected between price's own swing points and each indicator's value at those dates (docs/ideas.md, Elder ch. 15/23/26/27) -- null if none currently qualifies. When more than one indicator qualifies with the same second_extreme_date (common, since all three are checked against the same price swing points), MACD-Histogram wins, then Stochastic, then RSI. Detection + exposure only -- not wired into signal/confidence_breakdown (see the backend-divergence-detection task's decisions). */
@@ -1859,7 +1868,7 @@ export interface components {
             /**
              * Entry Date
              * Format: date
-             * @description Always today's date -- IBKR's positions endpoint does not report when a position was originally opened, so this can't be backfilled with the real purchase date. See this task's `decisions` entry.
+             * @description A real purchase date when IBKR's recent trade history (GET /iserver/account/trades, limited by IBKR to the current day plus the six previous calendar days) contains buy execution(s) for this position whose net-of-sells quantity, within that window, exactly accounts for the position's currently-held quantity -- meaning this position's entire open history fits inside that window, so the earliest such buy date is trustworthy. Otherwise (no in-window trade activity, only a partial/top-up match, or the trade-history fetch itself being unavailable), this falls back to today's import date, which is NOT the real purchase date. entry_notes on the same position records which case applied. See the backend-ibkr-import-entry-date-from-trades task's `decisions` entry.
              */
             entry_date: string;
             /**
