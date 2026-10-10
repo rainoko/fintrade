@@ -97,6 +97,31 @@ unknown-ticker 404), portfolio (view/add/delete a position, the risk panel, and 
 two-months-later follow-up review on a trade due for one), and app-shell navigation between
 all three pages.
 
+**Importing from `src/` in an e2e spec:** every spec here is otherwise a pure black-box
+consumer of the running app through the browser — Playwright locators driving real DOM
+interactions, not component imports — which is the whole point of this suite (see above:
+two mocked suites that separately stub the same contract could each stay green while still
+disagreeing with each other in production, and an e2e spec that reached past the browser
+into app internals would reopen that same gap). A spec may still import a **type** or a
+**pure, side-effect-free utility/formatting function** directly from `src/` (both
+`tsconfig.app.json` and Playwright's own `tsconfig` already include `src` and `tests`
+together, so nothing extra needs wiring) when doing so lets an assertion compare against
+the exact value or format the app itself produces, rather than a hand-copied
+reimplementation that can silently drift from it. `tests/e2e/daily-homework.spec.ts`
+imports the `DailyHomeworkOut` type (`src/api/homework.ts`, via `import type`, so it's
+erased at compile time with zero runtime coupling) and the `formatDate` helper
+(`src/utils/format.ts`, a pure function of its string argument — no React, no DOM, no app
+state) for exactly this reason: a prior tests-local reimplementation of `formatDate`'s
+`toLocaleDateString` options had drifted out of sync with the real helper
+(`frontend-daily-homework-history-followups-followups`'s fix), which is precisely the
+failure mode importing the real helper prevents from recurring. Importing a React
+component, hook, context, or any module with side effects/DOM/app-runtime dependencies is
+**not allowed** — that would let a spec exercise app logic directly instead of through the
+browser the way a real user does, which is the black-box boundary this suite exists to
+keep. A genuinely test-only need shared across specs, or between a spec and the mocked
+suites' fixtures — not a copy or thin wrapper of app logic, e.g. `isoDateWeeksAgo` — still
+belongs in a `tests/`-local module (`tests/dateFixtures.ts`), not under `src/`.
+
 ## What 90% Coverage Does *Not* Guarantee
 
 Coverage measures lines/branches executed, not correctness of the Elder methodology itself. A test that calls the MACD function and asserts only "it returns a number" contributes to coverage without validating anything meaningful. The reference-value requirement above (Backend, unit tests) exists specifically to prevent coverage from being satisfied by shallow assertions — reviewers should treat a PR that hits 90% via trivial assertions as not actually meeting this bar in spirit, even if the CI gate is green.
