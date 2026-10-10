@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from backend-ibkr-import-entry-date-from-trades's PR review (#408)",
   "area": "backend/data",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-ibkr-import-entry-date-from-trades"],
   "references": [
     "docs/tasks/backend-ibkr-import-entry-date-from-trades.json",
@@ -42,5 +42,11 @@
       "rationale": "Of the three options the task description raised (document only, fail-closed-drop, or parse-only-unambiguous-formats), fail-closed-drop is the only one that actually removes the risk without needing live verification. 'Parse only unambiguous formats' doesn't apply here: `trade_time`'s `YYYYMMDDHHMM[SS]` format carries no timezone marker by construction, so no reformulation of the parsing logic itself can make it unambiguous -- only external confirmation (a live payload, or IBKR documentation explicitly stating the convention, neither of which exists here) could, and this task's description explicitly says not to claim that. 'Document only' was rejected as insufficient on its own: this exact function already establishes a fail-closed convention for every other field whose value can't be trusted (conid/side/quantity/the missing-`account`-field case, per the parent task's PR #408 round-3 decisions entry) specifically because 'confidently wrong is worse than an honest fallback' is this feature's whole soundness argument -- leaving `trade_time` as the one exception that keeps guessing, with just a comment admitting the guess might be wrong, would be inconsistent with that argument and with the precedent `pr-decision`'s override already set for the structurally identical missing-account case. The cost of dropping is genuinely low: IBKR's own documented example payload includes `trade_time_r` alongside `trade_time`, so in the common case this changes nothing observable; the only behavior change is for a hypothetical row that has `trade_time` but no usable `trade_time_r`, which now contributes nothing to quantity reconciliation instead of contributing a possibly-wrong date -- pushing toward the conservative `today()` fallback, never toward a silently wrong real one. Updated `test_falls_back_to_trade_time_string_when_epoch_missing`/`test_trade_time_string_with_seconds_also_parses`/`test_absurd_epoch_falls_back_to_trade_time_string` (`backend/tests/unit/data/test_ibkr_provider.py`) to assert the new drop behavior instead of the old parse-and-fall-back behavior, and updated both affected docstrings (`get_account_trades`, `_parse_trade_date`) to describe and justify the new behavior rather than the old one."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-ibkr-import-entry-date-from-trades-followups",
+    "pr_number": 410,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/410",
+    "pushed_at": "2026-10-10T04:03:26Z"
+  }
 }
