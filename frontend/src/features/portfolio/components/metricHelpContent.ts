@@ -24,8 +24,10 @@ import {
  * (`GET /api/portfolio/closed-trades`) — the ticker's history doesn't reach
  * back far enough, that day was dropped as malformed, or (trade grade only)
  * the entry date falls inside the Autoenvelope's ~100-bar warm-up window —
- * not "no interpretation available" the way e.g. IndicatorsPanel's
- * `isKnown` guard treats a stale/malformed latest bar.
+ * not "no interpretation available" the way e.g. `isKnownNumber`
+ * (`utils/format.ts`, used by `features/stocks/components/
+ * metricHelpContent.ts`'s `interpretValue` functions that IndicatorsPanel
+ * renders) treats a stale/malformed latest bar.
  */
 
 /**

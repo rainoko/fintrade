@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from frontend-cftc-cot-display-followups-followups's PR review (#412)",
   "area": "frontend/pages",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-cftc-cot-display-followups-followups"],
   "references": [
     "docs/tasks/frontend-cftc-cot-display-followups-followups.json",
@@ -14,7 +14,7 @@
   "checklist": [
     {
       "step": "`frontend/src/features/portfolio/components/metricHelpContent.ts` line 28 has a doc comment -- \"not 'no interpretation available' the way e.g. IndicatorsPanel's `isKnown` guard treats a stale/malformed latest bar\" -- that's now a stale symbol reference: PR #412 renamed the guard it's describing (originally a private `isKnown` in `features/stocks/components/metricHelpContent.ts`, consumed by `IndicatorsPanel.tsx`) to the shared `isKnownNumber` in `utils/format.ts`, but this cross-file comment in a third, untouched file wasn't updated to match. Purely a documentation drift, not a behavior bug (confirmed via grep that no other file still references the old bare `isKnown` name as a currently-live symbol) -- worth a one-line comment fix (`isKnown` -> `isKnownNumber`) next time this file is touched.",
-      "done": false
+      "done": true
     }
   ],
   "decisions": [],
