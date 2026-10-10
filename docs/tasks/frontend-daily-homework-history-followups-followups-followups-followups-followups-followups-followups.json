@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from frontend-daily-homework-history-followups-followups-followups-followups-followups's re-review of PR #416 (post path-traversal-fix round)",
   "area": "frontend/pages",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "frontend-daily-homework-history-followups-followups-followups-followups-followups-followups"
   ],
@@ -39,5 +39,11 @@
       "rationale": "This is a product/process-governance call about the task board's own conventions, not an ordinary implementation judgment call this worker has standing to make unilaterally -- and per CLAUDE.md's own 'Autonomous pipeline' rule, a PR touching CLAUDE.md or `.claude/` cannot be merged by `pr-merger` and requires an explicit human merge, so bundling a CLAUDE.md edit into this otherwise fully-mechanical, easily-mergeable fix would have blocked it on that unrelated governance question. The two live options for whoever does pick this item up: (a) formalize the pattern in CLAUDE.md's board-conventions section -- define when it's acceptable for one PR/branch to resolve two task ids (e.g. a follow-up small enough to land in the same diff as its parent's fix), and how `git.branch`/`git.pr_number`/`state` should be recorded on the piggybacking task (point `git.branch` at the parent's branch with a note, or require it to still reference the parent PR's number even though it has no PR of its own); or (b) rule it out -- require every task, however small, to get its own `task/<id>` branch and PR, accepting the overhead of a near-trivial PR for a three-line fix in order to keep the one-task-one-branch invariant exceptionless and `git.branch` always literally matching `task/<task-id>`. Recording this as a `decisions` entry rather than a `questions` entry because the task instructions for this PR explicitly pre-decided the disposition (checklist item 2 stays `done: false`, no `.claude`/CLAUDE.md edit) -- there's nothing left here that only the user can answer *for this PR*; the open governance question itself is already fully described in the checklist item's own text, so restating it as a separate `questions` entry would be redundant. This leaves the task not fully complete by design -- the reviewer should expect checklist item 2 to remain open and not treat it as an oversight."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups",
+    "pr_number": 417,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/417",
+    "pushed_at": "2026-10-10T11:32:47Z"
+  }
 }
