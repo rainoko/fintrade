@@ -2,8 +2,21 @@ import { Linter } from 'eslint'
 import tseslint from 'typescript-eslint'
 import { describe, expect, it } from 'vitest'
 
-import eslintConfig from '../eslint.config.js'
+import eslintConfigDefault from '../eslint.config.js'
 import { isBlockedSrcSource, noRestrictedSrcImportRule } from './no-restricted-src-import.js'
+
+// `eslint.config.js` is built with `tseslint.config(...)`, whose declared
+// return type is `typescript-eslint`'s own `TSESLint.FlatConfig.Config[]` --
+// a hand-written interface in `@typescript-eslint/utils`, structurally close
+// to but not assignable to the `eslint` package's own `Linter.Config` (from
+// `@eslint/core` via `@eslint/config-helpers`), the type this file's actual
+// `new Linter().verify(...)` calls below need. The two packages' plugin/
+// rule shapes differ just enough (e.g. `Partial<Record<string, Processor>>`
+// vs `Record<string, Processor> | undefined`) that nothing short of a cast
+// bridges them -- this is the one deliberate `as unknown as` in this file,
+// isolated to the import boundary so every type below it is a real,
+// non-defeated `Linter.Config` check against eslint's own types.
+const eslintConfig = eslintConfigDefault as unknown as Linter.Config[]
 
 // This is the persisted test the `e2e-import-guard/no-restricted-src-import`
 // rule has never had -- every edge case below was previously found (and
@@ -63,8 +76,7 @@ describe('isBlockedSrcSource', () => {
 // wiring -- not just the matching logic -- fails here too.
 describe('e2e-import-guard/no-restricted-src-import wiring', () => {
   const e2eConfigEntry = eslintConfig.find(
-    (entry): entry is { files: string[]; plugins: Record<string, unknown>; rules: Record<string, unknown> } =>
-      Array.isArray(entry.files) && entry.files.includes('tests/e2e/**/*.ts'),
+    (entry) => Array.isArray(entry.files) && entry.files.includes('tests/e2e/**/*.ts'),
   )
 
   it('is present in the flat config array eslint.config.js exports', () => {
@@ -72,9 +84,9 @@ describe('e2e-import-guard/no-restricted-src-import wiring', () => {
   })
 
   it('registers exactly the extracted rule object, at "error" severity', () => {
-    const plugin = e2eConfigEntry?.plugins['e2e-import-guard'] as { rules: Record<string, unknown> } | undefined
-    expect(plugin?.rules['no-restricted-src-import']).toBe(noRestrictedSrcImportRule)
-    expect(e2eConfigEntry?.rules['e2e-import-guard/no-restricted-src-import']).toBe('error')
+    const plugin = e2eConfigEntry?.plugins?.['e2e-import-guard']
+    expect(plugin?.rules?.['no-restricted-src-import']).toBe(noRestrictedSrcImportRule)
+    expect(e2eConfigEntry?.rules?.['e2e-import-guard/no-restricted-src-import']).toBe('error')
   })
 
   function lintAsE2eSpec(code: string) {
