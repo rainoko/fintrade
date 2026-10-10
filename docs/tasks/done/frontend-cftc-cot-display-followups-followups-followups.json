@@ -1,0 +1,42 @@
+{
+  "id": "frontend-cftc-cot-display-followups-followups-followups",
+  "title": "Non-blocking finding from frontend-cftc-cot-display-followups-followups's PR review (#412)",
+  "area": "frontend/pages",
+  "skill": null,
+  "state": "done",
+  "depends_on": [
+    "frontend-cftc-cot-display-followups-followups"
+  ],
+  "references": [
+    "docs/tasks/frontend-cftc-cot-display-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/412",
+    "frontend/src/features/portfolio/components/metricHelpContent.ts"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's full review of PR #412 (frontend-cftc-cot-display-followups-followups), recorded here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule so it isn't lost once that PR merges. PR #412 itself was accepted with no blocking findings -- the isKnown -> isKnownNumber consolidation was verified byte-equivalent at every one of the ~20 touched call sites (including the two inline waveHelp.interpretValue copies), formatNullableNumber's behavior was confirmed unchanged (De Morgan equivalence plus its own null/undefined/NaN tests still passing), a mutation test against isKnownNumber's NaN guard was caught by both format.test.ts and metricHelpContent.test.ts, the utils/chart.ts#isFiniteNumber rejection was confirmed accurate (materially different predicate, different param type, and that module top-level-imports lightweight-charts), the full test/coverage/lint/typecheck/validate_tasks.py suites all pass clean, and a Playwright walkthrough of both the stock detail page's indicator help tooltips and the watchlist page's CftcCotCard help tooltip (including describeExtreme's dynamic 'most/least bullish' text) rendered correctly with no console errors, plus the full e2e suite (28/28 specs) passed.",
+  "checklist": [
+    {
+      "step": "`frontend/src/features/portfolio/components/metricHelpContent.ts` line 28 has a doc comment -- \"not 'no interpretation available' the way e.g. IndicatorsPanel's `isKnown` guard treats a stale/malformed latest bar\" -- that's now a stale symbol reference: PR #412 renamed the guard it's describing (originally a private `isKnown` in `features/stocks/components/metricHelpContent.ts`, consumed by `IndicatorsPanel.tsx`) to the shared `isKnownNumber` in `utils/format.ts`, but this cross-file comment in a third, untouched file wasn't updated to match. Purely a documentation drift, not a behavior bug (confirmed via grep that no other file still references the old bare `isKnown` name as a currently-live symbol) -- worth a one-line comment fix (`isKnown` -> `isKnownNumber`) next time this file is touched.",
+      "done": true
+    }
+  ],
+  "decisions": [],
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-cftc-cot-display-followups-followups-followups",
+    "pr_number": 415,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/415",
+    "pushed_at": "2026-10-10T10:09:39Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-10T10:14:18Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/415",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review per CLAUDE.md's pr-reviewer process. Diff confirmed genuinely comment-only (plus task-board bookkeeping): metricHelpContent.ts's reworded doc comment at ~line 28-30. Independently verified the new comment's accuracy: isKnownNumber lives in utils/format.ts:90, is used throughout features/stocks/components/metricHelpContent.ts's interpretValue functions, and IndicatorsPanel.tsx renders those via xHelp.interpretValue(...) -- the replacement description is correct. Ran my own repo-wide grep for the bare isKnown symbol: all remaining hits are historical (docs/tasks/done/*.json review text, and utils/format.ts's own origin-explaining comment) -- confirms task-worker's sweep was complete, nothing missed. Re-ran all checks myself: frontend eslint and tsc -b --noEmit clean; frontend vitest 104 files/1083 tests passed, coverage 99.78%/99.06%/99.84%/99.82% (matches claim, no regression, well above the 90% gate); backend pytest run for completeness even though untouched (confirmed empty backend diff) -- 1655 passed, 99.95% coverage, ruff and mypy both clean; scripts/validate_tasks.py clean. area is frontend/pages (not backend/signals or backend/portfolio) and skill is null, so verify-elder-signal doesn't apply; no new module/dependency/layer, so architecture-review doesn't apply; no new/changed frontend component, so the Section 7a placement check doesn't apply; no API route/schema touched, so no openapi.json regen needed; no UI-facing behavior change, so no browser walkthrough or e2e suite needed (step 9/9a) -- correctly stated rather than silently skipped, matching the task's own instructions. No 'decide X'-phrased checklist item, so no decisions-entry gap. No findings of substance -- did not manufacture one. No new follow-up task filed. Verdict: accepted."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-10-10T10:20:14Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified. git diff origin/main...HEAD confirms the only substantive change is the comment-only rewrite in frontend/src/features/portfolio/components/metricHelpContent.ts (plus task-board bookkeeping: done/ rename, index.json mirror, review field) -- no app code changed. Hand-verified the new comment's claim myself via grep: isKnownNumber is defined at utils/format.ts:90, imported and used by features/stocks/components/metricHelpContent.ts's interpretValue functions (e.g. lines 257, 264, 334), which IndicatorsPanel.tsx renders via xHelp.interpretValue(...); the only remaining bare `isKnown` hit repo-wide is utils/format.ts:83's own historical origin comment. Re-ran everything myself: frontend vitest 104 files/1083 tests passed, coverage 99.78%/99.06%/99.84%/99.82%; eslint and tsc -b --noEmit both clean; backend pytest 1655 passed, 99.95% coverage (confirmed untouched by diff); scripts/validate_tasks.py clean. All numbers match pr-reviewer's report exactly; accept holds."
+  }
+}
