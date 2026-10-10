@@ -3,7 +3,7 @@
   "title": "Surface the CFTC Commitments of Traders (COT) data somewhere in the UI -- GET /api/cftc/cot has zero frontend consumer",
   "area": "frontend/pages",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/api/routers/cftc.py",
@@ -47,6 +47,12 @@
       "recorded_by": "task-worker",
       "decision": "Confirmed (not assumed) that `backend/openapi.json` needs no regeneration for this task: re-ran `python scripts/export_openapi.py` from `backend/` and diffed the result against the committed file -- byte-for-byte identical, zero diff. Left the checklist item's backend-touching clause unexercised rather than running a no-op regeneration commit.",
       "rationale": "This task is a pure frontend consumer of an already-existing, already-documented GET /api/cftc/cot endpoint (backend-cftc-cot-data, PR #270) -- no backend route/schema was touched by this task's changes, so no OpenAPI drift was possible, but the checklist explicitly asked to confirm this rather than assume it."
+    },
+    {
+      "timestamp": "2026-10-10T02:01:06Z",
+      "recorded_by": "task-worker",
+      "decision": "Needs-work rework for PR #407's blocking finding: `describeExtreme` (`frontend/src/features/cftc/components/cftcCotHelp.ts`) no longer decides 'only market' purely from `highest === lowest` object-reference equality. It now checks `withIndex.length === 1` first (the genuinely-only-computable-market case) and, separately, whether `highest[pick] === lowest[pick]` once `withIndex.length >= 2` (every computable market tied at the same value, since `reduce`'s `>`/`<` comparisons both keep the first element on a tie, making `highest`/`lowest` the same object by reference even though 2+ markets are tied) -- the tied-value branch now names every tied market (`withIndex.map(... display_name).join(', ')`) instead of singling one out as unique. Added `cftcCotHelp.test.ts` cases for: a 2-way tie among 3 markets (2 computable-and-tied, 1 null), an all-5-markets-tied case, and an empty market list (`markets: []`) -- confirmed the existing all-null-COT-index case (2 markets, both null) was already covered and needed no new test.",
+      "rationale": "pr-reviewer reproduced the bug directly (two equal-valued markets both resolving to 'the only market with a computable reading right now') and judged it review-blocking per this task's own scrutiny ask -- a wrong 'most bullish'/'only market' claim in Elder ch. 37 help text is a correctness bug, not cosmetic. Distinguishing `length === 1` from a tied-value `length >= 2` case (rather than, say, just rewording the existing `highest === lowest` branch to say 'one or more markets') was chosen because the two cases need genuinely different wording -- one market has no 'tie' to describe at all, while 2+ tied markets need to be named, not merged into one ambiguous sentence -- and because it makes the `withIndex.length === 1` early-return's intent unambiguous in the code itself. The separately-filed non-blocking `undefined`-vs-`null` type-predicate finding was left untouched (tracked at `frontend-cftc-cot-display-followups`, confirmed genuinely unrelated to this fix -- it's about the filter predicate on line 35, not the highest/lowest tie logic this rework touches) per the dispatch instruction's explicit out-of-scope note."
     }
   ],
   "git": {

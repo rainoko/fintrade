@@ -37,10 +37,22 @@ function describeExtreme(
   if (withIndex.length === 0) {
     return null
   }
+  if (withIndex.length === 1) {
+    const only = withIndex[0]
+    return `${only.display_name}'s commercials sit at a commercial COT Index of ${only[pick].toFixed(0)} -- the only market with a computable reading right now.`
+  }
   const highest = withIndex.reduce((a, b) => (b[pick] > a[pick] ? b : a))
   const lowest = withIndex.reduce((a, b) => (b[pick] < a[pick] ? b : a))
-  if (highest === lowest) {
-    return `${highest.display_name}'s commercials sit at a commercial COT Index of ${highest[pick].toFixed(0)} -- the only market with a computable reading right now.`
+  if (highest[pick] === lowest[pick]) {
+    // Every computable market shares the same value -- `reduce`'s `>`/`<`
+    // comparisons both keep the first element on a tie, so `highest` and
+    // `lowest` are the same object here, but that does NOT mean it's the
+    // only computable market (see the `length === 1` branch above for that
+    // case) -- 2+ markets can independently land on the same boundary value
+    // (e.g. two markets each sitting at their own trailing 52-week extreme),
+    // so name all of them rather than singling one out as unique.
+    const names = withIndex.map((market) => market.display_name).join(', ')
+    return `Commercials are tied at a commercial COT Index of ${highest[pick].toFixed(0)} across every market with a computable reading right now (${names}).`
   }
   return (
     `Commercials are currently most bullish (relative to their own trailing 52-week range) in ${highest.display_name} ` +

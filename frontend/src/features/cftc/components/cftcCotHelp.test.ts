@@ -81,4 +81,49 @@ describe('cftcCotHelp', () => {
 
     expect(help.valueInterpretation).toBeNull()
   })
+
+  it('returns a null valueInterpretation when the market list is empty', () => {
+    const data: CFTCCOTResponse = { markets: [] }
+    const help = cftcCotHelp(data)
+
+    expect(help.valueInterpretation).toBeNull()
+  })
+
+  it('names every tied market (not just one) when exactly 2 markets share the same commercial COT Index', () => {
+    // Regression test: both are legitimately at their own trailing 52-week
+    // extreme at the same time -- an ordinary occurrence, not a contrived
+    // float coincidence -- so `highest`/`lowest` resolve to the same object
+    // by reference, but BOTH are computable and tied, not "the only" one.
+    const data: CFTCCOTResponse = {
+      markets: [
+        market({ market_key: 'eur', display_name: 'EUR', commercial_cot_index_52w: 100.0 }),
+        market({ market_key: 'jpy', display_name: 'JPY', commercial_cot_index_52w: 100.0 }),
+        market({ market_key: 'bonds', display_name: 'BONDS', commercial_cot_index_52w: null }),
+      ],
+    }
+    const help = cftcCotHelp(data)
+
+    expect(help.valueInterpretation).toBe(
+      'Commercials are tied at a commercial COT Index of 100 across every market with a computable reading right now (EUR, JPY).',
+    )
+    expect(help.valueInterpretation).not.toContain('only market')
+  })
+
+  it('names every tied market when all computable markets share the same commercial COT Index', () => {
+    const data: CFTCCOTResponse = {
+      markets: [
+        market({ market_key: 'eur', display_name: 'EUR', commercial_cot_index_52w: 0.0 }),
+        market({ market_key: 'jpy', display_name: 'JPY', commercial_cot_index_52w: 0.0 }),
+        market({ market_key: 'oil', display_name: 'OIL', commercial_cot_index_52w: 0.0 }),
+        market({ market_key: 'gold', display_name: 'GOLD', commercial_cot_index_52w: 0.0 }),
+        market({ market_key: 'bonds', display_name: 'BONDS', commercial_cot_index_52w: 0.0 }),
+      ],
+    }
+    const help = cftcCotHelp(data)
+
+    expect(help.valueInterpretation).toBe(
+      'Commercials are tied at a commercial COT Index of 0 across every market with a computable reading right now (EUR, JPY, OIL, GOLD, BONDS).',
+    )
+    expect(help.valueInterpretation).not.toContain('only market')
+  })
 })
