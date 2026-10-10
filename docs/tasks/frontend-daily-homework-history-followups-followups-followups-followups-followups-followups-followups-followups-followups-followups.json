@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #419's review (frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups-followups-followups)",
   "area": "frontend/pages",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [
     "frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups-followups-followups"
   ],
@@ -16,13 +16,20 @@
   "checklist": [
     {
       "step": "Replace `eslintConfigDefault as unknown as Linter.Config[]` in frontend/eslint-rules/no-restricted-src-import.test.ts with the direct, single-hop `eslintConfigDefault as Linter.Config[]` (no `unknown` detour), and update the inline comment above it (and, since it's referenced there too, the parent task's decisions-entry language if a fresh decisions entry is added) so the claim is 'a cast, but not necessarily through unknown' rather than implying the double-hop is required. Re-run `yarn tsc -b --noEmit --force` to confirm it stays clean with the narrower cast, and `yarn vitest run eslint-rules` to confirm the wiring suite's behavior is unaffected (casts are erased at compile time, so this is expected to be a no-op at runtime).",
-      "done": false
+      "done": true
     },
     {
       "step": "docs/architecture/Testing.md (around the paragraph describing this fix) claims 'every real type annotation in the test file now is[checked]... against the real exported types of both modules'. This overstates what's actually checked for the wiring-test block specifically: `eslintConfig` (used by `eslintConfig.find(...)`, `.plugins`, `.rules` in the 'wiring' describe block) is checked against `eslint`'s own `Linter.Config` shape -- the cast target -- not against `eslint.config.js`'s actual declared return type (`typescript-eslint`'s `TSESLint.FlatConfig.Config[]`/`ConfigWithExtends[]` from `tseslint.config(...)`), precisely because the cast at the import boundary substitutes one type for the other. If `eslint.config.js`'s exported shape ever drifted in a way incompatible with `Linter.Config` but still a valid flat config, tsc would not catch it for that half of the file, contradicting the doc's 'real exported types of both modules' framing for that portion. (The `isBlockedSrcSource`-table block, which has no cast involved, is checked against the real exported type and is unaffected by this -- the imprecision is specific to the post-cast wiring-test code.) Independently flagged by a concurrently-running code-review pass during PR #419's review. Reword Testing.md's claim to be accurate about the cast boundary, or scope the claim to the parts of the file it actually covers.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-10T13:19:45Z",
+      "recorded_by": "task-worker",
+      "decision": "For item 2, reworded docs/architecture/Testing.md's claim by splitting it into two cases instead of just narrowing scope: the isBlockedSrcSource-table block is checked against no-restricted-src-import.js's real exported type directly (unaffected, kept the existing TS2345 proof), while the wiring-test block is checked against the cast's target type (Linter.Config) rather than eslint.config.js's own declared return type, and spelled out the resulting gap (an eslint.config.js shape drift that stays flat-config-valid but diverges from Linter.Config would not be caught here).",
+      "rationale": "The task description itself distinguishes the two blocks (isBlockedSrcSource-table vs. wiring-test), so keeping that split in the doc keeps the paragraph's useful information intact rather than just softening the overstated claim into vague language. Considered only trimming the 'real exported types of both modules' phrase to 'a real exported type' without explaining why the wiring-test block differs, but that would lose the precise mechanism (cast-at-import-boundary swaps the checked type) that makes the original claim inaccurate in the first place."
+    }
+  ],
   "questions": []
 }
