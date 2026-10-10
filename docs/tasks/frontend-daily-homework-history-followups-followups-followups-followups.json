@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #405's review (frontend-daily-homework-history-followups-followups-followups)",
   "area": "frontend/pages",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["frontend-daily-homework-history-followups-followups-followups"],
   "references": [
     "docs/tasks/frontend-daily-homework-history-followups-followups-followups.json",
@@ -14,13 +14,21 @@
   "checklist": [
     {
       "step": "The new convention (\"a type, or a pure, side-effect-free utility/formatting function\") is documentary only -- there is no `eslint.config.js` rule (e.g. a `no-restricted-imports` override scoped to `tests/e2e/**` allowing only `import type` plus a specific named-export allowlist) that would mechanically catch a future spec importing a React component, hook, or context from `src/` in violation of the rule. The worked example (DailyHomeworkOut as a type, formatDate as a pure function) and the explicit prohibition give a reasonably clear bright-line test for the common case, but \"pure, side-effect-free\" for a borderline helper (one that calls other src/ functions transitively, does memoization, or has a non-obvious dependency) is something only a human reviewer can judge -- there's no automated backstop today. Worth considering whether a scoped eslint override is practical, and if not, at least noting in Testing.md that enforcement is review-only.",
-      "done": false
+      "done": true
     },
     {
       "step": "Minor documentation-accuracy nit in the new Testing.md paragraph: it says the exception works because \"both `tsconfig.app.json` and Playwright's own `tsconfig` already include `src` and `tests` together\" -- but there is no separate Playwright-specific tsconfig file anywhere in `frontend/` (confirmed: no `tsconfig.e2e*`/`*playwright*tsconfig*` file exists, and `playwright.config.ts` doesn't reference one). Playwright's own test runner doesn't type-check specs at all (it transpiles via esbuild without checking types); type-checking of `tests/e2e/*.spec.ts` happens solely through the project's ordinary `yarn tsc -b --noEmit` step against `tsconfig.app.json`, which already lists `src`/`tests`/`.storybook` in its `include`. The parenthetical should be reworded to not imply a second, Playwright-specific tsconfig exists -- e.g. \"the one `tsconfig.app.json` (via its project-reference build) already covers both `src` and `tests`, so nothing extra needs wiring for either static type-checking or the Playwright runner's own transpilation.\"",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-10T06:28:08Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a scoped `no-restricted-imports` override in `frontend/eslint.config.js` (files: `tests/e2e/**/*.ts`) that flags a non-type (value) import from `src/components/**`, `src/features/**`, `src/pages/**`, `src/api/**`, `src/theme/**`, an app entry point (`src/App*`/`src/main*`), or `src/index.css`, while allowing a type-only import from anywhere under `src/` (via the rule's `allowTypeImports` option) and leaving `src/utils/**` completely unrestricted for both type and value imports -- rather than leaving the convention purely documentary, or trying to approximate \"pure, side-effect-free\" with something more elaborate.",
+      "rationale": "A partial-but-useful rule is worth adding here: the mechanizable part of the convention is squarely 'no component/hook/context/page/API-client/theme value import from src/', and ESLint's own (non-deprecated, built into eslint@10's core no-restricted-imports as of this version, not the separate @typescript-eslint wrapper) `patterns` + `allowTypeImports` option expresses exactly that distinction without any custom rule code. I rejected two alternatives: (a) a single `group: ['**/src/**', '!**/src/utils/**']` negation pattern, which I actually tried first and verified empirically (via a small Node script exercising the underlying `ignore` package directly) does NOT work -- gitignore-style negation can't re-include a path inside a directory that's already matched by a broader ignore pattern, so `!**/src/utils/**` silently failed to un-block `src/utils/format` under `**/src/**`; listing the blocked directories explicitly (components/features/pages/api/theme/entry points) instead of trying to negate out of a catch-all avoids that trap entirely. (b) a fully-general 'is this import from a pure function' check, which isn't expressible in ESLint without executing/analyzing the imported module's body (far beyond a lint rule's reach, and the task's own framing agreed this isn't mechanizable) -- so I didn't attempt it; a borderline case (a `src/utils/` helper that's quietly grown an impure transitive dependency) still requires human review, same as before, and the new paragraph in Testing.md says so explicitly. I verified the rule fires on a constructed temporary violating import (a value import of a component from `src/features/homework/`) and does not fire on either of the two legitimate imports already in `daily-homework.spec.ts` (the `DailyHomeworkOut` type import and the `formatDate` value import from `src/utils/format.ts`), then removed the temporary file. `yarn lint` passes clean across the whole frontend tree after the change, confirming no existing file outside `tests/e2e/` is affected by the new override's `files` scoping.",
+      "alternatives_considered": "Leaving the convention documentation-only (the 'well-reasoned decline' option the task explicitly allowed) was the main alternative; rejected because the mechanizable subset turned out to be both real and simple to express once I'd confirmed ESLint's built-in `allowTypeImports` option (not a hand-rolled type-detection hack) could do the type/value distinction, and because the false-positive risk this task worried about (forcing eslint-disable comments) proved low in practice: the blocked-directory list is narrow and unambiguous (components/features/pages/api/theme/entry points), and the one genuinely gray area -- whether a `src/utils/` helper is truly pure -- is exactly the part left unrestricted and still deferred to human review, so there's no new disable-comment pressure anywhere a legitimate import would plausibly want to go."
+    }
+  ],
   "questions": []
 }
