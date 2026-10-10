@@ -1,0 +1,27 @@
+{
+  "id": "frontend-daily-homework-history-followups-followups-followups-followups-followups-followups",
+  "title": "Non-blocking findings from frontend-daily-homework-history-followups-followups-followups-followups-followups's PR review (#416)",
+  "area": "frontend/pages",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-daily-homework-history-followups-followups-followups-followups-followups"],
+  "references": [
+    "docs/tasks/frontend-daily-homework-history-followups-followups-followups-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/416",
+    "frontend/eslint.config.js",
+    "docs/architecture/Testing.md#end-to-end-playwright"
+  ],
+  "description": "pr-reviewer's review of PR #416 (frontend-daily-homework-history-followups-followups-followups-followups-followups) found a blocking path-traversal bypass of the new e2e-import-guard rules (tracked by reopening that task itself back to implementing, not here) plus two non-blocking findings from the same pass (one from the code-review skill's backgrounded result, independently re-verified by pr-reviewer) that shouldn't disappear once PR #416's eventual fix merges.",
+  "checklist": [
+    {
+      "step": "The negative lookahead `(?!utils/)` in frontend/eslint.config.js's `no-restricted-imports` regex (`(^|/)src/(?!utils/)`) requires an exact trailing `utils/` (with slash), so a bare import of the `src/utils` module itself (no file/trailing slash, e.g. a future `src/utils/index.ts` barrel import) is incorrectly flagged as blocked even though it's inside the exempted utils path. Verified empirically: `import { barrel } from '../../src/utils'` against a real `src/utils/index.ts` probe produced a `no-restricted-imports` error. No `src/utils/index.ts` exists today so nothing is misflagged in the current tree, but the false positive is real and would surprise whoever adds a utils barrel file later. Worth fixing the regex (e.g. `(^|/)src/(?!utils(/|$))`) alongside whatever fix closes the path-traversal bypass, since both are regex-correctness issues in the same pattern.",
+      "done": false
+    },
+    {
+      "step": "The blocked-path pattern is duplicated by hand in two different syntaxes/escapings in frontend/eslint.config.js -- `no-restricted-imports`'s `regex: '(^|/)src/(?!utils/)'` (line 69) vs. the esquery selector's `Literal[value=/(^|\\/)src\\/(?!utils\\/)/]` (line 90) -- instead of being defined once (e.g. a shared string constant interpolated into both, or a shared RegExp source) and reused. A future change to the exempt directory applied to only one of the two would silently reintroduce an allow/block mismatch between the static- and dynamic-import rules, with nothing to flag the drift. Worth factoring the pattern into a single source of truth when the path-traversal fix touches this file anyway.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
