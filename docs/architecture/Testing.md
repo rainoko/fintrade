@@ -103,9 +103,14 @@ interactions, not component imports — which is the whole point of this suite (
 two mocked suites that separately stub the same contract could each stay green while still
 disagreeing with each other in production, and an e2e spec that reached past the browser
 into app internals would reopen that same gap). A spec may still import a **type** or a
-**pure, side-effect-free utility/formatting function** directly from `src/` (both
-`tsconfig.app.json` and Playwright's own `tsconfig` already include `src` and `tests`
-together, so nothing extra needs wiring) when doing so lets an assertion compare against
+**pure, side-effect-free utility/formatting function** directly from `src/` (the one
+`tsconfig.app.json`, via its project-reference build, already covers both `src` and
+`tests` in its `include`, so nothing extra needs wiring for either static type-checking or
+the Playwright runner's own transpilation -- there is no separate Playwright-specific
+tsconfig file; Playwright's test runner doesn't type-check specs at all, it transpiles them
+via esbuild without checking types, so all static type-checking of `tests/e2e/*.spec.ts`
+happens solely through the project's ordinary `yarn tsc -b --noEmit` step) when doing so
+lets an assertion compare against
 the exact value or format the app itself produces, rather than a hand-copied
 reimplementation that can silently drift from it. `tests/e2e/daily-homework.spec.ts`
 imports the `DailyHomeworkOut` type (`src/api/homework.ts`, via `import type`, so it's
@@ -118,7 +123,17 @@ failure mode importing the real helper prevents from recurring. Importing a Reac
 component, hook, context, or any module with side effects/DOM/app-runtime dependencies is
 **not allowed** — that would let a spec exercise app logic directly instead of through the
 browser the way a real user does, which is the black-box boundary this suite exists to
-keep. A genuinely test-only need shared across specs, or between a spec and the mocked
+keep. `frontend/eslint.config.js` has a `no-restricted-imports` override scoped to
+`tests/e2e/**/*.ts` that mechanically catches the common case of this — a non-type import
+from `src/components/`, `src/features/`, `src/pages/`, `src/api/`, `src/theme/`, or an app
+entry point is flagged, while a type import from anywhere in `src/` and any import (type or
+value) from `src/utils/` are left alone — but it's a backstop for the obvious violations,
+not a substitute for review: it can't tell a genuinely pure `src/utils/` helper from one
+that's quietly grown a transitive dependency on something impure, so a borderline case still
+needs a human judgment call (see
+`frontend-daily-homework-history-followups-followups-followups-followups`'s `decisions`
+entry for the full reasoning on what is and isn't mechanizable here). A genuinely test-only
+need shared across specs, or between a spec and the mocked
 suites' fixtures — not a copy or thin wrapper of app logic, e.g. `isoDateWeeksAgo` — still
 belongs in a `tests/`-local module (`tests/dateFixtures.ts`), not under `src/`.
 
