@@ -2728,8 +2728,8 @@
       "id": "backend-ibkr-import-entry-date-from-trades-followups",
       "area": "backend/data",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-ibkr-import-entry-date-from-trades-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-import-entry-date-from-trades-followups.json"
     },
     {
       "id": "backend-ibkr-import-entry-date-from-trades-followups-followups",
@@ -2737,6 +2737,13 @@
       "skill": null,
       "state": "done",
       "path": "docs/tasks/done/backend-ibkr-import-entry-date-from-trades-followups-followups.json"
+    },
+    {
+      "id": "backend-ibkr-import-entry-date-from-trades-followups-followups-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-ibkr-import-entry-date-from-trades-followups-followups-followups.json"
     }
   ]
 }
