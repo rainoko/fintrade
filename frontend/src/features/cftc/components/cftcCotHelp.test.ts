@@ -89,6 +89,44 @@ describe('cftcCotHelp', () => {
     expect(help.valueInterpretation).toBeNull()
   })
 
+  it('excludes a market whose commercial COT Index is explicitly `undefined`, not just `null`', () => {
+    // Regression test for the type predicate's actual generated type
+    // (`number | null | undefined`, an optional-and-nullable Pydantic
+    // field) -- a predicate that only checked `!== null` would wrongly
+    // narrow this market's field to `number` and `.toFixed(0)` would throw.
+    // Currently unreachable via the real API response (the backend always
+    // serializes an explicit `null`), but the helper's own type claims to
+    // handle `undefined` too, so it must actually do so.
+    const data: CFTCCOTResponse = {
+      markets: [
+        market({ market_key: 'eur', display_name: 'EUR', commercial_cot_index_52w: 50.0 }),
+        market({
+          market_key: 'bonds',
+          display_name: 'BONDS',
+          commercial_cot_index_52w: undefined,
+        }),
+      ],
+    }
+
+    expect(() => cftcCotHelp(data)).not.toThrow()
+    const help = cftcCotHelp(data)
+    expect(help.valueInterpretation).toBe(
+      "EUR's commercials sit at a commercial COT Index of 50 -- the only market with a computable reading right now.",
+    )
+  })
+
+  it('returns a null valueInterpretation when every market has an `undefined` commercial COT Index', () => {
+    const data: CFTCCOTResponse = {
+      markets: [
+        market({ market_key: 'eur', commercial_cot_index_52w: undefined }),
+        market({ market_key: 'bonds', commercial_cot_index_52w: undefined }),
+      ],
+    }
+    const help = cftcCotHelp(data)
+
+    expect(help.valueInterpretation).toBeNull()
+  })
+
   it('names every tied market (not just one) when exactly 2 markets share the same commercial COT Index', () => {
     // Regression test: both are legitimately at their own trailing 52-week
     // extreme at the same time -- an ordinary occurrence, not a contrived
