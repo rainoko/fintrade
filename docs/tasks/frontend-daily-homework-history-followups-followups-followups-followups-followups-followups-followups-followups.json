@@ -1,0 +1,29 @@
+{
+  "id": "frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups-followups",
+  "title": "Non-blocking findings from PR #417's review (frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups)",
+  "area": "frontend/pages",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [
+    "frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups"
+  ],
+  "references": [
+    "docs/tasks/done/frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/417",
+    "frontend/eslint.config.js",
+    "docs/architecture/Testing.md"
+  ],
+  "description": "pr-reviewer accepted PR #417 (the bare-package-specifier false-positive fix for the e2e-import-guard/no-restricted-src-import rule) after independently re-verifying every claim in the PR description. A backgrounded code-review pass launched during that same review returned its result only after the accept verdict was already posted and the task moved to docs/tasks/done/; its two findings were independently re-verified afterward and judged non-blocking (so the accept verdict stands), but are tracked here per CLAUDE.md's rule that every non-blocking finding gets a tracked follow-up task, not just a PR/task-review comment.",
+  "checklist": [
+    {
+      "step": "The new `isBlockedSrcSource` early-return (`if (!rawSource.startsWith('.')) return false`, frontend/eslint.config.js) un-flags a root-absolute specifier like `/src/pages/Something`, which main's pre-PR#417 version of the rule did flag (verified empirically: checked out main's eslint.config.js and confirmed it flags `/src/utils/format`, while PR #417's version doesn't). Vite's own dev-server resolver does resolve a root-absolute specifier against the project root (confirmed via a throwaway `server.pluginContainer.resolveId('/src/utils/format')` probe resolving to the real file), so this isn't a purely theoretical specifier shape for this toolchain -- but `yarn tsc -b --noEmit` independently rejects the same specifier with `TS2307: Cannot find module`, and empirically running an e2e spec containing this import through the actual `yarn playwright test` runner fails hard with `Error: Cannot find module '/src/pages/Something' imported from ...` before any test executes (Playwright's Node-based test runner resolves a leading-`/` specifier as an absolute filesystem path, not as Vite-root-relative). So there's no working, silent bypass of the e2e black-box boundary today -- only a narrower error-reporting mechanism (tsc/runtime crash instead of eslint) for an already-unreachable-in-practice specifier shape. Worth either tightening the gate to also reject a leading `/`/`~` (not just requiring a leading `.`), or at minimum disclosing it in docs/architecture/Testing.md as a known residual gap the way the dynamic-template-literal case already is.",
+      "done": false
+    },
+    {
+      "step": "The custom `e2e-import-guard/no-restricted-src-import` rule (and its `isBlockedSrcSource`/`BLOCKED_SRC_VALUE_IMPORT` helpers, frontend/eslint.config.js) has no persisted automated test of its own -- every fix across this rule's whole history (allowlist->regex, path-traversal bypass, bare-utils-barrel false positive, PR #417's bare-package-specifier false positive) has been verified only via a manual probe file written, run through `yarn eslint`, and deleted before commit, per each PR's own description. Each round has independently found a different edge case in the same regex-based logic (PR #417's own fix is itself fixing a hole introduced by an earlier round) -- a persisted test (e.g. a vitest-driven `RuleTester` suite, or a small harness that imports `isBlockedSrcSource` directly and asserts the full edge-case matrix already enumerated across these PR descriptions) would have a better chance of catching the next regression than a one-off manual probe that never survives to the next round. Worth adding such a test.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
