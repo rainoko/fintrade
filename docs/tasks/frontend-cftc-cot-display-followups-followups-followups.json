@@ -18,5 +18,11 @@
     }
   ],
   "decisions": [],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-cftc-cot-display-followups-followups-followups",
+    "pr_number": 415,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/415",
+    "pushed_at": "2026-10-10T10:09:39Z"
+  }
 }
