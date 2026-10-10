@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from frontend-cftc-cot-display-followups's PR review (#411)",
   "area": "frontend/pages",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-cftc-cot-display-followups"],
   "references": [
     "docs/tasks/frontend-cftc-cot-display-followups.json",
@@ -32,5 +32,33 @@
     "pr_number": 412,
     "pr_url": "https://github.com/rainoko/fintrade/pull/412",
     "pushed_at": "2026-10-10T05:24:25Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-10T05:36:33Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/412",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified the isKnown -> isKnownNumber consolidation is byte-equivalent at every touched call site: cftcCotHelp.ts's rename, metricHelpContent.ts's 18 call sites plus the two inline stochasticKnown/forceIndexKnown copies in waveHelp.interpretValue all reduce to the identical `value !== null && value !== undefined && !Number.isNaN(value)` logic. formatNullableNumber's rewrite to `!isKnownNumber(value)` is a verified De Morgan equivalent of its prior inline check, and its own null/undefined/NaN tests still pass unchanged. Mutation-tested isKnownNumber by dropping the NaN guard: 3 tests failed across format.test.ts AND metricHelpContent.test.ts, confirming the consolidation is actually exercised by the existing suite, not just coincidentally green. Confirmed the utils/chart.ts#isFiniteNumber rejection is accurate (typeof-narrowed `unknown` param, rejects Infinity, and that module top-level-imports lightweight-charts) -- no confusing third near-duplicate was created; isKnownNumber and isFiniteNumber are named distinctly and serve genuinely different purposes.",
+        "file": "frontend/src/utils/format.ts",
+        "line": 90
+      },
+      {
+        "summary": "Full suites clean: frontend vitest 1083/1083 passed (104 files), coverage 99.78%/99.06%/99.84%/99.82% (statements/branches/functions/lines); backend pytest 1649/1649 passed, 99.95% coverage (backend untouched by this PR, confirmed no regression). eslint, tsc -b --noEmit, backend ruff/mypy, and scripts/check_profit_target_wording.py all clean. scripts/validate_tasks.py reports no violations.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Browser walkthrough (via a local Playwright script, no MCP browser tools available in this session) of the stock detail page's indicator help tooltips (EMA13/26, MACD Histogram, Bull/Bear Power, Wave/Stochastic/Force Index) and the watchlist page's CftcCotCard help tooltip confirmed all dynamic help text -- including describeExtreme's 'most/least bullish' computed sentence -- renders correctly with real data and no console errors. Ran the full e2e suite (`make e2e`): all 28 specs across dashboard/navigation/portfolio/stock-analysis/watchlist passed.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Non-blocking: features/portfolio/components/metricHelpContent.ts line 28 has a doc comment referencing 'IndicatorsPanel's `isKnown` guard' by its pre-rename name -- a stale cross-file symbol reference left behind by this PR's rename to isKnownNumber. Tracked as a follow-up task (frontend-cftc-cot-display-followups-followups-followups) rather than blocking this PR.",
+        "file": "frontend/src/features/portfolio/components/metricHelpContent.ts",
+        "line": 28
+      }
+    ],
+    "notes": "No backend route/schema touched, so no openapi.json regen required. No new frontend component added (pure non-component utility/helper refactor), so the step 7a component-placement check doesn't apply. area is frontend/pages, not backend/signals or backend/portfolio, so verify-elder-signal wasn't separately loaded -- the affected help text's Elder-methodology wording itself is unchanged, only its null-guard predicate was deduplicated. No architecture-review needed: no new module/dependency/layer, just a new export in an existing utils/format.ts. Task's checklist item is already marked done and its decisions entry already fully documents the extract-vs-reuse-vs-keep-duplicated judgment call (option (2) vs (3) above) -- no undecided 'decide X' item found. No pr_decision field was present on this task prior to this review, so nothing to clear."
   }
 }
