@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #405's review (frontend-daily-homework-history-followups-followups-followups)",
   "area": "frontend/pages",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["frontend-daily-homework-history-followups-followups-followups"],
   "references": [
     "docs/tasks/frontend-daily-homework-history-followups-followups-followups.json",
@@ -30,5 +30,11 @@
       "alternatives_considered": "Leaving the convention documentation-only (the 'well-reasoned decline' option the task explicitly allowed) was the main alternative; rejected because the mechanizable subset turned out to be both real and simple to express once I'd confirmed ESLint's built-in `allowTypeImports` option (not a hand-rolled type-detection hack) could do the type/value distinction, and because the false-positive risk this task worried about (forcing eslint-disable comments) proved low in practice: the blocked-directory list is narrow and unambiguous (components/features/pages/api/theme/entry points), and the one genuinely gray area -- whether a `src/utils/` helper is truly pure -- is exactly the part left unrestricted and still deferred to human review, so there's no new disable-comment pressure anywhere a legitimate import would plausibly want to go."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-daily-homework-history-followups-followups-followups-followups",
+    "pr_number": 414,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/414",
+    "pushed_at": "2026-10-10T06:30:27Z"
+  }
 }
