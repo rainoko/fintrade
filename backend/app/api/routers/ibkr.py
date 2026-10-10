@@ -600,7 +600,20 @@ def _derive_entry_date(
     convention ("the earlier of the two entry dates is kept", `app/api/schemas.py`) for
     consistency, per this task's checklist item 2, rather than the most recent buy (which
     would also be the worse of the two conventions for a multi-buy position, since it's
-    furthest from the true original entry)."""
+    furthest from the true original entry).
+
+    A SELL row's `quantity` always counts toward `net`'s subtraction, even when its
+    `trade_date` is `None` (unknown) -- this function never reads a SELL row's date, only
+    its quantity, so an unknown SELL date carries no risk here. This matters:
+    `IBKRTrade`/`_parse_account_trades` (`app.data.ibkr_provider`) only guarantee a BUY
+    row a real date (an undated BUY is dropped before it ever reaches this function,
+    since its date WOULD be read, by `min(...)` below); a SELL row with no usable date is
+    kept rather than dropped. Dropping it instead (this function's own pre-`pr-decision`-
+    round-2 behavior) would have removed its quantity from `net` entirely rather than
+    merely leaving its date unknown -- pushing `net` *upward* rather than toward the safe
+    `fallback` branch, which can manufacture an exact false-positive match in the same way
+    a coincidental corporate action can (see `backend-ibkr-import-entry-date-from-trades-
+    followups`'s `pr-decision` round 2 override for the full numeric counterexample)."""
     matching = [t for t in trades if t.conid == position.conid]
     buys = [t for t in matching if t.side == "BUY"]
     if not buys:
@@ -609,7 +622,10 @@ def _derive_entry_date(
     net = sum(t.quantity for t in buys) - sells_quantity
     if not math.isclose(net, position.quantity, rel_tol=1e-9, abs_tol=1e-6):
         return fallback, False
-    return min(t.trade_date for t in buys), True
+    # Every BUY row reaching here has a real `trade_date` (see docstring above and
+    # `_parse_account_trades`'s invariant) -- the `is not None` filter is for mypy's
+    # benefit given `IBKRTrade.trade_date`'s `date | None` type, not a runtime guard.
+    return min(t.trade_date for t in buys if t.trade_date is not None), True
 
 
 @router.get(

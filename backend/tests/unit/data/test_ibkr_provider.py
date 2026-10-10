@@ -2463,6 +2463,48 @@ class TestGetAccountTrades:
 
         assert IBKRProvider().get_account_trades() == []
 
+    def test_sell_row_with_no_usable_date_is_kept_with_a_null_trade_date(self, mocker) -> None:
+        """`backend-ibkr-import-entry-date-from-trades-followups`'s `pr-decision` round 2:
+        unlike a BUY row (dropped entirely -- see the tests above), a SELL row whose date
+        can't be determined is KEPT, with `trade_date=None` -- `_derive_entry_date` never
+        reads a SELL row's date, only its quantity, so dropping the whole row would wrongly
+        remove its quantity from the net-of-sells subtraction instead of just leaving its
+        date unknown."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        rows = [self._trade_row(1, "S", quantity=7.0, trade_time_r=None)]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, rows],
+        )
+
+        trades = IBKRProvider().get_account_trades()
+
+        assert trades == [
+            IBKRTrade(conid=1, side="SELL", quantity=7.0, trade_date=None)
+        ]
+
+    def test_buy_row_with_no_usable_date_is_still_dropped(self, mocker) -> None:
+        """The BUY-side counterpart of the test above, naming the asymmetry explicitly: a
+        BUY row's date IS read downstream (the earliest buy date becomes `entry_date`), so
+        an undated BUY must still drop the whole row rather than being kept with a null
+        date."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        rows = [self._trade_row(1, "B", trade_time_r=None), self._trade_row(2, "B")]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, rows],
+        )
+
+        trades = IBKRProvider().get_account_trades()
+
+        assert [t.conid for t in trades] == [2]
+
 
 class TestRequest:
     """Direct tests of the one method that performs the real HTTP call (mocked at the
