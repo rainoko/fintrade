@@ -3,7 +3,7 @@
   "title": "Add UI input + display for the per-trade personal strategy tag -- PositionIn/Out.strategy and ClosedTradeOut.strategy have zero frontend consumer",
   "area": "frontend/pages/portfolio",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/api/schemas.py",
@@ -53,5 +53,11 @@
       "checklist_item": "step 5"
     }
   ],
+  "git": {
+    "branch": "task/frontend-trade-strategy-tagging",
+    "pr_number": 406,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/406",
+    "pushed_at": "2026-10-10T00:56:34Z"
+  },
   "questions": []
 }
