@@ -3,7 +3,7 @@
   "title": "IBKR portfolio import: use the real buy date from IBKR trade/execution history as entry_date, if possible",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "backend/app/api/routers/ibkr.py",
@@ -52,5 +52,23 @@
     "pr_number": 408,
     "pr_url": "https://github.com/rainoko/fintrade/pull/408",
     "pushed_at": "2026-10-10T02:24:25Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-10T02:30:57Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/408",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: the decisions entry's central impossibility claim -- 'code built against either endpoint has no way to tell this position's full history fits inside the window apart from held longer than the window, I'm only seeing a partial add, without already knowing the true entry date' -- is not accurate, and the research doesn't appear to have considered the counterexample. IBKRAccountPosition.quantity (already fetched and used by this exact router, e.g. _valid_import_candidates) gives the currently-held quantity independent of entry_date. Reconciling the net buy/sell quantity reported by GET /iserver/account/trades within its 7-day window against that held quantity DOES distinguish the two cases: if they match exactly, the position's full history is captured inside the window and the earliest in-window buy date is trustworthy; if the window's net quantity is less than the held quantity, there's untracked earlier history and the implementation can safely keep the honest today() fallback -- exactly the same outcome as today, no regression. This would make a real, non-misleading entry_date available for a meaningful and plausibly common subset (positions opened entirely within the last ~7 days), which the current 'not possible' conclusion forecloses without having evaluated it. Independently confirmed via IBKR's own live Client Portal Web API swagger definition (ndcdyn.interactivebrokers.com/api/doc.json) that /iserver/account/trades's 7-day-bounded scope and /pa/transactions's bounded days-parameter (default 90) lookback claims are both accurate -- that part of the research holds up. The gap is specifically the quantity-reconciliation mitigation not being considered (or its rejection not being documented) before concluding the whole avenue is unusable. Please either (a) implement the reconciliation-gated subset (trust the derived date only when in-window net quantity fully accounts for the held quantity, today() fallback otherwise) and update _IBKR_IMPORT_ENTRY_NOTE_TEMPLATE/entry_date/IBKRPortfolioPreloadImportedPositionOut.entry_date plus tests and backend/openapi.json accordingly, or (b) if you still conclude it's not viable even with that mitigation (e.g. corporate actions/splits/dividend reinvestment/assignments silently changing held quantity without a matching 'buy' trade row, multi-sub-account aggregation ambiguity, etc.), add a fresh decisions entry that actually engages with and rejects the reconciliation approach on its own technical merits, rather than resting on the current 'no way to tell' framing which this counterexample shows isn't true in general.",
+        "file": "docs/tasks/backend-ibkr-import-entry-date-from-trades.json",
+        "line": 45
+      },
+      {
+        "summary": "Tied to the above: checklist items 4-6 are left done=false with no annotation explaining they're conditional/not-applicable given the 'not possible' conclusion. Once the reconciliation question above is resolved (either implemented or re-rejected with fuller reasoning), either flip the applicable items to done=true or explicitly reword/mark them not-applicable so the board doesn't read as a partially-finished task later.",
+        "file": "docs/tasks/backend-ibkr-import-entry-date-from-trades.json",
+        "line": 29
+      }
+    ],
+    "notes": "Independently verified: (1) IBKR's own live swagger (ndcdyn.interactivebrokers.com/api/doc.json) confirms /iserver/account/trades is documented 'current day and six previous calendar days' with no paging param, and /pa/transactions takes a 'days' body param (default 90, example 7) -- both match the decisions entry's claims. (2) No application code/schema touched (diff is only the two task-board JSON files) -- confirmed via `git diff main...HEAD --stat`. (3) Backend full suite: 1618 passed, coverage 99.94% (well above the 90% gate); ruff and mypy both clean. (4) `python scripts/validate_tasks.py` reports no violations. (5) The live-reachability claim (401 from the configured FINTRADE_IBKR_BASE_URL, treated as inconclusive due to CDN/edge-style response headers) is honestly scoped -- re-ran the same curl against ibkr.home.arpa from this sandbox and confirmed it terminates in a real TLS handshake with a structured HTTP response despite resolving to an RFC1918 private address, corroborating that this environment's egress intercepts the request rather than reaching a real gateway; the decisions entry does not overclaim verification it didn't get. (6) No UI surface in this PR (task-board JSON only) -- browser walkthrough and e2e suite steps are not applicable and were skipped accordingly. The blocking issue is specifically the quantity-reconciliation gap in comment 1 above: the 'not possible' conclusion's core technical argument doesn't hold in general, even though the broader skepticism about the endpoints' bounded scope is independently correct. Sending back to implementing so this can be either implemented for the reconciliation-safe subset or re-argued against on its own terms."
   }
 }

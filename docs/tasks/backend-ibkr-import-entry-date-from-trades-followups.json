@@ -1,0 +1,21 @@
+{
+  "id": "backend-ibkr-import-entry-date-from-trades-followups",
+  "title": "Non-blocking finding from backend-ibkr-import-entry-date-from-trades's PR review (#408)",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-ibkr-import-entry-date-from-trades"],
+  "references": [
+    "docs/tasks/backend-ibkr-import-entry-date-from-trades.json",
+    "https://github.com/rainoko/fintrade/pull/408"
+  ],
+  "description": "pr-reviewer's review of PR #408 (backend-ibkr-import-entry-date-from-trades) sent it back needs_work over a blocking methodological gap (the quantity-reconciliation mitigation wasn't considered before concluding entry_date import is 'not possible' -- see that task's review.comments). One additional, genuinely non-blocking finding surfaced during the same review and is tracked here so it isn't lost once the parent task closes.",
+  "checklist": [
+    {
+      "step": "The decisions entry's claim that `/pa/transactions` (Portfolio Analyst) access is gated behind an account-level PA entitlement 'not guaranteed for every IBKR account tier' is plausible and consistent with general knowledge of IBKR's platform, but wasn't backed by a citable IBKR source in the entry itself (IBKR's own live Client Portal Web API swagger -- ndcdyn.interactivebrokers.com/api/doc.json -- documents the `/pa/transactions` request/response shape but doesn't state the entitlement gating in the schema text). Whoever next revisits this research should either find and cite a concrete IBKR documentation/support-article source for the PA-entitlement constraint, or soften the claim if no such source is found, so the decisions record doesn't rest on an unsourced assertion.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
