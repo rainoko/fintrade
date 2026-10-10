@@ -1122,10 +1122,12 @@ class IBKRProvider:
         Each row is expected as a plain JSON object with (at least) `"conid"`, `"side"`
         (`"B"`/`"S"`, or spelled out `"BUY"`/`"SELL"`), `"size"` (share quantity, IBKR's own
         field name -- distinct from `"position"`'s role in `get_account_positions`), an
-        `"account"` id string, and either `"trade_time_r"` (epoch milliseconds, preferred --
-        unambiguous) or `"trade_time"` (a `YYYYMMDDHHMM[SS]` string) for when the execution
-        happened. See `_parse_account_trades` for the exact per-field parsing and which rows
-        are dropped.
+        `"account"` id string, and `"trade_time_r"` (epoch milliseconds) for when the
+        execution happened -- `"trade_time"` (a `YYYYMMDDHHMM[SS]` string IBKR's own
+        documented example also includes) is intentionally NOT used for this, since its
+        timezone is undocumented and unconfirmed; see `_parse_trade_date`'s own docstring
+        for the full reasoning. See `_parse_account_trades` for the exact per-field parsing
+        and which rows are dropped.
 
         Scoped to the same account `get_account_positions` discovers/uses
         (`_discover_account_id`) -- a row that names a *different* account (this app's
@@ -1437,23 +1439,34 @@ def _parse_trade_side(value: object) -> Literal["BUY", "SELL"] | None:
 
 
 def _parse_trade_date(raw: dict) -> date | None:
-    """Prefers `"trade_time_r"` (epoch milliseconds -- unambiguous) over `"trade_time"`
-    (a `YYYYMMDDHHMM[SS]` string per IBKR's own documented example), trying the string
-    field only when the epoch one is missing/unparseable. Returns `None` (row dropped by
-    the caller) if neither field yields a valid date."""
+    """Only trusts `"trade_time_r"` (epoch milliseconds) for the execution date --
+    `datetime.fromtimestamp(..., tz=UTC)` makes that conversion unambiguous regardless of
+    which timezone IBKR's own clock was in when it stamped the epoch. `"trade_time"` (a
+    `YYYYMMDDHHMM[SS]` string per IBKR's own documented example) is deliberately NOT
+    parsed as a fallback, even though it was in an earlier version of this function:
+    IBKR's documentation doesn't state which timezone those digits are expressed in
+    (exchange-local vs. UTC are both plausible for a broker API, and this session has no
+    way to confirm either against a live payload -- this module's own "Testing
+    constraint" docstring paragraph, and
+    `backend-ibkr-import-entry-date-from-trades-followups`'s `decisions` entry for the
+    full reasoning). Guessing wrong would silently produce an off-by-one-day `trade_date`
+    for an extended-hours execution near the UTC day boundary -- and unlike every other
+    field this function already validates, a *wrong-but-plausible* date is exactly the one
+    failure the caller's quantity-only reconciliation (`_derive_entry_date`) cannot catch,
+    since it never looks at dates, only quantities. Returning `None` here instead (same
+    fail-closed convention `_parse_account_trades` already applies to `conid`/`side`/
+    `size`/the missing-`"account"` case) means the row is dropped rather than risking a
+    confidently-wrong `entry_date`: it costs nothing when `trade_time_r` is present
+    (IBKR's own documented example always includes it alongside `trade_time`), and when
+    it isn't, the trade simply doesn't contribute to reconciliation -- pushing toward the
+    conservative `today()` fallback, never toward a silently wrong real date.
+    """
     epoch_ms = raw.get("trade_time_r")
     if isinstance(epoch_ms, (int, float)) and not isinstance(epoch_ms, bool):
         try:
             return datetime.fromtimestamp(float(epoch_ms) / 1000, tz=UTC).date()
         except (OverflowError, OSError, ValueError):
             pass
-    trade_time = raw.get("trade_time")
-    if isinstance(trade_time, str) and trade_time:
-        for fmt in ("%Y%m%d%H%M%S", "%Y%m%d%H%M"):
-            try:
-                return datetime.strptime(trade_time, fmt).date()
-            except ValueError:
-                continue
     return None
 
 

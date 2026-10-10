@@ -2269,6 +2269,48 @@ class TestGetAccountTrades:
 
         assert [t.conid for t in trades] == [2]
 
+    def test_row_with_empty_string_account_is_dropped(self, mocker) -> None:
+        """`backend-ibkr-import-entry-date-from-trades-followups`: the present-but-empty-
+        string sub-case of the combined drop condition (`not isinstance(row_account, str)
+        or not row_account or row_account != account_id`) -- distinct from the
+        missing-field case above, since here `"account"` IS present in the row, just
+        falsy."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        rows = [self._trade_row(1, "B", account=""), self._trade_row(2, "B", account="DU1")]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, rows],
+        )
+
+        trades = IBKRProvider().get_account_trades()
+
+        assert [t.conid for t in trades] == [2]
+
+    def test_row_with_non_string_account_is_dropped(self, mocker) -> None:
+        """`backend-ibkr-import-entry-date-from-trades-followups`: the present-but-non-
+        string sub-case of the combined drop condition -- `"account"` is present but not
+        a string at all (IBKR's documented shape doesn't suggest this happens in practice,
+        but the condition's first disjunct exists to fail closed if it ever did)."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        rows = [
+            self._trade_row(1, "B", account=12345),  # type: ignore[arg-type]
+            self._trade_row(2, "B", account="DU1"),
+        ]
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[{"accounts": ["DU1"]}, rows],
+        )
+
+        trades = IBKRProvider().get_account_trades()
+
+        assert [t.conid for t in trades] == [2]
+
     def test_non_positive_quantity_is_dropped(self, mocker) -> None:
         mocker.patch(
             "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
@@ -2341,12 +2383,19 @@ class TestGetAccountTrades:
 
         assert trades[0].trade_date == datetime(2026, 10, 5).date()
 
-    def test_falls_back_to_trade_time_string_when_epoch_missing(self, mocker) -> None:
+    def test_trade_time_string_without_epoch_drops_row(self, mocker) -> None:
+        """`backend-ibkr-import-entry-date-from-trades-followups`: `trade_time`'s timezone
+        is undocumented/unconfirmed, so a row carrying only `trade_time` (no usable
+        `trade_time_r`) is dropped rather than risking a silently wrong `entry_date` --
+        this used to fall back to parsing the string; it no longer does."""
         mocker.patch(
             "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
             return_value=mocker.Mock(state="available", detail=None),
         )
-        rows = [self._trade_row(1, "B", trade_time_r=None, trade_time="202610051230")]
+        rows = [
+            self._trade_row(1, "B", trade_time_r=None, trade_time="202610051230"),
+            self._trade_row(2, "B"),
+        ]
         mocker.patch(
             "app.data.ibkr_provider.IBKRProvider._request",
             side_effect=[{"accounts": ["DU1"]}, rows],
@@ -2354,9 +2403,9 @@ class TestGetAccountTrades:
 
         trades = IBKRProvider().get_account_trades()
 
-        assert trades[0].trade_date == datetime(2026, 10, 5).date()
+        assert [t.conid for t in trades] == [2]
 
-    def test_trade_time_string_with_seconds_also_parses(self, mocker) -> None:
+    def test_trade_time_string_with_seconds_without_epoch_also_drops_row(self, mocker) -> None:
         mocker.patch(
             "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
             return_value=mocker.Mock(state="available", detail=None),
@@ -2367,14 +2416,15 @@ class TestGetAccountTrades:
             side_effect=[{"accounts": ["DU1"]}, rows],
         )
 
-        trades = IBKRProvider().get_account_trades()
+        assert IBKRProvider().get_account_trades() == []
 
-        assert trades[0].trade_date == datetime(2026, 10, 5).date()
-
-    def test_absurd_epoch_falls_back_to_trade_time_string(self, mocker) -> None:
+    def test_absurd_epoch_drops_row_instead_of_falling_back_to_trade_time_string(
+        self, mocker
+    ) -> None:
         """A `trade_time_r` value so large `datetime.fromtimestamp` raises (`OverflowError`)
-        is caught and treated the same as a missing epoch -- falls through to
-        `trade_time` instead of dropping the row outright."""
+        is caught and treated the same as a missing/unparseable epoch -- the row is
+        dropped, it does NOT fall through to the timezone-ambiguous `trade_time` string
+        (see `_parse_trade_date`'s own docstring)."""
         mocker.patch(
             "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
             return_value=mocker.Mock(state="available", detail=None),
@@ -2385,9 +2435,7 @@ class TestGetAccountTrades:
             side_effect=[{"accounts": ["DU1"]}, rows],
         )
 
-        trades = IBKRProvider().get_account_trades()
-
-        assert trades[0].trade_date == datetime(2026, 10, 5).date()
+        assert IBKRProvider().get_account_trades() == []
 
     def test_unparseable_date_drops_row(self, mocker) -> None:
         mocker.patch(
