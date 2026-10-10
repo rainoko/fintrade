@@ -2651,8 +2651,8 @@
       "id": "backend-ibkr-import-entry-date-from-trades",
       "area": "backend/data",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-ibkr-import-entry-date-from-trades.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-import-entry-date-from-trades.json"
     },
     {
       "id": "frontend-cftc-cot-display",
