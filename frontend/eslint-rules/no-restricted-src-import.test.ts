@@ -12,11 +12,17 @@ import { isBlockedSrcSource, noRestrictedSrcImportRule } from './no-restricted-s
 // `@eslint/core` via `@eslint/config-helpers`), the type this file's actual
 // `new Linter().verify(...)` calls below need. The two packages' plugin/
 // rule shapes differ just enough (e.g. `Partial<Record<string, Processor>>`
-// vs `Record<string, Processor> | undefined`) that nothing short of a cast
-// bridges them -- this is the one deliberate `as unknown as` in this file,
-// isolated to the import boundary so every type below it is a real,
-// non-defeated `Linter.Config` check against eslint's own types.
-const eslintConfig = eslintConfigDefault as unknown as Linter.Config[]
+// vs `Record<string, Processor> | undefined`) that a plain assignment can't
+// bridge them -- but TypeScript's looser "comparability" rule for a bare
+// `as` assertion does accept a direct, single-hop cast here, so this is a
+// cast, but not one that needs to go through `unknown` first. Going through
+// `unknown` would fully defeat comparability checking for *any* value
+// regardless of its actual shape (e.g. it would silently accept casting an
+// unrelated `number`), so the direct form below is strictly safer: it still
+// catches a future accidental import-shape drift that an `unknown` detour
+// would silently swallow. From here down, every type is a real, non-defeated
+// `Linter.Config` check against eslint's own types.
+const eslintConfig = eslintConfigDefault as Linter.Config[]
 
 // This is the persisted test the `e2e-import-guard/no-restricted-src-import`
 // rule has never had -- every edge case below was previously found (and

@@ -226,10 +226,19 @@ turning on `allowJs` there (needed only to resolve the `.js` import specifiers
 `no-restricted-src-import.test.ts` and `eslint.config.js` use to reach each other — without it,
 TS can't see either module's exported shape and falls back to `any`); `checkJs` was deliberately
 left off, so the rule module's own internal, loosely-AST-typed JSDoc code isn't itself
-type-checked, but every real type annotation in the test file now is, against the real exported
-types of both modules — proved by injecting `isBlockedSrcSource(42)` (a `number` where the
-function's signature expects a `string`) and confirming `yarn tsc -b --noEmit` failed on it
-(`TS2345`), then reverting and confirming clean again. A genuinely test-only need
+type-checked, but every real type annotation in the test file now is checked against *some* real
+exported type. For the `isBlockedSrcSource`/`BLOCKED_SRC_VALUE_IMPORT`-table block this is the
+real exported type of `no-restricted-src-import.js` itself, with no cast involved — proved by
+injecting `isBlockedSrcSource(42)` (a `number` where the function's signature expects a `string`)
+and confirming `yarn tsc -b --noEmit` failed on it (`TS2345`), then reverting and confirming clean
+again. The wiring-test block is a narrower case: `eslint.config.js`'s default export is cast once,
+at the import boundary, from its true declared return type (`typescript-eslint`'s own
+`TSESLint.FlatConfig.Config[]`) to the `eslint` package's `Linter.Config[]` (the type the file's
+`new Linter().verify(...)` calls need — see the cast's own comment for why), so every annotation in
+that block is checked against the cast's target type, `Linter.Config`, not against
+`eslint.config.js`'s own declared return type directly. A future change to `eslint.config.js`'s
+exported shape that stayed a valid flat config but drifted from `Linter.Config` would not be
+caught by this file for that reason. A genuinely test-only need
 shared across specs, or between a spec and
 the mocked suites' fixtures — not a copy or thin wrapper of app logic, e.g. `isoDateWeeksAgo`
 — still belongs in a `tests/`-local module (`tests/dateFixtures.ts`), not under `src/`.
