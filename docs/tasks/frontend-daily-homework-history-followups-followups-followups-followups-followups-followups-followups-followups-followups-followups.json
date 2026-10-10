@@ -1,0 +1,24 @@
+{
+  "id": "frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups-followups-followups-followups",
+  "title": "Non-blocking finding from PR #419's review (frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups-followups-followups)",
+  "area": "frontend/pages",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [
+    "frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups-followups-followups"
+  ],
+  "references": [
+    "docs/tasks/frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/419",
+    "frontend/eslint-rules/no-restricted-src-import.test.ts"
+  ],
+  "description": "pr-reviewer accepted PR #419 (closing the type-checking gap for frontend/eslint-rules/no-restricted-src-import.test.ts by adding eslint-rules to tsconfig.node.json's include and allowJs). While independently re-verifying the PR's `as unknown as Linter.Config[]` cast (the task's own decisions entry: '...so a single explicit cast ... is more honest than fighting the mismatch property-by-property' and the in-file comment claiming 'nothing short of a cast bridges them'), pr-reviewer found that a direct, single-hop `as Linter.Config[]` cast (without the `unknown` detour) also compiles cleanly against the real `eslintConfigDefault` import -- verified empirically by swapping the cast in place and running a from-scratch `yarn tsc -b --noEmit --force` (clean, no errors). The two packages' flat-config types genuinely are NOT mutually assignable via a plain `return`/assignment (confirmed separately: `Partial<Record<string, Processor>>` is not assignable to `Record<string, Processor> | undefined` due to index-signature strictness -- TS2322), but TypeScript's looser 'comparability' rule for a bare `as` type assertion (as opposed to assignment) does accept the cast directly, without needing to round-trip through `unknown` first. This matters because `as unknown as T` fully defeats comparability checking for any value regardless of its actual type (confirmed: casting an unrelated `number` to `Linter.Config[]` via `as unknown as` raises no error, while a bare `as Linter.Config[]` on that same `number` correctly fails with TS2352 'neither type sufficiently overlaps'), so the direct form is strictly safer for no loss of capability here and would still catch a future accidental import-shape drift that the current double-hop cast would silently swallow. Non-blocking: the current code is correct, the wiring test's assertions are unaffected by the choice of cast (casts are compile-time only), and the mismatch is otherwise thoroughly documented inline.",
+  "checklist": [
+    {
+      "step": "Replace `eslintConfigDefault as unknown as Linter.Config[]` in frontend/eslint-rules/no-restricted-src-import.test.ts with the direct, single-hop `eslintConfigDefault as Linter.Config[]` (no `unknown` detour), and update the inline comment above it (and, since it's referenced there too, the parent task's decisions-entry language if a fresh decisions entry is added) so the claim is 'a cast, but not necessarily through unknown' rather than implying the double-hop is required. Re-run `yarn tsc -b --noEmit --force` to confirm it stays clean with the narrower cast, and `yarn vitest run eslint-rules` to confirm the wiring suite's behavior is unaffected (casts are erased at compile time, so this is expected to be a no-op at runtime).",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

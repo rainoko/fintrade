@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #418's review (frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups-followups)",
   "area": "frontend/pages",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups-followups"
   ],
@@ -45,5 +45,31 @@
     "pr_number": 419,
     "pr_url": "https://github.com/rainoko/fintrade/pull/419",
     "pushed_at": "2026-10-10T12:50:23Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-10T13:07:03Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/419",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified: the test file is now genuinely type-checked by tsc -b --noEmit (reproduced isBlockedSrcSource(42) both via the exact call-site change and via a tuple-literal type error; got TS2345/TS2322 respectively, where it previously passed silently). Verified the module itself (no-restricted-src-import.js) is NOT checked (checkJs off): injecting a real type error into it (calling .toFixed() on a string param) left tsc -b --noEmit at exit 0, only caught at runtime by yarn lint/vitest -- matches the task's own honest 'partial' framing, and docs/architecture/Testing.md states this accurately (does not overclaim).",
+        "file": "frontend/eslint-rules/no-restricted-src-import.test.ts"
+      },
+      {
+        "summary": "Verified the eslint/typescript-eslint flat-config type incompatibility claim: Partial<Record<string, Processor>> (typescript-eslint's Config) is genuinely not assignable to Record<string, Processor> | undefined (eslint's own Linter.Config, from @eslint/core) via a plain assignment -- confirmed with an isolated tsc probe (TS2322, index-signature strictness). So a cast is genuinely required, as claimed.",
+        "file": "frontend/eslint-rules/no-restricted-src-import.test.ts",
+        "line": 19
+      },
+      {
+        "summary": "Mutation-tested the wiring suite twice (severity flipped to 'off', and the rule's registration removed from the plugin object entirely) against the real eslint.config.js -- both mutations make the wiring describe block fail as expected, confirming the cast doesn't mask a genuine detection gap. allowJs side effects checked: no other stray .js files are newly pulled into tsconfig.node.json's project beyond eslint.config.js itself (pulled in transitively via the test's import, not type-checked since checkJs is off, no new errors); yarn build and a from-scratch yarn tsc -b --noEmit --force are both clean; removing allowJs reproduces the exact TS7016 implicit-any errors on both .js imports the PR's decisions entry describes, confirming allowJs is what makes them resolve as typed rather than any. checkJs-off claim spot-checked by temporarily enabling it: reproduces exactly ~9 errors (counted: 9), all TS2339/TS7006 on the rule module's generic-estree-typed AST node parameters (importKind/exportKind/specifiers missing, implicit-any context/node) -- matches the claim precisely, and I agree the scope call is reasonable: this chain's historical 5 rounds of regressions were all in the isBlockedSrcSource/BLOCKED_SRC_VALUE_IMPORT string-matching logic (now fully covered by the table test under real typing), not in the AST-node-handling code checkJs would additionally guard, and that code is already exercised behaviorally by the wiring tests' real Linter.verify() calls.",
+        "file": "frontend/tsconfig.node.json"
+      },
+      {
+        "summary": "Non-blocking: a direct, single-hop `as Linter.Config[]` cast (no `unknown` detour) also compiles cleanly in place of the `as unknown as Linter.Config[]` used -- verified empirically (swapped the cast, ran a from-scratch tsc -b --noEmit --force, clean). The two types aren't mutually assignable, but TS's looser comparability check for a bare `as` assertion accepts them directly; going through `unknown` fully defeats that check instead of merely bridging the specific incompatible field, which is strictly less safe for no benefit here (confirmed: `number as unknown as Linter.Config[]` raises no error, while `number as Linter.Config[]` correctly fails with TS2352). Filed as frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups-followups-followups-followups.",
+        "file": "frontend/eslint-rules/no-restricted-src-import.test.ts",
+        "line": 19
+      }
+    ],
+    "notes": "Full matrix re-run independently and matches the PR's claims exactly: backend pytest 1655 passed, 99.95% coverage; backend ruff/mypy clean; frontend yarn lint clean; yarn tsc -b --noEmit clean (fresh --force rebuild too); yarn vitest run --coverage: 105 files / 1104 tests passed, 99.78-99.84% across metrics; make e2e: 28/28 passed; scripts/validate_tasks.py clean. CLAUDE.md/.claude untouched (confirmed via diff against main). Both checklist items ('decide X'-shaped) have corresponding decisions entries recorded by task-worker, satisfying CLAUDE.md's decision-memory rule. No frontend component/page/endpoint touched by this PR (pure tsconfig + eslint-rules-tooling-test change) -- step 9's browser walkthrough and 9a's component-placement check both explicitly skipped as inapplicable; e2e suite (step 9a) still run per the task's explicit ask and passed 28/28. One non-blocking finding (the as-unknown-as-vs-as cast) filed as a follow-up task since no prior accept/pr_decision existed to clear."
   }
 }
