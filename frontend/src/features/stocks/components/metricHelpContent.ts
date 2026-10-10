@@ -10,7 +10,7 @@ import type {
   ProfitTargetOut,
   SupportResistanceZone,
 } from '../../../api/stocks'
-import { humanizeSnakeCase } from '../../../utils/format'
+import { humanizeSnakeCase, isKnownNumber } from '../../../utils/format'
 import { sortClustersByRecentWindowEnd } from '../../../utils/insiderClusters'
 import {
   PROFIT_TARGET_DEFINITION,
@@ -254,18 +254,14 @@ export const waveHelp = {
     forceIndex: number | null | undefined,
     state: string,
   ): string {
-    const stochasticKnown =
-      stochasticK !== null && stochasticK !== undefined && !Number.isNaN(stochasticK)
-    const stochasticNote = !stochasticKnown
+    const stochasticNote = !isKnownNumber(stochasticK)
       ? 'Stochastic %K is currently unavailable'
       : stochasticK < 30
         ? `Stochastic %K of ${stochasticK.toFixed(1)} is oversold (below 30)`
         : stochasticK > 70
           ? `Stochastic %K of ${stochasticK.toFixed(1)} is overbought (above 70)`
           : `Stochastic %K of ${stochasticK.toFixed(1)} is in the neutral zone (30-70): neither overbought nor oversold`
-    const forceIndexKnown =
-      forceIndex !== null && forceIndex !== undefined && !Number.isNaN(forceIndex)
-    const forceIndexNote = !forceIndexKnown
+    const forceIndexNote = !isKnownNumber(forceIndex)
       ? ''
       : forceIndex < 0
         ? ' Force Index is negative, i.e. selling pressure today.'
@@ -325,10 +321,6 @@ export const seasonHelp = {
 // IndicatorsPanel.tsx
 // ---------------------------------------------------------------------------
 
-function isKnown(value: number | null | undefined): value is number {
-  return value !== null && value !== undefined && !Number.isNaN(value)
-}
-
 export const ema13Help = {
   metricLabel: 'EMA (13)',
   definition:
@@ -339,10 +331,10 @@ export const ema13Help = {
     ema13: number | null | undefined,
     ema26: number | null | undefined,
   ): string {
-    if (!isKnown(ema13)) {
+    if (!isKnownNumber(ema13)) {
       return 'Currently unavailable for this ticker.'
     }
-    if (!isKnown(ema26)) {
+    if (!isKnownNumber(ema26)) {
       return `Currently ${ema13.toFixed(2)}.`
     }
     const relation = ema13 > ema26 ? 'above' : ema13 < ema26 ? 'below' : 'equal to'
@@ -366,10 +358,10 @@ export const ema26Help = {
     ema26: number | null | undefined,
     ema13: number | null | undefined,
   ): string {
-    if (!isKnown(ema26)) {
+    if (!isKnownNumber(ema26)) {
       return 'Currently unavailable for this ticker.'
     }
-    if (!isKnown(ema13)) {
+    if (!isKnownNumber(ema13)) {
       return `Currently ${ema26.toFixed(2)}.`
     }
     const relation = ema13 > ema26 ? 'above' : ema13 < ema26 ? 'below' : 'equal to'
@@ -384,7 +376,7 @@ export const macdHistogramHelp = {
   elderContext:
     'Its slope (not just sign) is the momentum half of the daily Impulse System gate -- rising alongside a rising EMA(13) turns the bar Green, falling alongside a falling EMA(13) turns it Red (docs/Analyse.md §3). The weekly version of the same indicator is the other half of the weekly Impulse System check that IS the Tide (paired with weekly EMA(13) direction, §2 Screen 1).',
   interpretValue(value: number | null | undefined): string {
-    if (!isKnown(value)) {
+    if (!isKnownNumber(value)) {
       return 'Currently unavailable for this ticker.'
     }
     if (value > 0) {
@@ -403,7 +395,7 @@ export const bullPowerHelp = {
   elderContext:
     'In a downtrend, Elder looks for Bull Power positive but falling as a sell cue -- buyers can still push price above the average, but with less and less force (docs/Analyse.md §2 Screen 2, §4).',
   interpretValue(value: number | null | undefined): string {
-    if (!isKnown(value)) {
+    if (!isKnownNumber(value)) {
       return 'Currently unavailable for this ticker.'
     }
     if (value > 0) {
@@ -419,7 +411,7 @@ export const bearPowerHelp = {
   elderContext:
     'In an uptrend, Elder looks for Bear Power negative but rising as a buy cue -- sellers can still push price below the average on a dip, but with less and less force each time (docs/Analyse.md §2 Screen 2, §4).',
   interpretValue(value: number | null | undefined): string {
-    if (!isKnown(value)) {
+    if (!isKnownNumber(value)) {
       return 'Currently unavailable for this ticker.'
     }
     if (value < 0) {
@@ -443,7 +435,7 @@ export const rsiHelp = {
     rsi: number | null | undefined,
     stochasticK: number | null | undefined,
   ): string {
-    if (!isKnown(rsi)) {
+    if (!isKnownNumber(rsi)) {
       return 'Currently unavailable for this ticker -- the 9-day warm-up window hasn’t been reached yet.'
     }
     const zone =
@@ -452,7 +444,7 @@ export const rsiHelp = {
         : rsi > 70
           ? 'overbought (above 70)'
           : 'in the neutral zone (30-70): neither overbought nor oversold'
-    if (!isKnown(stochasticK)) {
+    if (!isKnownNumber(stochasticK)) {
       return `Currently ${rsi.toFixed(1)}, ${zone}.`
     }
     const gap = Math.abs(rsi - stochasticK)
@@ -511,7 +503,7 @@ function cumulativeVolumeSeriesInterpretation(
 ): string {
   const series = points
     .map((point) => ({ date: point.date, value: selectValue(point) }))
-    .filter((entry) => isKnown(entry.value))
+    .filter((entry) => isKnownNumber(entry.value))
   if (series.length === 0) {
     return 'Currently unavailable for this ticker.'
   }
@@ -575,13 +567,13 @@ export const channelHelp = {
     channelLower: number | null | undefined,
     latestClose: number | null | undefined,
   ): string {
-    if (!isKnown(channelUpper) || !isKnown(channelLower)) {
+    if (!isKnownNumber(channelUpper) || !isKnownNumber(channelLower)) {
       return 'Currently unavailable for this ticker -- the Autoenvelope’s ~100-trading-day rolling deviation-average warm-up window hasn’t been reached yet.'
     }
     const halfWidthPct =
       ((channelUpper - channelLower) / (channelUpper + channelLower)) * 100
     const bounds = `${channelLower.toFixed(2)}-${channelUpper.toFixed(2)} (±${halfWidthPct.toFixed(1)}% around EMA(13))`
-    if (!isKnown(latestClose)) {
+    if (!isKnownNumber(latestClose)) {
       return `Currently ${bounds}.`
     }
     if (latestClose >= channelUpper) {
@@ -606,7 +598,7 @@ export const valueZoneHelp = {
     ema13: number | null | undefined,
     ema26: number | null | undefined,
   ): string {
-    if (!isKnown(ema13) || !isKnown(ema26)) {
+    if (!isKnownNumber(ema13) || !isKnownNumber(ema26)) {
       return 'Currently unavailable for this ticker.'
     }
     const lower = Math.min(ema13, ema26)
@@ -652,7 +644,7 @@ export const supportResistanceZoneHelp = {
       return 'No support/resistance zones detected yet for this ticker -- needs at least 2 clustered swing-point touches spanning 14+ days.'
     }
     const shown = `Showing ${displayedZones.length} of ${zones.length} detected zone${zones.length === 1 ? '' : 's'} (strongest first).`
-    if (!isKnown(latestClose) || displayedZones.length === 0) {
+    if (!isKnownNumber(latestClose) || displayedZones.length === 0) {
       return shown
     }
     // Nearest is found among `displayedZones` (relevance-filtered + capped
@@ -1002,7 +994,7 @@ function adxSeries(points: readonly IndicatorHistoryPoint[]): AdxSeriesEntry[] {
   const series: AdxSeriesEntry[] = []
   for (const point of points) {
     const adx = point.trend_strength?.adx
-    if (isKnown(adx)) {
+    if (isKnownNumber(adx)) {
       series.push({ date: point.date, value: adx })
     }
   }
@@ -1019,7 +1011,7 @@ export const directionalSystemHelp = {
     plusDi: number | null | undefined,
     minusDi: number | null | undefined,
   ): string {
-    if (!isKnown(plusDi) || !isKnown(minusDi)) {
+    if (!isKnownNumber(plusDi) || !isKnownNumber(minusDi)) {
       return 'Currently unavailable for this ticker -- both need a 13-day warm-up window over True Range/+DM/-DM.'
     }
     if (plusDi === minusDi) {
@@ -1074,7 +1066,7 @@ export const atrHelp = {
     const series: { date: string; atr: number; price: number }[] = []
     for (const point of points) {
       const atr = point.trend_strength?.atr
-      if (isKnown(atr) && isKnown(point.ema_13)) {
+      if (isKnownNumber(atr) && isKnownNumber(point.ema_13)) {
         series.push({ date: point.date, atr, price: point.ema_13 })
       }
     }

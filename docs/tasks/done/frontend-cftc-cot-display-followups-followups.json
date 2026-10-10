@@ -1,0 +1,69 @@
+{
+  "id": "frontend-cftc-cot-display-followups-followups",
+  "title": "Non-blocking findings from frontend-cftc-cot-display-followups's PR review (#411)",
+  "area": "frontend/pages",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-cftc-cot-display-followups"],
+  "references": [
+    "docs/tasks/frontend-cftc-cot-display-followups.json",
+    "https://github.com/rainoko/fintrade/pull/411",
+    "frontend/src/features/cftc/components/cftcCotHelp.ts",
+    "frontend/src/features/stocks/components/metricHelpContent.ts"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's full review of PR #411 (frontend-cftc-cot-display-followups), recorded here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule so it isn't lost once that PR merges. PR #411 itself was accepted with no blocking findings.",
+  "checklist": [
+    {
+      "step": "PR #411 fixed cftcCotHelp.ts's describeExtreme null/undefined gap by adding a local `isKnown` helper that is a byte-for-byte copy of features/stocks/components/metricHelpContent.ts's own `isKnown` (both: `value !== null && value !== undefined && !Number.isNaN(value)`). That's a reasonable choice given cftcCotHelp.ts's own file header already documents keeping this metric's help content local to its one call site rather than importing from metricHelpContent.ts's shared registry (this metric isn't shown on StockDetailPage), but it does mean the exact same 3-line type predicate now lives twice with no shared source of truth -- a future tweak to one (e.g. dropping or changing the NaN guard) could silently drift from the other. Worth considering extracting `isKnown` to a small shared utility (e.g. `src/utils/isKnown.ts` or similar), imported by both cftcCotHelp.ts and metricHelpContent.ts, next time either file is touched -- not urgent enough to justify a dedicated PR on its own.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-10-10T05:23:27Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted the duplicated `isKnown` 3-line null/undefined/NaN-narrowing predicate into a new exported `isKnownNumber` in `frontend/src/utils/format.ts`, imported by both `features/cftc/components/cftcCotHelp.ts` and `features/stocks/components/metricHelpContent.ts` (which also had this file's own private `isKnown` fully removed, plus two inline byte-for-byte copies of the same predicate inside `waveHelp.interpretValue` that were a third/fourth undocumented copy within that same file -- all four now call the one shared helper). `formatNullableNumber` in the same file was also switched to call `isKnownNumber` internally rather than keep its own inlined version of the identical check, so there is now exactly one implementation of this predicate in the whole frontend.",
+      "rationale": "Weighed three options. (1) Keep duplicated, as the task flagged as an acceptable outcome: rejected because a grep for `Number.isNaN`/`isKnown`-shaped guards turned up not two but effectively four live copies of the identical 3-line check once `metricHelpContent.ts`'s own inline `stochasticKnown`/`forceIndexKnown` repeats (lines 257/264 pre-change) are counted alongside its own named `isKnown` and `cftcCotHelp.ts`'s copy -- more copies than the task described, which strengthens rather than weakens the case to converge on one. (2) Reuse the existing `utils/chart.ts#isFiniteNumber` canonical guard (found via the requested grep; already used by `OscillatorChart.tsx`/`VolumeIndicatorsChart.tsx`/`TrendStrengthChart.tsx`/`PriceChart.tsx`/`divergenceClick.ts`): rejected because it is a materially different predicate (`typeof value === 'number' && Number.isFinite(value)`, which also rejects `Infinity`/`-Infinity`, unlike `isKnown`'s looser `!Number.isNaN` check) with a different parameter type (`unknown` vs `number | null | undefined`), and `utils/chart.ts` is explicitly framed (its own file-header comment, and Frontend.md's file-tree comment) around Lightweight Charts call sites -- importing a numeric guard into two help-content/text-generation modules from a module that also top-level-imports the `lightweight-charts` package would be a confusing, non-obvious cross-domain dependency for a change this narrow in scope, and silently changing behavior for an edge case (`Infinity`) nobody asked to fix. (3, chosen) Add a new `isKnownNumber` guard to `utils/format.ts`: this file is already the established canonical home for domain-agnostic, non-component null/NaN-guard-adjacent display helpers used across `features/stocks`, `features/portfolio`, `features/cftc`, and others (Frontend.md Section 3's `utils/` placement test) -- its own `formatNullableNumber` already inlines the exact inverse of this exact check (`value === null || value === undefined || Number.isNaN(value)`), making it the most natural, lowest-friction home with no new file needed and no behavior change to any existing caller. Named `isKnownNumber` rather than reusing the bare `isKnown` name to avoid any future confusion with `utils/chart.ts#isFiniteNumber` once both are visible in the same codebase, and to make the `number`-specific scope of the guard explicit at the call site. cftcCotHelp.ts's own file-header decision to keep this metric's help content local to its one call site (not added to `metricHelpContent.ts`'s shared registry) is orthogonal and untouched by this change -- confirmed by reading that header in full: it is about not adding a COT-specific registry *entry*, not about never importing a domain-agnostic helper, so this extraction doesn't cut against it. A second file, `features/portfolio/components/metricHelpContent.ts`, was checked too (grep for `isKnown`) and only references the stocks file's guard in a comment, not a fourth real duplicate."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-cftc-cot-display-followups-followups",
+    "pr_number": 412,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/412",
+    "pushed_at": "2026-10-10T05:24:25Z"
+  },
+  "review": {
+    "reviewed_at": "2026-10-10T05:36:33Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/412",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified the isKnown -> isKnownNumber consolidation is byte-equivalent at every touched call site: cftcCotHelp.ts's rename, metricHelpContent.ts's 18 call sites plus the two inline stochasticKnown/forceIndexKnown copies in waveHelp.interpretValue all reduce to the identical `value !== null && value !== undefined && !Number.isNaN(value)` logic. formatNullableNumber's rewrite to `!isKnownNumber(value)` is a verified De Morgan equivalent of its prior inline check, and its own null/undefined/NaN tests still pass unchanged. Mutation-tested isKnownNumber by dropping the NaN guard: 3 tests failed across format.test.ts AND metricHelpContent.test.ts, confirming the consolidation is actually exercised by the existing suite, not just coincidentally green. Confirmed the utils/chart.ts#isFiniteNumber rejection is accurate (typeof-narrowed `unknown` param, rejects Infinity, and that module top-level-imports lightweight-charts) -- no confusing third near-duplicate was created; isKnownNumber and isFiniteNumber are named distinctly and serve genuinely different purposes.",
+        "file": "frontend/src/utils/format.ts",
+        "line": 90
+      },
+      {
+        "summary": "Full suites clean: frontend vitest 1083/1083 passed (104 files), coverage 99.78%/99.06%/99.84%/99.82% (statements/branches/functions/lines); backend pytest 1649/1649 passed, 99.95% coverage (backend untouched by this PR, confirmed no regression). eslint, tsc -b --noEmit, backend ruff/mypy, and scripts/check_profit_target_wording.py all clean. scripts/validate_tasks.py reports no violations.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Browser walkthrough (via a local Playwright script, no MCP browser tools available in this session) of the stock detail page's indicator help tooltips (EMA13/26, MACD Histogram, Bull/Bear Power, Wave/Stochastic/Force Index) and the watchlist page's CftcCotCard help tooltip confirmed all dynamic help text -- including describeExtreme's 'most/least bullish' computed sentence -- renders correctly with real data and no console errors. Ran the full e2e suite (`make e2e`): all 28 specs across dashboard/navigation/portfolio/stock-analysis/watchlist passed.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Non-blocking: features/portfolio/components/metricHelpContent.ts line 28 has a doc comment referencing 'IndicatorsPanel's `isKnown` guard' by its pre-rename name -- a stale cross-file symbol reference left behind by this PR's rename to isKnownNumber. Tracked as a follow-up task (frontend-cftc-cot-display-followups-followups-followups) rather than blocking this PR.",
+        "file": "frontend/src/features/portfolio/components/metricHelpContent.ts",
+        "line": 28
+      }
+    ],
+    "notes": "No backend route/schema touched, so no openapi.json regen required. No new frontend component added (pure non-component utility/helper refactor), so the step 7a component-placement check doesn't apply. area is frontend/pages, not backend/signals or backend/portfolio, so verify-elder-signal wasn't separately loaded -- the affected help text's Elder-methodology wording itself is unchanged, only its null-guard predicate was deduplicated. No architecture-review needed: no new module/dependency/layer, just a new export in an existing utils/format.ts. Task's checklist item is already marked done and its decisions entry already fully documents the extract-vs-reuse-vs-keep-duplicated judgment call (option (2) vs (3) above) -- no undecided 'decide X' item found. No pr_decision field was present on this task prior to this review, so nothing to clear."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-10-10T05:42:30Z",
+    "verdict": "merge",
+    "notes": "Re-ran both suites myself: frontend vitest 1083/1083 passed across 104 files (99.78%/99.06%/99.84%/99.82% coverage), backend pytest 1649/1649 passed (99.95% coverage, backend untouched) -- both match pr-reviewer's reported numbers exactly. eslint and tsc -b --noEmit clean; scripts/validate_tasks.py found no board violations. Skimmed the full diff: cftcCotHelp.ts's and metricHelpContent.ts's ~20 isKnown->isKnownNumber call-site renames are byte-identical in logic, including the two formerly-inline waveHelp.interpretValue copies (stochasticKnown/forceIndexKnown), and formatNullableNumber's `if (!isKnownNumber(value))` is the correct De Morgan equivalent of its prior `value === null || value === undefined || Number.isNaN(value)` inline check -- no inverted clause. Reproduced the mutation test myself (dropped the `!Number.isNaN(value)` guard from isKnownNumber in format.ts, reran format.test.ts + metricHelpContent.test.ts, got the same 3 failures pr-reviewer reported, then reverted) -- confirms the consolidation is actually exercised, not coincidentally green. Confirmed utils/chart.ts#isFiniteNumber top-level-imports lightweight-charts and uses a materially different unknown-typed/Infinity-rejecting predicate, so the rejection of reusing it is accurate. Verified the one filed non-blocking finding (stale 'isKnown' doc-comment reference at features/portfolio/components/metricHelpContent.ts:28) is real and was correctly filed to frontend-cftc-cot-display-followups-followups-followups rather than left undocumented. No CLAUDE.md/.claude/ paths touched, so no human-merge gate applies."
+  }
+}

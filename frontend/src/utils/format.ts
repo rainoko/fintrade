@@ -71,6 +71,27 @@ export function humanizeSnakeCase(
 }
 
 /**
+ * `true` for a real, usable `number` -- `false` for `null`, `undefined`, or
+ * `NaN`. Narrows to `number` so a caller can immediately call `.toFixed()`/
+ * compare it, the same "optional-and-nullable field isn't a runtime
+ * guarantee either way" defense `formatNullableNumber` below already takes
+ * (this is that same `null`/`undefined`/`NaN` check, just exposed as a
+ * reusable type guard instead of inlined into one formatter).
+ *
+ * Extracted here (frontend-cftc-cot-display-followups-followups) after this
+ * exact 3-line predicate was found duplicated byte-for-byte as a private
+ * `isKnown` in both `features/stocks/components/metricHelpContent.ts` and
+ * `features/cftc/components/cftcCotHelp.ts`, with no shared source of truth
+ * -- see this task's `decisions` entry for why `utils/format.ts` was chosen
+ * over reusing `utils/chart.ts`'s similar-looking `isFiniteNumber` (a
+ * different predicate, and a different file's placement rationale) or
+ * adding a third private copy.
+ */
+export function isKnownNumber(value: number | null | undefined): value is number {
+  return value !== null && value !== undefined && !Number.isNaN(value)
+}
+
+/**
  * Formats a number for display, rendering '—' for `null`/`undefined`/`NaN`
  * instead of calling `.toLocaleString()` on a non-number. Several
  * `AnalysisResponse` fields (`indicators.*`, `screens.wave.stochastic_k`/
@@ -89,7 +110,7 @@ export function formatNullableNumber(
   value: number | null | undefined,
   options?: Intl.NumberFormatOptions,
 ): string {
-  if (value === null || value === undefined || Number.isNaN(value)) {
+  if (!isKnownNumber(value)) {
     return '—'
   }
   return value.toLocaleString(undefined, options)
