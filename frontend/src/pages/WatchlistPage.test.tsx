@@ -57,6 +57,19 @@ describe('WatchlistPage', () => {
     expect(screen.getByText('0 (0.0%)')).toBeInTheDocument()
   })
 
+  it('renders the CFTC Commitments of Traders widget below the breadth widgets', async () => {
+    renderWatchlistPage()
+
+    await waitFor(() =>
+      expect(screen.getByRole('table', { name: 'Watchlist' })).toBeInTheDocument(),
+    )
+
+    expect(screen.getByText('Commitments of Traders (CFTC)')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('table', { name: 'CFTC Commitments of Traders' }),
+    ).toBeInTheDocument()
+  })
+
   it('shows the empty state when the watchlist has no tickers', async () => {
     server.use(http.get('/api/watchlist', () => HttpResponse.json({ items: [] })))
 
@@ -67,7 +80,10 @@ describe('WatchlistPage', () => {
         screen.getByText('Your watchlist is empty. Add a ticker to get started.'),
       ).toBeInTheDocument(),
     )
-    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    // Scoped to the watchlist table specifically -- CftcCotCard (below it on
+    // this page) renders its own, unrelated "CFTC Commitments of Traders"
+    // table unconditionally, independent of the watchlist's own emptiness.
+    expect(screen.queryByRole('table', { name: 'Watchlist' })).not.toBeInTheDocument()
   })
 
   it('surfaces a network-level ApiError via common/ErrorState', async () => {
