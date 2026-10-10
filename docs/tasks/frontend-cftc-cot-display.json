@@ -3,7 +3,7 @@
   "title": "Surface the CFTC Commitments of Traders (COT) data somewhere in the UI -- GET /api/cftc/cot has zero frontend consumer",
   "area": "frontend/pages",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/api/routers/cftc.py",
@@ -17,12 +17,37 @@
   ],
   "description": "Filed by the frontend-backend-feature-gap-audit task. `GET /api/cftc/cot` (`CFTCCOTResponse`, 5 fixed futures markets -- Euro, Yen, Oil, Gold, Bonds -- each with commercial/large-speculator/small-speculator long/short/net positions and a 52-week Williams COT Index, `backend/app/api/routers/cftc.py`) has been live since PR #270, but grep confirms `frontend/src/api/` has no `cftc.ts` (or any file) calling it, and no production component anywhere in `frontend/src` references any of its fields -- zero frontend consumption of any kind, not even a schema-field-level partial gap. This isn't data quietly feeding some other internal computation either: grep across `backend/app` confirms no caller of `CFTCCOTProvider`/`CFTCCOTCache` outside `app/api/routers/cftc.py` and its own dependency wiring -- `app.signals`/`app.portfolio` never reference it. `backend-cftc-cot-data`'s own `decisions` entry explains this was deliberately NOT wired into any per-stock-ticker signal ('informational context... not something that plugs into any per-stock-ticker signal the way insider clusters or short interest do') and was built anticipating future use 'alongside the ch. 57 daily-homework idea's gold/oil/currency-futures lines' (docs/ideas.md) -- but that's a signal-wiring decision, not a decision that the data should never be shown in the UI at all. No task or decision anywhere says the UI should skip it; the ch. 57 'daily homework spreadsheet' (overseas markets, economic calendar, currencies/commodities with weekly+daily Impulse color, etc.) it was meant to feed was never itself built -- only the separate ch. 57 'Am I ready to trade?' self-test (`frontend-daily-homework-page`) exists today, which is a different, narrower feature (grading the trader, not displaying market context). This is a genuine, previously-untracked UI gap: real, already-computed data with no path to a user at all.",
   "checklist": [
-    { "step": "Add `frontend/src/api/cftc.ts` (a typed `getCftcCot()` caller mirroring `frontend/src/api/homework.ts`'s shape) plus a TanStack Query hook, and the matching MSW mock for tests.", "done": false },
-    { "step": "Decide placement: a new standalone page/section vs. a card on an existing page (e.g. `WatchlistPage`, which already hosts the IBKR-scanner-backed `MarketBreadthCard` 'whole market' context card) -- record the decision and rationale.", "done": false },
-    { "step": "Display the 5 markets' commercial/large-speculator/small-speculator net positions and each market's 52-week COT Index (0-100, null-safe), with a `MetricHelp` entry explaining Elder's ch. 37 'follow commercials, fade small speculators, read current positioning against historical norms' framing (docs/Analyse.md / docs/ideas.md).", "done": false },
-    { "step": "Tests (including the gateway-unavailable/5xx case) + a Storybook story for the new component(s); confirm the 90% coverage gate still holds.", "done": false },
-    { "step": "Regenerate backend/openapi.json only if any backend contract needs touching (not expected -- this task is a pure frontend consumer of an already-existing, already-documented endpoint).", "done": false }
+    { "step": "Add `frontend/src/api/cftc.ts` (a typed `getCftcCot()` caller mirroring `frontend/src/api/homework.ts`'s shape) plus a TanStack Query hook, and the matching MSW mock for tests.", "done": true },
+    { "step": "Decide placement: a new standalone page/section vs. a card on an existing page (e.g. `WatchlistPage`, which already hosts the IBKR-scanner-backed `MarketBreadthCard` 'whole market' context card) -- record the decision and rationale.", "done": true },
+    { "step": "Display the 5 markets' commercial/large-speculator/small-speculator net positions and each market's 52-week COT Index (0-100, null-safe), with a `MetricHelp` entry explaining Elder's ch. 37 'follow commercials, fade small speculators, read current positioning against historical norms' framing (docs/Analyse.md / docs/ideas.md).", "done": true },
+    { "step": "Tests (including the gateway-unavailable/5xx case) + a Storybook story for the new component(s); confirm the 90% coverage gate still holds.", "done": true },
+    { "step": "Regenerate backend/openapi.json only if any backend contract needs touching (not expected -- this task is a pure frontend consumer of an already-existing, already-documented endpoint).", "done": true }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-10T01:42:13Z",
+      "recorded_by": "task-worker",
+      "decision": "Placement: a new `CftcCotCard` feature component, rendered as a third context card on the existing `WatchlistPage` (`frontend/src/pages/WatchlistPage.tsx`), placed below `PersonalBreadthCard`/`MarketBreadthCard` rather than a new standalone page/route.",
+      "rationale": "WatchlistPage is this app's one existing 'whole market / broader context' surface -- it already hosts two unconditionally-rendered context widgets (PersonalBreadthCard, MarketBreadthCard) that are neither per-ticker nor portfolio-specific, the exact same shape this data has (futures-market context, not wired into any per-ticker signal, per backend-cftc-cot-data's own decisions entry). A new standalone page/route was rejected: it would need its own nav entry for a single static-cardinality (5-row) widget with no further interactivity (no filters, no drill-down, no per-market detail view) to justify a dedicated route -- Frontend.md's module layout doesn't suggest a one-widget page is the right unit, and nothing about this data benefits from more screen real estate than a card provides. CftcCotCard is placed *after* the two breadth widgets, not interleaved with or directly beside them: it's genuinely a different data source and methodology (CFTC positioning data vs. IBKR-scanner-derived Advance/Decline-style breadth) that a user could otherwise mistake for a third 'breadth' widget if stacked immediately alongside the other two, even though all three share the 'whole market context, not per-ticker' framing that justifies being on this page at all."
+    },
+    {
+      "timestamp": "2026-10-10T01:42:13Z",
+      "recorded_by": "task-worker",
+      "decision": "Presentation: a plain `common/DataTable` (one row per market, columns for Market/Report Date/Commercial/Large Speculators/Small Speculators, each group cell showing its net position plus its own 52-week COT Index) -- not a chart or sparkline of any kind. The `dataviz` skill was not loaded, since no chart ends up being built.",
+      "rationale": "The data is 5 fixed rows, not a time series -- GET /api/cftc/cot returns only the latest report_date per market (no trailing history array on the wire), so there is nothing to plot a trend *of* even if a chart were otherwise justified; the COT Index's own 52-week trailing-window computation already happens server-side and is exposed as a single current 0-100 number per market/group, not a series. What a user actually wants from this view -- 'where does commercial positioning sit right now, for which market, and how does that compare to large/small speculators' -- is exactly the kind of structured, scannable, multi-field-per-row detail a table preserves and a chart (e.g. 5 small gauges, or bars) would flatten or discard. This mirrors the call `DailyHomeworkHistoryTable` (frontend-daily-homework-history) made for its own low-cardinality, detail-dense data: 'the most useful information here is still most legible as rows a person reads top-to-bottom, not a plotted line.' A bar chart of the 3 COT Index values per market was considered and rejected as a secondary option -- it would show relative magnitude at a glance but strip the net-position numbers entirely (or need a second chart/table alongside it anyway), for 5 data points per group where a table cell already reads clearly without needing a chart's visual-comparison benefit."
+    },
+    {
+      "timestamp": "2026-10-10T01:42:13Z",
+      "recorded_by": "task-worker",
+      "decision": "`CftcCotCard` is a feature component (`frontend/src/features/cftc/components/CftcCotCard.tsx`), not `components/common/` -- per Frontend.md §4, feature components don't get a Storybook story, so none was added for it; the checklist item's 'Storybook story for the new component(s)' is satisfied by this exemption, not by adding one. `cftcCotHelp.ts`'s `describeExtreme` branch coverage is instead closed by a small dedicated `cftcCotHelp.test.ts` (direct unit tests of the helper, following `totalRiskHelp.test.ts`'s precedent) since `CftcCotCard.test.tsx` alone couldn't reach 100% branch coverage on that helper's reduce-based extreme-finding logic.",
+      "rationale": "Every value `CftcCotCard` renders (a futures market, a commercial/large-speculator/small-speculator net position, a COT Index) is a CFTC/Elder-ch.-37 domain concept, and it owns its own `useCftcCot` fetch/loading/error handling -- it fails Frontend.md §3's domain-agnostic test for `common/` placement the same way `MarketBreadthCard`/`PersonalBreadthCard` do, both of which are also feature components with no story. Confirmed via a real Storybook build (`yarn build-storybook`) that nothing broke by this component's absence from the catalog."
+    },
+    {
+      "timestamp": "2026-10-10T01:42:13Z",
+      "recorded_by": "task-worker",
+      "decision": "Confirmed (not assumed) that `backend/openapi.json` needs no regeneration for this task: re-ran `python scripts/export_openapi.py` from `backend/` and diffed the result against the committed file -- byte-for-byte identical, zero diff. Left the checklist item's backend-touching clause unexercised rather than running a no-op regeneration commit.",
+      "rationale": "This task is a pure frontend consumer of an already-existing, already-documented GET /api/cftc/cot endpoint (backend-cftc-cot-data, PR #270) -- no backend route/schema was touched by this task's changes, so no OpenAPI drift was possible, but the checklist explicitly asked to confirm this rather than assume it."
+    }
+  ],
   "questions": []
 }

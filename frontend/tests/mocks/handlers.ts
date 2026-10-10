@@ -1,6 +1,7 @@
 import { http, HttpResponse } from 'msw'
 import type { HttpHandler } from 'msw'
 import { isoDateWeeksAgo } from '../dateFixtures'
+import type { CFTCCOTResponse } from '../../src/api/cftc'
 import type {
   DailyHomeworkIn,
   DailyHomeworkOut,
@@ -733,7 +734,118 @@ const defaultIbkrBreadthSnapshotResponse = {
   rolling_20d: null,
 }
 
+// GET /api/cftc/cot (frontend-cftc-cot-display): a fixed 5-market fixture
+// mirroring CFTCCOTResponse's documented shape, including one market
+// (bonds) with a null COT Index (weeks_of_history: 1) so a test can assert
+// the null-safe "--" rendering without needing a dedicated `server.use()`
+// override for that specific case.
+const cftcCotFixture: CFTCCOTResponse = {
+  markets: [
+    {
+      market_key: 'eur',
+      display_name: 'EURO FX - CHICAGO MERCANTILE EXCHANGE',
+      report_date: '2026-09-29',
+      open_interest: 650000,
+      commercial_long: 120000,
+      commercial_short: 90000,
+      commercial_net: 30000,
+      large_speculator_long: 95000,
+      large_speculator_short: 115000,
+      large_speculator_net: -20000,
+      small_speculator_long: 40000,
+      small_speculator_short: 30000,
+      small_speculator_net: 10000,
+      weeks_of_history: 52,
+      commercial_cot_index_52w: 72.5,
+      large_speculator_cot_index_52w: 18.0,
+      small_speculator_cot_index_52w: 55.0,
+    },
+    {
+      market_key: 'jpy',
+      display_name: 'JAPANESE YEN - CHICAGO MERCANTILE EXCHANGE',
+      report_date: '2026-09-29',
+      open_interest: 220000,
+      commercial_long: 60000,
+      commercial_short: 70000,
+      commercial_net: -10000,
+      large_speculator_long: 80000,
+      large_speculator_short: 65000,
+      large_speculator_net: 15000,
+      small_speculator_long: 20000,
+      small_speculator_short: 15000,
+      small_speculator_net: 5000,
+      weeks_of_history: 52,
+      commercial_cot_index_52w: 40.0,
+      large_speculator_cot_index_52w: 62.0,
+      small_speculator_cot_index_52w: 30.0,
+    },
+    {
+      market_key: 'oil',
+      display_name: 'WTI-PHYSICAL - NEW YORK MERCANTILE EXCHANGE',
+      report_date: '2026-09-29',
+      open_interest: 1800000,
+      commercial_long: 500000,
+      commercial_short: 650000,
+      commercial_net: -150000,
+      large_speculator_long: 600000,
+      large_speculator_short: 400000,
+      large_speculator_net: 200000,
+      small_speculator_long: 90000,
+      small_speculator_short: 70000,
+      small_speculator_net: 20000,
+      weeks_of_history: 52,
+      commercial_cot_index_52w: 12.0,
+      large_speculator_cot_index_52w: 88.0,
+      small_speculator_cot_index_52w: 45.0,
+    },
+    {
+      market_key: 'gold',
+      display_name: 'GOLD - COMMODITY EXCHANGE INC.',
+      report_date: '2026-09-29',
+      open_interest: 480000,
+      commercial_long: 110000,
+      commercial_short: 180000,
+      commercial_net: -70000,
+      large_speculator_long: 200000,
+      large_speculator_short: 120000,
+      large_speculator_net: 80000,
+      small_speculator_long: 50000,
+      small_speculator_short: 40000,
+      small_speculator_net: 10000,
+      weeks_of_history: 52,
+      commercial_cot_index_52w: 25.0,
+      large_speculator_cot_index_52w: 75.0,
+      small_speculator_cot_index_52w: 58.0,
+    },
+    {
+      market_key: 'bonds',
+      display_name: 'UST BOND - CHICAGO BOARD OF TRADE',
+      report_date: '2026-09-29',
+      open_interest: 900000,
+      commercial_long: 300000,
+      commercial_short: 280000,
+      commercial_net: 20000,
+      large_speculator_long: 250000,
+      large_speculator_short: 270000,
+      large_speculator_net: -20000,
+      small_speculator_long: 60000,
+      small_speculator_short: 55000,
+      small_speculator_net: 5000,
+      // Deliberately a fresh market with only 1 week of history on record --
+      // the real `weeks_of_history < 2` null case (CFTCCOTMarketOut's own
+      // schema doc), exercised here instead of only via a `server.use()`
+      // override.
+      weeks_of_history: 1,
+      commercial_cot_index_52w: null,
+      large_speculator_cot_index_52w: null,
+      small_speculator_cot_index_52w: null,
+    },
+  ],
+}
+
 export const handlers: HttpHandler[] = [
+  http.get('/api/cftc/cot', () => HttpResponse.json(cftcCotFixture)),
+
   http.get('/api/ibkr/status', () => HttpResponse.json(defaultIbkrStatusResponse)),
 
   http.post('/api/ibkr/breadth/snapshot', async ({ request }) => {
