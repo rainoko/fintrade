@@ -6,6 +6,7 @@ import {
   formatNullableNumber,
   formatSignedSpread,
   humanizeSnakeCase,
+  isKnownNumber,
 } from './format'
 
 describe('humanizeSnakeCase', () => {
@@ -29,6 +30,26 @@ describe('humanizeSnakeCase', () => {
     // or exit_flags values (already lowercase) — the fallback has to
     // normalize both conventions to the same "Capitalized words" style.
     expect(humanizeSnakeCase('OVERSOLD_PULLBACK')).toBe('Oversold pullback')
+  })
+})
+
+describe('isKnownNumber', () => {
+  it('returns true for a real number, including a negative or zero value', () => {
+    expect(isKnownNumber(24.3)).toBe(true)
+    expect(isKnownNumber(-18234.5)).toBe(true)
+    expect(isKnownNumber(0)).toBe(true)
+  })
+
+  it('returns false for null', () => {
+    expect(isKnownNumber(null)).toBe(false)
+  })
+
+  it('returns false for undefined', () => {
+    expect(isKnownNumber(undefined)).toBe(false)
+  })
+
+  it('returns false for NaN', () => {
+    expect(isKnownNumber(Number.NaN)).toBe(false)
   })
 })
 

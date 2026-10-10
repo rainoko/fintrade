@@ -1,4 +1,5 @@
 import type { CFTCCOTMarketOut, CFTCCOTResponse } from '../../../api/cftc'
+import { isKnownNumber } from '../../../utils/format'
 
 /**
  * `common/MetricHelp` content for `CftcCotCard` (Elder ch. 37's Commitments
@@ -17,6 +18,13 @@ import type { CFTCCOTMarketOut, CFTCCOTResponse } from '../../../api/cftc'
  * -- the same "read current positioning against historical norms rather
  * than an absolute level" framing Elder's own ch. 37 text uses, and the
  * exact computation `backend-cftc-cot-data`'s `decisions` entry records.
+ *
+ * Importing `isKnownNumber` from `utils/format.ts` below is orthogonal to
+ * the "keep this metric's help content local" decision above: that decision
+ * is about not adding a COT-specific entry to
+ * `metricHelpContent.ts`'s shared *registry*, not about never importing a
+ * domain-agnostic null-check helper -- see this task's `decisions` entry
+ * (frontend-cftc-cot-display-followups-followups).
  */
 
 export interface CftcCotHelpContent {
@@ -26,25 +34,21 @@ export interface CftcCotHelpContent {
   valueInterpretation: string | null
 }
 
-// Mirrors `features/stocks/components/metricHelpContent.ts`'s own `isKnown`
-// helper -- the field's real generated type is `number | null | undefined`
-// (an optional-and-nullable Pydantic field), so a predicate that only checks
-// `!== null` would wrongly narrow an `undefined` value to `number` and blow
-// up the `.toFixed(0)` call below. Currently unreachable in practice (the
-// backend has no `response_model_exclude_none`, so it always serializes an
-// explicit `null` -- see `backend/app/api/routers/cftc.py`), but this keeps
-// the predicate correct for the type it actually claims to narrow.
-function isKnown(value: number | null | undefined): value is number {
-  return value !== null && value !== undefined && !Number.isNaN(value)
-}
-
 function describeExtreme(
   markets: CFTCCOTMarketOut[],
   pick: 'commercial_cot_index_52w',
 ): string | null {
+  // `isKnownNumber` (`utils/format.ts`): the field's real generated type is
+  // `number | null | undefined` (an optional-and-nullable Pydantic field),
+  // so a predicate that only checks `!== null` would wrongly narrow an
+  // `undefined` value to `number` and blow up the `.toFixed(0)` calls below.
+  // Currently unreachable in practice (the backend has no
+  // `response_model_exclude_none`, so it always serializes an explicit
+  // `null` -- see `backend/app/api/routers/cftc.py`), but this keeps the
+  // predicate correct for the type it actually claims to narrow.
   const withIndex = markets.filter(
     (market): market is CFTCCOTMarketOut & { commercial_cot_index_52w: number } =>
-      isKnown(market[pick]),
+      isKnownNumber(market[pick]),
   )
   if (withIndex.length === 0) {
     return null
