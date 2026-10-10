@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from frontend-cftc-cot-display's PR review (#407)",
   "area": "frontend/pages",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-cftc-cot-display"],
   "references": [
     "docs/tasks/frontend-cftc-cot-display.json",
@@ -15,9 +15,22 @@
   "checklist": [
     {
       "step": "frontend/src/features/cftc/components/cftcCotHelp.ts's describeExtreme type predicate (`market[pick] !== null`) only excludes `null`, not `undefined`, even though CFTCCOTMarketOut's `*_cot_index_52w` fields are typed `number | null | undefined` (an optional-and-nullable Pydantic field). If a market object ever had the field actually `undefined` (key omitted) rather than explicit `null`, the predicate would wrongly type-narrow it to `number` and the subsequent `.toFixed(0)` call would throw. Currently unreachable in practice -- the backend has no `response_model_exclude_none`, so it always serializes an explicit `null` -- so this is a latent defensive-coding gap, not a live bug. `features/stocks/components/metricHelpContent.ts`'s own `isKnown` helper (`value !== null && value !== undefined && !Number.isNaN(value)`) already establishes the right null+undefined-safe pattern for this exact shape elsewhere in the codebase; bring describeExtreme's filter in line with it (and add a test exercising an explicit `undefined` value, not just `null`).",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-10-10T05:00:54Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a local `isKnown(value: number | null | undefined): value is number` helper to cftcCotHelp.ts, copying metricHelpContent.ts's exact predicate (`value !== null && value !== undefined && !Number.isNaN(value)`) including the `Number.isNaN` guard, and used it in describeExtreme's filter instead of the bare `market[pick] !== null` check.",
+      "rationale": "The task flagged the null-vs-undefined gap specifically, but the referenced precedent (metricHelpContent.ts's isKnown) also screens out NaN, which can't actually arise from this field today (JSON has no NaN literal, and the backend always serializes null or a finite number) but keeps the two helpers byte-for-byte consistent rather than a near-duplicate with a silently narrower guard. Considered writing a leaner `value !== null && value !== undefined` without the NaN check (sufficient for the described bug) but rejected it since it would reintroduce a cosmetic divergence from the exact pattern CLAUDE.md's task description points at as 'the right null+undefined-safe pattern ... elsewhere in the codebase' to align with."
+    },
+    {
+      "timestamp": "2026-10-10T05:00:54Z",
+      "recorded_by": "task-worker",
+      "decision": "No live-browser walkthrough was run for this change.",
+      "rationale": "The fix is a pure type-predicate tightening inside a helper function with no change to any rendered output, prop, or component tree -- describeExtreme's observable behavior for every input reachable via the real API (which never actually produces undefined, only explicit null) is unchanged; only its behavior on an input that was previously type-unsound (undefined) changes, and that's covered by the new unit tests (verified load-bearing by reverting the fix and confirming both new tests fail, one by throwing exactly as the finding predicted). No UI surface could exercise the new branch today since the backend never emits undefined for this field."
+    }
+  ],
   "questions": []
 }

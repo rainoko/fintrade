@@ -26,13 +26,25 @@ export interface CftcCotHelpContent {
   valueInterpretation: string | null
 }
 
+// Mirrors `features/stocks/components/metricHelpContent.ts`'s own `isKnown`
+// helper -- the field's real generated type is `number | null | undefined`
+// (an optional-and-nullable Pydantic field), so a predicate that only checks
+// `!== null` would wrongly narrow an `undefined` value to `number` and blow
+// up the `.toFixed(0)` call below. Currently unreachable in practice (the
+// backend has no `response_model_exclude_none`, so it always serializes an
+// explicit `null` -- see `backend/app/api/routers/cftc.py`), but this keeps
+// the predicate correct for the type it actually claims to narrow.
+function isKnown(value: number | null | undefined): value is number {
+  return value !== null && value !== undefined && !Number.isNaN(value)
+}
+
 function describeExtreme(
   markets: CFTCCOTMarketOut[],
   pick: 'commercial_cot_index_52w',
 ): string | null {
   const withIndex = markets.filter(
     (market): market is CFTCCOTMarketOut & { commercial_cot_index_52w: number } =>
-      market[pick] !== null,
+      isKnown(market[pick]),
   )
   if (withIndex.length === 0) {
     return null
