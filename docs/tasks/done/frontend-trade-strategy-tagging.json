@@ -3,7 +3,7 @@
   "title": "Add UI input + display for the per-trade personal strategy tag -- PositionIn/Out.strategy and ClosedTradeOut.strategy have zero frontend consumer",
   "area": "frontend/pages/portfolio",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/app/api/schemas.py",
@@ -59,5 +59,23 @@
     "pr_url": "https://github.com/rainoko/fintrade/pull/406",
     "pushed_at": "2026-10-10T00:56:34Z"
   },
-  "questions": []
+  "questions": [],
+  "review": {
+    "reviewed_at": "2026-10-10T01:09:26Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/406",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Non-blocking: frontend/src/pages/PortfolioPage.test.tsx has pre-existing tests that implicitly depend on async query-start/resolution timing rather than asserting against deterministic DOM state. Independently reproduced during this review by re-adding a top-level useClosedTrades() call to PortfolioPage (the PR's own earlier, reverted revision) to union closed-trades' strategy values into recentStrategies: this breaks 'shows a loading state, then the equity stat cards and positions table' ('Found multiple elements with the text: AAPL' -- PositionsTable's and TradeJournalPanel's own AAPL both resolve by the time a bare screen.getByText('AAPL') runs) and 'shows the empty state when the portfolio has no positions' (queryByRole('table')).not.toBeInTheDocument() implicitly assumes TradeJournalPanel's own closed-trades query, whose default MSW fixture is non-empty, simply hasn't resolved yet). This confirms the task-worker's own account of why the closed-trades union was reverted -- it's a genuine, pre-existing test-fragility problem, not a cover story, and scoping this PR's recentStrategies to held-positions-only (the decisions entry for checklist step 4) is a legitimate way to sidestep it rather than a feature cut forced for no reason. Filed as frontend-trade-strategy-tagging-followups checklist item 1.",
+        "file": "frontend/src/pages/PortfolioPage.test.tsx",
+        "line": null
+      },
+      {
+        "summary": "Non-blocking: the resulting behavior gap (a strategy used only on a now-closed trade is never offered as a recentStrategies Autocomplete suggestion) is real but narrow in practice -- acknowledged in the task's own decisions entry. Filed as frontend-trade-strategy-tagging-followups checklist item 2.",
+        "file": "frontend/src/pages/PortfolioPage.tsx",
+        "line": 70
+      }
+    ],
+    "notes": "Full review pass. Backend suite: 1618 passed, 99.94% coverage (unchanged by this PR -- no backend files touched). Frontend suite: 1060 passed across 101 files, 99.78% statements / 99.06% branches / 99.84% functions / 99.81% lines, all well above the 90% gate; every touched file at or near 100%. ruff/mypy/eslint/tsc/profit-target-wording-guard all clean. scripts/validate_tasks.py: 0 violations (387 tasks after adding this PR's own followups task). Cross-checked the MSW mock's overwrite-on-merge strategy semantics (tests/mocks/handlers.ts) directly against backend/app/api/routers/portfolio.py's add_position handler (lines ~636-647) and its docstring (~919-933): both overwrite an existing strategy outright on an incoming non-empty value and leave it untouched when the incoming value is absent/empty -- matches exactly, unlike entry_notes' append semantics which the mock correctly keeps separate. Confirmed the Strategy field's trim-and-omit-if-blank convention genuinely matches entry_notes' own established convention (both omit the POST key entirely when the trimmed value is blank; done-task frontend-trade-journal-entry-notes' own decisions entry for entry_notes is the precedent, reproduced faithfully here). Storybook: correctly untouched -- no stories added or removed, consistent with Frontend.md §4 (AddPositionDialog/PositionsTable/TradeJournalPanel/PortfolioPage are all feature components, and no new components/common/ component was introduced; the Autocomplete is MUI's own library component, not an app component needing a story). Placement check (step 7a): no concerns -- all touched/changed code stayed feature-local under features/portfolio/ or pages/, no near-duplicate of an existing common/ component, no feature-component masquerading as common/. No backend route/schema changes, so backend/openapi.json correctly wasn't touched. Live browser walkthrough (Playwright script driving a locally started make dev stack against the real backend/dev sqlite db, since no Playwright MCP tool was available this session): added a position with a Strategy tag through the dialog, confirmed it rendered correctly in both the Positions table's and (after waiting for it) Trade Journal's new Strategy columns, confirmed the Autocomplete offered the just-used tag as a suggestion on reopening the dialog, no console errors, no failed/4xx+ network requests. Cleaned up by deleting the test position directly from backend/fintrade.db (not via the UI's close flow, which would have spuriously added a closed_trades row) -- verified back to the original 18 positions / 20 closed trades afterward. Also ran the persisted e2e suite (make e2e): all 28 specs across dashboard/navigation/portfolio/stock-analysis/watchlist passed, no regression. All four recorded decisions entries are well-formed (decision + rationale, alternatives considered and rejected) and consistent with what's actually implemented; the one checklist item phrased as 'decide X' (step 4) has a matching decisions entry. The two non-blocking findings above are tracked on frontend-trade-strategy-tagging-followups (new task, depends_on this one) rather than only living in this PR comment."
+  }
 }

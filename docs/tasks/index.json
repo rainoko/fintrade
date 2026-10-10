@@ -2665,8 +2665,15 @@
       "id": "frontend-trade-strategy-tagging",
       "area": "frontend/pages/portfolio",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-trade-strategy-tagging.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-trade-strategy-tagging.json"
+    },
+    {
+      "id": "frontend-trade-strategy-tagging-followups",
+      "area": "frontend/pages/portfolio",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-trade-strategy-tagging-followups.json"
     },
     {
       "id": "frontend-daily-homework-history",
