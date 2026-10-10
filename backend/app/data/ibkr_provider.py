@@ -53,7 +53,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 
 import httpx
@@ -385,6 +385,28 @@ class IBKRAccountPosition:
     ticker: str
     quantity: float
     avg_cost: float | None
+
+
+@dataclass(frozen=True)
+class IBKRTrade:
+    """One buy/sell execution from `GET /iserver/account/trades`
+    (`backend-ibkr-import-entry-date-from-trades`'s checklist item 1/4) -- used only to
+    reconcile a currently-held position's quantity against its recent trade history, to
+    derive a trustworthy `entry_date` for `POST /api/ibkr/portfolio-preload` (see
+    `app.api.routers.ibkr._derive_entry_date`). Not a general-purpose trade-history model --
+    this app has no other use for an individual execution today.
+
+    `side` is normalized to the literal `"BUY"`/`"SELL"` this app's own reconciliation logic
+    branches on, not IBKR's raw wire value (`"B"`/`"S"` in its own documented example, also
+    accepting the spelled-out `"BUY"`/`"SELL"` defensively) -- see `_parse_account_trades`
+    for the exact mapping; a row whose side can't be recognized is dropped rather than
+    guessed at. `quantity` is always strictly positive regardless of side (the direction
+    lives in `side`, not the sign)."""
+
+    conid: int
+    side: Literal["BUY", "SELL"]
+    quantity: float
+    trade_date: date
 
 
 class IBKRUnavailableError(Exception):
@@ -1076,6 +1098,60 @@ class IBKRProvider:
             positions.extend(page_positions)
         return positions
 
+    def get_account_trades(self) -> list[IBKRTrade]:
+        """Recent buy/sell executions for the connected account, from IBKR's own
+        documented "recent executions" endpoint `GET /iserver/account/trades`
+        (`backend-ibkr-import-entry-date-from-trades`'s checklist item 1/4). IBKR's own
+        documentation scopes this endpoint to the current day plus the six previous
+        calendar days, with no parameter to page or widen that window further back --
+        confirmed against IBKR's own live Client Portal Web API swagger definition during
+        this task's PR #408 review, not just inferred; see this task's `decisions` entry.
+        There is no live-gateway response this session could capture (this module's own
+        "Testing constraint" docstring paragraph), so this is implemented and tested
+        against that documented shape only, same as every other method in this class.
+
+        This is used for exactly one purpose today: `POST /api/ibkr/portfolio-preload`
+        reconciling a position's recently-held quantity against its recent trade history
+        to decide whether a real `entry_date` can be derived, instead of falling back to
+        today's date (see `app.api.routers.ibkr._derive_entry_date`). Degrading to an
+        empty list on failure (rather than ever raising past this call) is the caller's
+        job, not this method's -- it raises `IBKRUnavailableError` exactly like every
+        other gateway-calling method here, so a caller that wants the softer "couldn't get
+        trade history, fall back" behavior catches that itself.
+
+        Each row is expected as a plain JSON object with (at least) `"conid"`, `"side"`
+        (`"B"`/`"S"`, or spelled out `"BUY"`/`"SELL"`), `"size"` (share quantity, IBKR's own
+        field name -- distinct from `"position"`'s role in `get_account_positions`), an
+        `"account"` id string, and either `"trade_time_r"` (epoch milliseconds, preferred --
+        unambiguous) or `"trade_time"` (a `YYYYMMDDHHMM[SS]` string) for when the execution
+        happened. See `_parse_account_trades` for the exact per-field parsing and which rows
+        are dropped.
+
+        Scoped to the same account `get_account_positions` discovers/uses
+        (`_discover_account_id`) -- a row that names a *different* account (this app's
+        session may have visibility into more than one IBKR sub-account under the same
+        login) is dropped, not counted, so a multi-sub-account session's trade history for
+        another account never contaminates this account's own quantity reconciliation (see
+        this task's `decisions` entry for the full reconciliation-soundness argument). A row
+        with no `"account"` field at all is ALSO dropped, not kept -- matching this same
+        function's fail-closed convention for every other ambiguous field (unparseable
+        `conid`/`side`/`size`/trade date all drop the row too). An unattributable row is
+        exactly as dangerous as a wrongly-attributed one for the one invariant the whole
+        feature's soundness argument depends on: reconciliation errors must only ever push
+        toward the conservative `today()` fallback, never manufacture a false-positive
+        quantity match (see `backend-ibkr-import-entry-date-from-trades`'s `decisions`
+        entry for the full false-positive-vs-safe-fallback argument this follows).
+
+        Raises:
+            IBKRUnavailableError: the gateway isn't `available`, the account id can't be
+                discovered, or the request itself fails -- same conditions as
+                `get_account_positions`.
+        """
+        self._require_available()
+        account_id = self._discover_account_id()
+        payload = self._request("GET", "/iserver/account/trades")
+        return _parse_account_trades(payload, account_id)
+
     def _discover_account_id(self) -> str:
         """`GET /iserver/accounts` -- see `get_account_positions`'s own docstring for the
         documented response shape this was implemented against."""
@@ -1300,6 +1376,85 @@ def _parse_account_positions(payload: object) -> list[IBKRAccountPosition]:
             )
         )
     return positions
+
+
+def _parse_account_trades(payload: object, account_id: str) -> list[IBKRTrade]:
+    """One response from `GET /iserver/account/trades`, documented (this task's
+    `decisions` entry) as a plain JSON array, one entry per execution, roughly
+    `{"conid": 265598, "side": "B", "size": 10, "account": "DU1234567",
+    "trade_time_r": 1737000000000, ...}` -- alongside many other fields (price,
+    commission, exchange, order_ref, etc.) this app has no use for and doesn't model,
+    matching `_parse_account_positions`'s own "model only what's needed" precedent.
+
+    A row naming a different account than `account_id`, or a row with no `"account"`
+    field at all, is dropped (see `get_account_trades`'s own docstring for why the missing
+    case is fail-closed too, not kept). A malformed individual row (not a dict,
+    unparseable `conid`/`side`/`size`/trade date) is skipped rather than failing the whole
+    response, same convention as `_parse_account_positions`/`_parse_bars`/
+    `_parse_scanner_results`.
+    """
+    if not isinstance(payload, list):
+        return []
+    trades: list[IBKRTrade] = []
+    for raw in payload:
+        if not isinstance(raw, dict):
+            continue
+        row_account = raw.get("account")
+        if not isinstance(row_account, str) or not row_account or row_account != account_id:
+            continue
+        conid = _int_or_none(raw.get("conid"))
+        if conid is None:
+            continue
+        side = _parse_trade_side(raw.get("side"))
+        if side is None:
+            continue
+        quantity = _float_or_none(raw.get("size"))
+        if quantity is None or quantity <= 0:
+            continue
+        trade_date = _parse_trade_date(raw)
+        if trade_date is None:
+            continue
+        trades.append(IBKRTrade(conid=conid, side=side, quantity=quantity, trade_date=trade_date))
+    return trades
+
+
+def _parse_trade_side(value: object) -> Literal["BUY", "SELL"] | None:
+    """IBKR's own documented example uses the single-letter `"B"`/`"S"`; the spelled-out
+    `"BUY"`/`"SELL"` is also accepted defensively since this session could not verify the
+    live wire value against a real gateway (this module's own "Testing constraint"
+    docstring paragraph). Anything else (missing, a different casing-normalized string,
+    a non-string value) is unrecognized and returns `None` so the caller drops the row --
+    guessing a side for an unrecognized value would risk silently miscounting the net
+    quantity reconciliation this is used for."""
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().upper()
+    if normalized in ("B", "BUY"):
+        return "BUY"
+    if normalized in ("S", "SELL"):
+        return "SELL"
+    return None
+
+
+def _parse_trade_date(raw: dict) -> date | None:
+    """Prefers `"trade_time_r"` (epoch milliseconds -- unambiguous) over `"trade_time"`
+    (a `YYYYMMDDHHMM[SS]` string per IBKR's own documented example), trying the string
+    field only when the epoch one is missing/unparseable. Returns `None` (row dropped by
+    the caller) if neither field yields a valid date."""
+    epoch_ms = raw.get("trade_time_r")
+    if isinstance(epoch_ms, (int, float)) and not isinstance(epoch_ms, bool):
+        try:
+            return datetime.fromtimestamp(float(epoch_ms) / 1000, tz=UTC).date()
+        except (OverflowError, OSError, ValueError):
+            pass
+    trade_time = raw.get("trade_time")
+    if isinstance(trade_time, str) and trade_time:
+        for fmt in ("%Y%m%d%H%M%S", "%Y%m%d%H%M"):
+            try:
+                return datetime.strptime(trade_time, fmt).date()
+            except ValueError:
+                continue
+    return None
 
 
 def _resolve_stk_conid(payload: object, ticker: str) -> int | None:

@@ -18,7 +18,12 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_ibkr_provider
-from app.data.ibkr_provider import GatewayStatus, IBKRAccountPosition, IBKRUnavailableError
+from app.data.ibkr_provider import (
+    GatewayStatus,
+    IBKRAccountPosition,
+    IBKRTrade,
+    IBKRUnavailableError,
+)
 from app.db.models import PositionORM
 from app.main import app
 
@@ -26,19 +31,27 @@ _AVAILABLE = GatewayStatus(state="available")
 
 
 class _StubIBKRProvider:
-    """Stands in for `IBKRProvider`, exposing only `get_account_positions` -- the one
-    method these two routes call. `positions_result` may be either a list of
-    `IBKRAccountPosition` or an `Exception` instance to raise, covering both the happy
-    path and the `IBKRUnavailableError` case the handlers catch."""
+    """Stands in for `IBKRProvider`, exposing `get_account_positions` and
+    `get_account_trades` -- the two methods `POST /api/ibkr/portfolio-preload` calls (the
+    preview route only ever calls the former). `positions_result`/`trades_result` may each
+    be either the respective result list or an `Exception` instance to raise, covering both
+    the happy path and the `IBKRUnavailableError` case the handlers catch.
+    `trades_result` defaults to an empty list (no trade history at all) -- the "no
+    reconciliation possible" case, which is exactly this feature's original
+    pre-`backend-ibkr-import-entry-date-from-trades` behavior, so every test written before
+    that task keeps testing the same `entry_date`-always-today() fallback path unmodified.
+    """
 
     def __init__(
         self,
         *,
         status: GatewayStatus = _AVAILABLE,
         positions_result: list[IBKRAccountPosition] | Exception | None = None,
+        trades_result: list[IBKRTrade] | Exception | None = None,
     ) -> None:
         self._status = status
         self._positions_result = positions_result
+        self._trades_result = trades_result if trades_result is not None else []
 
     def get_gateway_status(self) -> GatewayStatus:
         return self._status
@@ -48,6 +61,11 @@ class _StubIBKRProvider:
             raise self._positions_result
         assert self._positions_result is not None
         return self._positions_result
+
+    def get_account_trades(self) -> list[IBKRTrade]:
+        if isinstance(self._trades_result, Exception):
+            raise self._trades_result
+        return self._trades_result
 
 
 @pytest.fixture(autouse=True)
@@ -443,6 +461,145 @@ class TestPreloadIbkrPortfolio:
         # Neither position landed -- the whole batch's commit was rolled back, not just
         # the colliding ticker.
         assert db_session.query(PositionORM).count() == 0
+
+    def test_entry_date_derived_from_fully_reconciling_trade_history(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        """backend-ibkr-import-entry-date-from-trades: a single in-window buy whose
+        quantity exactly matches the held quantity means this position's entire open
+        history fits inside the trade-history window, so the buy date is trustworthy."""
+        _override(
+            _StubIBKRProvider(
+                positions_result=[
+                    IBKRAccountPosition(conid=1, ticker="AAPL", quantity=10.0, avg_cost=150.0)
+                ],
+                trades_result=[
+                    IBKRTrade(conid=1, side="BUY", quantity=10.0, trade_date=date(2026, 10, 5))
+                ],
+            )
+        )
+
+        response = client.post("/api/ibkr/portfolio-preload")
+
+        body = response.json()
+        assert body["imported"][0]["entry_date"] == "2026-10-05"
+        row = db_session.query(PositionORM).filter(PositionORM.ticker == "AAPL").one()
+        assert row.entry_date == date(2026, 10, 5)
+        assert "derived" in row.entry_notes
+        assert "import date, not the original" not in row.entry_notes
+
+    def test_entry_date_derivation_picks_the_earliest_of_multiple_buys(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        """Checklist item 2: multiple in-window buy executions resolve to the EARLIEST
+        buy date, matching PositionIn.entry_date's own same-ticker-merge precedent."""
+        _override(
+            _StubIBKRProvider(
+                positions_result=[
+                    IBKRAccountPosition(conid=1, ticker="AAPL", quantity=10.0, avg_cost=150.0)
+                ],
+                trades_result=[
+                    IBKRTrade(conid=1, side="BUY", quantity=6.0, trade_date=date(2026, 10, 7)),
+                    IBKRTrade(conid=1, side="BUY", quantity=4.0, trade_date=date(2026, 10, 4)),
+                ],
+            )
+        )
+
+        response = client.post("/api/ibkr/portfolio-preload")
+
+        assert response.json()["imported"][0]["entry_date"] == "2026-10-04"
+
+    def test_entry_date_derivation_accounts_for_in_window_sells(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        """Net-of-sells reconciliation: bought 15, sold 5 in-window, held is 10 -- net
+        matches exactly, so the (earliest) buy date is still trustworthy even though not
+        every buy share is still held."""
+        _override(
+            _StubIBKRProvider(
+                positions_result=[
+                    IBKRAccountPosition(conid=1, ticker="AAPL", quantity=10.0, avg_cost=150.0)
+                ],
+                trades_result=[
+                    IBKRTrade(conid=1, side="BUY", quantity=15.0, trade_date=date(2026, 10, 3)),
+                    IBKRTrade(conid=1, side="SELL", quantity=5.0, trade_date=date(2026, 10, 6)),
+                ],
+            )
+        )
+
+        response = client.post("/api/ibkr/portfolio-preload")
+
+        assert response.json()["imported"][0]["entry_date"] == "2026-10-03"
+
+    def test_entry_date_falls_back_when_trade_history_only_shows_a_partial_top_up(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        """The exact failure mode the original 'not possible' research conclusion was
+        worried about: a buy that's smaller than the held quantity is a top-up on an
+        older position, not the whole history -- must still fall back to today(), not the
+        (wrong) top-up date."""
+        _override(
+            _StubIBKRProvider(
+                positions_result=[
+                    IBKRAccountPosition(conid=1, ticker="AAPL", quantity=10.0, avg_cost=150.0)
+                ],
+                trades_result=[
+                    IBKRTrade(conid=1, side="BUY", quantity=3.0, trade_date=date(2026, 10, 7))
+                ],
+            )
+        )
+
+        response = client.post("/api/ibkr/portfolio-preload")
+
+        body = response.json()
+        assert body["imported"][0]["entry_date"] == date.today().isoformat()
+        row = db_session.query(PositionORM).filter(PositionORM.ticker == "AAPL").one()
+        assert "import date, not the original" in row.entry_notes
+
+    def test_entry_date_falls_back_when_no_trade_history_for_this_conid(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        """Trade history exists, but none of it is for this position's conid (e.g. it's
+        for a different held ticker) -- falls back exactly like having no trade history
+        at all."""
+        _override(
+            _StubIBKRProvider(
+                positions_result=[
+                    IBKRAccountPosition(conid=1, ticker="AAPL", quantity=10.0, avg_cost=150.0)
+                ],
+                trades_result=[
+                    IBKRTrade(conid=2, side="BUY", quantity=10.0, trade_date=date(2026, 10, 5))
+                ],
+            )
+        )
+
+        response = client.post("/api/ibkr/portfolio-preload")
+
+        assert response.json()["imported"][0]["entry_date"] == date.today().isoformat()
+
+    def test_entry_date_falls_back_when_trade_history_endpoint_unavailable(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        """The whole import must not break if GET /iserver/account/trades 4xx/5xx's --
+        degrade to today() for every position, exactly as if no trade history endpoint
+        existed at all."""
+        _override(
+            _StubIBKRProvider(
+                positions_result=[
+                    IBKRAccountPosition(conid=1, ticker="AAPL", quantity=10.0, avg_cost=150.0)
+                ],
+                trades_result=IBKRUnavailableError("IBKR gateway returned HTTP 500 from /iserver/account/trades"),
+            )
+        )
+
+        response = client.post("/api/ibkr/portfolio-preload")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["state"] == "available"
+        assert body["imported"][0]["entry_date"] == date.today().isoformat()
+        row = db_session.query(PositionORM).filter(PositionORM.ticker == "AAPL").one()
+        assert "import date, not the original" in row.entry_notes
 
     def test_operational_error_on_commit_also_returns_503(
         self, client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch

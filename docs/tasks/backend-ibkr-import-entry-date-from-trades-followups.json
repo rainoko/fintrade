@@ -1,0 +1,33 @@
+{
+  "id": "backend-ibkr-import-entry-date-from-trades-followups",
+  "title": "Non-blocking finding from backend-ibkr-import-entry-date-from-trades's PR review (#408)",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-ibkr-import-entry-date-from-trades"],
+  "references": [
+    "docs/tasks/backend-ibkr-import-entry-date-from-trades.json",
+    "https://github.com/rainoko/fintrade/pull/408"
+  ],
+  "description": "pr-reviewer's review of PR #408 (backend-ibkr-import-entry-date-from-trades) sent it back needs_work over a blocking methodological gap (the quantity-reconciliation mitigation wasn't considered before concluding entry_date import is 'not possible' -- see that task's review.comments). One additional, genuinely non-blocking finding surfaced during the same review and is tracked here so it isn't lost once the parent task closes.",
+  "checklist": [
+    {
+      "step": "The decisions entry's claim that `/pa/transactions` (Portfolio Analyst) access is gated behind an account-level PA entitlement 'not guaranteed for every IBKR account tier' is plausible and consistent with general knowledge of IBKR's platform, but wasn't backed by a citable IBKR source in the entry itself (IBKR's own live Client Portal Web API swagger -- ndcdyn.interactivebrokers.com/api/doc.json -- documents the `/pa/transactions` request/response shape but doesn't state the entitlement gating in the schema text). Whoever next revisits this research should either find and cite a concrete IBKR documentation/support-article source for the PA-entitlement constraint, or soften the claim if no such source is found, so the decisions record doesn't rest on an unsourced assertion.",
+      "done": false
+    },
+    {
+      "step": "PR #408 re-review (non-blocking): `_parse_trade_date` converts `trade_time_r` (epoch ms) to a calendar date via `datetime.fromtimestamp(..., tz=UTC).date()`, but the `trade_time` string fallback (`YYYYMMDDHHMM[SS]`) is parsed as literal digits with no timezone handling at all. Neither interpretation is independently verified against a live IBKR response (no reachable gateway in this environment, same constraint the task's own decisions entry already documents), so it's unconfirmed whether IBKR's wire values are UTC or exchange-local. For a regular-hours trade this can't matter (9:30am-4pm ET sits well inside a single UTC calendar day), but an extended-hours execution near the UTC day boundary (~7-8pm ET, where the epoch-derived UTC date and an exchange-local date could legitimately differ) risks a silent off-by-one-day `entry_date` if `_derive_entry_date` picks that trade as its earliest qualifying buy -- and because reconciliation only checks quantity, not date, a date error like this would pass through unnoticed rather than ever being caught by the existing isclose guard. Confirm IBKR's actual timezone convention for both fields against a live payload (or IBKR's own documentation, if it states this explicitly somewhere the earlier research didn't find) and fix/document accordingly once that's possible.",
+      "done": false
+    },
+    {
+      "step": "PR #408 re-review (non-blocking): `_parse_account_trades` keeps a trade row that has no `\"account\"` field at all, rather than dropping it (see `get_account_trades`'s own docstring for the documented rationale -- IBKR's example response doesn't always include one, and dropping on missing-field would be destructive for the common single-account case). For a session with visibility into more than one IBKR sub-account, this means an account-less row from a DIFFERENT sub-account could silently be attributed to the connected account's own reconciliation, in principle. Unverified against a live multi-sub-account payload (same no-reachable-gateway constraint). Worth confirming whether IBKR's trades endpoint ever actually omits `\"account\"` in a multi-sub-account response once a live gateway is reachable, and tightening if so.\n\nRESOLVED (2026-10-10, PR #408 re-review round): pr-decision overrode this from non-blocking to blocking, and `_parse_account_trades` now drops a row with no `\"account\"` field at all rather than keeping it, unconditionally -- not gated on live-gateway confirmation that IBKR's trades endpoint actually omits it in practice, since the fix costs nothing in the single-account case and is strictly safer than keeping. The 'tighten if so' ask here is satisfied; only the pure confirmation-against-a-live-payload half of this item is now moot, since the code no longer depends on the answer. See `backend-ibkr-import-entry-date-from-trades`'s `decisions` entry (round 3) and `review.comments` for the full argument.",
+      "done": true
+    },
+    {
+      "step": "PR #408 re-review round 3 (non-blocking, pr-reviewer re-review of commit 9308ffc4): the new combined drop condition in `_parse_account_trades` (`not isinstance(row_account, str) or not row_account or row_account != account_id`) is exercised end-to-end for 'missing' and 'different' via `test_row_with_no_account_field_is_dropped`/`test_row_for_a_different_account_is_dropped`, and verified correct for all five cases (missing/empty-string/non-string/different/matching) by this review's own manual truth-table check, but there's no explicit unit test for the present-but-empty-string or present-but-non-string sub-cases specifically (branch coverage on a single boolean-`or` line doesn't distinguish which disjunct fired). Low risk -- IBKR's documented response shape doesn't suggest either value in practice -- but cheap to close if someone's back in this file.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

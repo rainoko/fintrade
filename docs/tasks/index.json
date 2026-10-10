@@ -2651,8 +2651,8 @@
       "id": "backend-ibkr-import-entry-date-from-trades",
       "area": "backend/data",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-ibkr-import-entry-date-from-trades.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-import-entry-date-from-trades.json"
     },
     {
       "id": "frontend-cftc-cot-display",
@@ -2723,6 +2723,13 @@
       "skill": null,
       "state": "done",
       "path": "docs/tasks/done/frontend-backend-feature-gap-audit-followups.json"
+    },
+    {
+      "id": "backend-ibkr-import-entry-date-from-trades-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-ibkr-import-entry-date-from-trades-followups.json"
     }
   ]
 }
