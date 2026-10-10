@@ -38,5 +38,11 @@
       "rationale": "Keeping the module plain JS (not .ts) avoids a real loading problem verified empirically: ESLint's flat-config loader only transpiles the *entry* config file on the fly when it's literally named eslint.config.ts (via an optional jiti/tsx peer dependency), not a module that entry file merely imports -- a sibling .ts file here would fail under Node's plain ESM loader when eslint.config.js imports it directly. The two-part test design directly answers the task's explicit 'wired in, not just correct' concern: a predicate-only table test would pass even if the rule were silently dropped from the plugins/rules wiring in eslint.config.js (e.g. a future refactor that renames the plugin key or forgets to re-import it), which is exactly the failure mode the Linter-based end-to-end half catches, since it exercises the real exported config object rather than a hand-rewritten copy. Chose this over eslint's RuleTester (considered and prototyped): RuleTester tests the rule object in isolation and would need its own from-scratch config/parser setup duplicating what eslint.config.js already defines, without ever touching the real exported array -- it couldn't have caught an 'unregistered from the real config' regression any better than the predicate table alone. The new eslint-rules/ directory is deliberately left out of both tsconfig.app.json's and tsconfig.node.json's include arrays (verified via `tsc --showConfig`): this exactly mirrors eslint.config.js's own pre-existing, unchanged treatment (it was never covered by either tsconfig project before this task either), so nothing regresses under `yarn tsc -b --noEmit`; the new test file still runs and is type-annotated for editor/author clarity, it's just not part of the tsc -b project graph, same as the config file importing it. Considered folding the test into tsconfig.app.json's include (which would make tsc -b check it) but rejected it as scope creep beyond this task's ask and a change to an unrelated file's behavior (every src/ test file would newly need to tolerate a tests/e2e/-style project boundary question) for marginal benefit, since vitest's own esbuild transform already catches any actual runtime/type-shape mismatch when the test runs."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-daily-homework-history-followups-followups-followups-followups-followups-followups-followups-followups",
+    "pr_number": 418,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/418",
+    "pushed_at": "2026-10-10T12:12:59Z"
+  }
 }
